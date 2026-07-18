@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+vendor/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.pem
+
+# Build output
+dist/
+build/
+out/
+.next/
+
+# Logs & OS
+*.log
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
