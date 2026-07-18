@@ -1,0 +1,43 @@
+import type { MarketSummary, MoverSummary, OpportunitiesResult } from '../mcp/service.js';
+import type { Opportunity } from '../domain/types.js';
+
+function esc(s: string): string {
+  return s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
+}
+
+function moverRows(movers: readonly MoverSummary[]): string {
+  return movers
+    .map(
+      (m) => `<tr><td>${esc(m.name)}</td><td>${esc(m.category)}</td><td>${m.primaryValue.toPrecision(4)}</td><td>${m.totalChange.toFixed(1)}%</td><td>${Math.round(m.volumePrimaryValue).toLocaleString('en-US')}</td></tr>`,
+    )
+    .join('');
+}
+
+function oppRows(opps: readonly Opportunity[]): string {
+  return opps
+    .map(
+      (o) => `<tr><td>${esc(o.kind)}${o.experimental ? ' ⚠️' : ''}</td><td>${esc(o.itemName)}</td><td>${(o.edge * 100).toFixed(1)}%</td><td>${(o.confidence * 100).toFixed(0)}%</td><td>${esc(o.rationale)}</td></tr>`,
+    )
+    .join('');
+}
+
+const STYLE = `body{font-family:ui-monospace,monospace;background:#0d1117;color:#e6edf3;margin:2rem}
+table{border-collapse:collapse;width:100%;margin-bottom:2rem}
+td,th{border:1px solid #30363d;padding:.4rem .6rem;text-align:left;font-size:.85rem}
+th{background:#161b22}h1,h2{color:#d4a017}small{color:#8b949e}`;
+
+/** Pure HTML renderer for the lean v0 dashboard (PRD: UI stays minimal). */
+export function renderDashboard(summary: MarketSummary, opps: OpportunitiesResult): string {
+  if (summary.asOf === null) {
+    return `<html><head><style>${STYLE}</style></head><body><h1>Exilium</h1><p>No data ingested yet — run <code>npm run ingest</code> first.</p></body></html>`;
+  }
+  return `<html><head><title>Exilium — ${esc(summary.league)}</title><style>${STYLE}</style></head><body>
+<h1>Exilium <small>· ${esc(summary.league)} · as of ${esc(summary.asOf)} · prices in Divine Orbs · humans execute all trades</small></h1>
+<h2>Opportunities</h2>
+<table><tr><th>Detector</th><th>Item</th><th>Edge</th><th>Confidence</th><th>Rationale</th></tr>${oppRows(opps.opportunities)}</table>
+<h2>Top Movers</h2>
+<table><tr><th>Item</th><th>Category</th><th>Price (div)</th><th>Change</th><th>Volume (div)</th></tr>${moverRows(summary.topMovers)}</table>
+<h2>Top Volume</h2>
+<table><tr><th>Item</th><th>Category</th><th>Price (div)</th><th>Change</th><th>Volume (div)</th></tr>${moverRows(summary.topVolume)}</table>
+</body></html>`;
+}

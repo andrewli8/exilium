@@ -1,0 +1,40 @@
+{
+  "name": "exilium",
+  "version": "0.1.0",
+  "description": "A trading terminal for the Path of Exile economy with an agent-native MCP server — AI agents watch markets, detect durable-edge opportunities, and draft trade plans; humans execute in-game.",
+  "main": "index.js",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
+    "build": "tsc",
+    "ingest": "tsx src/cli.ts ingest",
+    "mcp": "tsx src/cli.ts mcp",
+    "dashboard": "tsx src/cli.ts dashboard"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/andrewli8/exilium.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/andrewli8/exilium/issues"
+  },
+  "homepage": "https://github.com/andrewli8/exilium#readme",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "better-sqlite3": "12.11.1",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "7.6.13",
+    "@types/node": "26.1.1",
+    "@vitest/coverage-v8": "4.1.10",
+    "tsx": "4.23.1",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  }
+}

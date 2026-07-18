@@ -21,3 +21,9 @@ out/
 # IDE
 .idea/
 .vscode/
+exilium.db
+exilium.db-*
+*.db-journal
+*.db-wal
+*.db-shm
+coverage/

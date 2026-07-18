@@ -3,7 +3,42 @@
 A trading terminal for the Path of Exile economy with an agent-native MCP server — AI agents watch markets, detect durable-edge opportunities, and draft trade plans; humans execute in-game.
 
 - **Product spec & architecture:** [PRD.md](./PRD.md) (v2.1, approved)
-- **Status:** pre-implementation. P0 scope: PoE2 only — ingestion (GGG Currency Exchange digests, poe.ninja, POE2 Scout), quota governor, two durable-edge detectors, watches/alerts, MCP server (~8 tools), lean terminal UI.
+- **Status:** v0 working. PoE2 community-source mode (poe.ninja exchange API, 7 categories, ~390 markets), SQLite storage, two detectors, 6-tool MCP server, lean dashboard.
+
+## Quick start
+
+```bash
+npm install
+EXILIUM_CONTACT="you@example.com" npm run ingest   # pull latest market snapshots
+npm run dashboard                                   # http://localhost:4321
+npm run mcp                                         # MCP server on stdio
+npm test                                            # 49 tests; npm run coverage for the 80% gate
+npx tsx scripts/smoke-mcp.ts                        # end-to-end MCP smoke test
+```
+
+Config via env: `EXILIUM_CONTACT` (identifies you to poe.ninja — set it), `EXILIUM_LEAGUE` (default: auto-detect current challenge league), `EXILIUM_DB` (default `exilium.db`), `EXILIUM_PORT` (default 4321).
+
+### Use with Claude Code / any MCP client
+
+```json
+{
+  "mcpServers": {
+    "exilium": {
+      "command": "npx",
+      "args": ["tsx", "src/cli.ts", "mcp"],
+      "cwd": "/path/to/exilium"
+    }
+  }
+}
+```
+
+Tools: `get_leagues`, `get_market_snapshot`, `get_pair_history`, `price_item`, `find_opportunities`, `draft_trade_plan`. All serve cached snapshot data only — run `npm run ingest` (cron it every 5–10 min if you like) to refresh.
+
+## v0 scope notes
+
+- **Detectors:** mean-reversion (z-score of latest daily change vs trailing window) and cross-rate divergence (experimental, opt-in via `include_experimental`). The PRD's bulk↔single spread detector needs a single-listing data source that PoE2 currently lacks (POE2 Scout's API returned empty; poe.ninja has no PoE2 item overviews) — revisit when one exists.
+- **Pricing:** currency/stackables only, by design. Rare-item valuation is explicitly out of scope (PRD §6).
+- **`get_pair_history`** accumulates real history as ingestion runs repeatedly; day one it leans on poe.ninja's 7-point sparkline.
 
 ## Non-negotiable design anchors
 
