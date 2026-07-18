@@ -12,7 +12,7 @@ npm install
 EXILIUM_CONTACT="you@example.com" npm run ingest   # pull latest market snapshots
 npm run dashboard                                   # http://localhost:4321
 npm run mcp                                         # MCP server on stdio
-npm test                                            # 49 tests; npm run coverage for the 80% gate
+npm test                                            # 53 tests; npm run coverage for the 80% gate
 npx tsx scripts/smoke-mcp.ts                        # end-to-end MCP smoke test
 ```
 
