@@ -7,6 +7,12 @@ export interface ExiliumConfig {
   readonly league: string | null;
   readonly categories: readonly string[];
   readonly dashboardPort: number;
+  /** Seconds between watch-mode cycles (floored at 300 for API politeness). */
+  readonly watchIntervalSec: number;
+  /** Minimum edge (percent) for watch-mode notifications. */
+  readonly minEdgePct: number;
+  /** Optional Discord-compatible webhook for watch notifications. */
+  readonly webhookUrl: string | undefined;
 }
 
 /** poe.ninja groups all PoE1 exchange markets under one Currency request;
@@ -16,23 +22,31 @@ const CATEGORIES_BY_GAME: Readonly<Record<Game, readonly string[]>> = {
   poe2: ['Currency', 'Runes', 'Essences', 'Delirium', 'Ritual', 'Expedition', 'Breach'],
 };
 
+/** The tool identifies itself to upstream APIs; the repo URL is the contact
+ * point. EXILIUM_CONTACT optionally appends the operator's own contact. */
+const BASE_USER_AGENT = 'Exilium/0.1.0 (+https://github.com/andrewli8/exilium)';
+
+const MIN_WATCH_INTERVAL_SEC = 300;
+
 function parseGame(raw: string | undefined): Game {
   if (raw === undefined || raw === 'poe1') return 'poe1';
   if (raw === 'poe2') return 'poe2';
   throw new Error(`EXILIUM_GAME must be "poe1" or "poe2", got "${raw}"`);
 }
 
-/** Read configuration from the environment with sane defaults (game: poe1).
- * EXILIUM_CONTACT should be set so poe.ninja can reach us (API etiquette). */
+/** Read configuration from the environment with sane defaults (game: poe1). */
 export function loadConfig(env: NodeJS.ProcessEnv): ExiliumConfig {
-  const contact = env['EXILIUM_CONTACT'] ?? 'unset-contact';
+  const contact = env['EXILIUM_CONTACT'];
   const game = parseGame(env['EXILIUM_GAME']);
   return {
     game,
     dbPath: env['EXILIUM_DB'] ?? 'exilium.db',
-    userAgent: `Exilium/0.1.0 (contact: ${contact})`,
+    userAgent: contact === undefined ? BASE_USER_AGENT : `${BASE_USER_AGENT} (contact: ${contact})`,
     league: env['EXILIUM_LEAGUE'] ?? null,
     categories: CATEGORIES_BY_GAME[game],
     dashboardPort: Number(env['EXILIUM_PORT'] ?? 4321),
+    watchIntervalSec: Math.max(MIN_WATCH_INTERVAL_SEC, Number(env['EXILIUM_WATCH_INTERVAL'] ?? 600)),
+    minEdgePct: Number(env['EXILIUM_MIN_EDGE'] ?? 25),
+    webhookUrl: env['EXILIUM_WEBHOOK'],
   };
 }

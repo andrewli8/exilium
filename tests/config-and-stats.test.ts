@@ -9,9 +9,18 @@ describe('loadConfig', () => {
     expect(c.dbPath).toBe('exilium.db');
     expect(c.league).toBeNull();
     expect(c.dashboardPort).toBe(4321);
-    expect(c.userAgent).toContain('unset-contact');
+    expect(c.userAgent).toContain('github.com/andrewli8/exilium');
+    expect(c.userAgent).not.toContain('contact:');
     expect(c.game).toBe('poe1');
     expect(c.categories).toEqual(['Currency']);
+    expect(c.watchIntervalSec).toBe(600);
+    expect(c.minEdgePct).toBe(25);
+    expect(c.webhookUrl).toBeUndefined();
+  });
+
+  test('enforces a 300s floor on the watch interval (poe.ninja politeness)', () => {
+    expect(loadConfig({ EXILIUM_WATCH_INTERVAL: '60' }).watchIntervalSec).toBe(300);
+    expect(loadConfig({ EXILIUM_WATCH_INTERVAL: '900' }).watchIntervalSec).toBe(900);
   });
 
   test('honors env overrides', () => {
@@ -21,6 +30,8 @@ describe('loadConfig', () => {
       EXILIUM_LEAGUE: 'Standard',
       EXILIUM_PORT: '9999',
       EXILIUM_GAME: 'poe2',
+      EXILIUM_MIN_EDGE: '50',
+      EXILIUM_WEBHOOK: 'https://discord.example/hook',
     });
     expect(c.dbPath).toBe('/tmp/x.db');
     expect(c.userAgent).toContain('me@example.com');
@@ -28,6 +39,8 @@ describe('loadConfig', () => {
     expect(c.dashboardPort).toBe(9999);
     expect(c.game).toBe('poe2');
     expect(c.categories.length).toBeGreaterThan(1);
+    expect(c.minEdgePct).toBe(50);
+    expect(c.webhookUrl).toBe('https://discord.example/hook');
   });
 });
 

@@ -10,7 +10,8 @@
     "build": "tsc",
     "ingest": "tsx src/cli.ts ingest",
     "mcp": "tsx src/cli.ts mcp",
-    "dashboard": "tsx src/cli.ts dashboard"
+    "dashboard": "tsx src/cli.ts dashboard",
+    "watch": "tsx src/cli.ts watch"
   },
   "repository": {
     "type": "git",

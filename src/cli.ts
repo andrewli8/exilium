@@ -1,4 +1,6 @@
+import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
+import { promisify } from 'node:util';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { loadConfig } from './config.js';
 import { renderDashboard } from './dashboard/render.js';
@@ -8,6 +10,8 @@ import { ExiliumService } from './mcp/service.js';
 import { NinjaClient } from './sources/ninja/client.js';
 import { createDb } from './storage/db.js';
 import { SnapshotRepository } from './storage/snapshot-repository.js';
+import { createNotifier } from './watch/notify.js';
+import { initialWatchState, watchTick } from './watch/watch.js';
 
 const config = loadConfig(process.env);
 const repo = new SnapshotRepository(createDb(config.dbPath));
@@ -62,16 +66,66 @@ async function cmdDashboard(): Promise<void> {
   });
 }
 
+async function cmdWatch(): Promise<void> {
+  const client = new NinjaClient({ userAgent: config.userAgent });
+  const league = await resolveLeague(client);
+  const service = new ExiliumService(repo);
+  const notifier = createNotifier({
+    platform: process.platform,
+    execFn: async (cmd, args) => promisify(execFile)(cmd, [...args]),
+    fetchFn: (url, init) => fetch(url, init),
+    webhookUrl: config.webhookUrl,
+    log: (m) => console.error(m),
+  });
+  const deps = {
+    ingest: () =>
+      ingestLeague(client, repo, {
+        game: config.game,
+        league,
+        categories: config.categories,
+        now: () => new Date().toISOString(),
+      }),
+    opportunities: () =>
+      service.opportunities(config.game, league, false, config.minEdgePct / 100).opportunities,
+    notifier,
+  };
+  console.log(
+    `Watching ${config.game}/${league} every ${config.watchIntervalSec}s for edges ≥ ${config.minEdgePct}%` +
+      `${config.webhookUrl === undefined ? '' : ' (webhook on)'} — Ctrl+C to stop.`,
+  );
+  let state = initialWatchState();
+  const cycle = async (): Promise<void> => {
+    try {
+      const result = await watchTick(deps, state);
+      state = result.state;
+      const stamp = new Date().toISOString();
+      for (const e of result.ingestErrors) console.error(`[${stamp}] ingest ${e.category} failed: ${e.message}`);
+      if (result.notified.length > 0) {
+        for (const o of result.notified) {
+          console.log(`[${stamp}] 🔔 ${o.itemName}: ${(o.edge * 100).toFixed(1)}% edge — ${o.rationale}`);
+        }
+      } else {
+        console.log(`[${stamp}] no new opportunities ≥ ${config.minEdgePct}% (tracking ${state.seenIds.size})`);
+      }
+    } catch (err) {
+      console.error(`watch cycle failed: ${err instanceof Error ? err.message : err}`);
+    }
+  };
+  await cycle();
+  setInterval(cycle, config.watchIntervalSec * 1000);
+}
+
 const commands: Record<string, () => Promise<void>> = {
   ingest: cmdIngest,
   mcp: cmdMcp,
   dashboard: cmdDashboard,
+  watch: cmdWatch,
 };
 
 const cmd = process.argv[2] ?? '';
 const run = commands[cmd];
 if (run === undefined) {
-  console.error('Usage: exilium <ingest|mcp|dashboard>');
+  console.error('Usage: exilium <ingest|mcp|dashboard|watch>');
   process.exit(2);
 }
 run().catch((err) => {

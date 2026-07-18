@@ -21,21 +21,33 @@ cd exilium
 npm install
 
 # Pull the latest market data (PoE1, current challenge league auto-detected)
-EXILIUM_CONTACT="you@example.com" npm run ingest
+npm run ingest
 
 # Optional: also pull PoE2 data into the same database
-EXILIUM_CONTACT="you@example.com" EXILIUM_GAME=poe2 npm run ingest
+EXILIUM_GAME=poe2 npm run ingest
 ```
 
-`EXILIUM_CONTACT` identifies you to poe.ninja in the User-Agent header (API etiquette — please set it to a real way to reach you).
-
-Data is a snapshot at ingest time. Re-run `npm run ingest` whenever you want fresh prices — each run also builds up price history. If you want it hands-off, cron it every 5–10 minutes:
-
-```
-*/10 * * * * cd /path/to/exilium && EXILIUM_CONTACT="you@example.com" npm run ingest
-```
+Data is a snapshot at ingest time. Re-run `npm run ingest` whenever you want fresh prices — each run also builds up price history. Or let **watch mode** (below) handle refreshing for you.
 
 ## Using it
+
+### Watch mode — get pinged when a trade is available
+
+```bash
+npm run watch
+```
+
+Every 10 minutes (configurable, floored at 5 for API politeness) Exilium refreshes market data, runs the detectors, and when a **new** opportunity crosses your edge threshold it:
+
+- sends a **desktop notification** (macOS/Linux),
+- prints the full rationale to the terminal,
+- optionally posts to a **Discord webhook** (`EXILIUM_WEBHOOK=https://discord.com/api/webhooks/...`).
+
+Each opportunity notifies once — no repeat pings for the same signal. Tune it:
+
+```bash
+EXILIUM_MIN_EDGE=50 EXILIUM_WATCH_INTERVAL=300 npm run watch   # ≥50% edges, every 5 min
+```
 
 ### Dashboard
 
@@ -91,10 +103,13 @@ Every tool takes an optional `game` (`poe1`/`poe2`) defaulting to the server's c
 | Env var | Default | Meaning |
 |---|---|---|
 | `EXILIUM_GAME` | `poe1` | `poe1` or `poe2` |
-| `EXILIUM_CONTACT` | — | Contact info sent in the User-Agent to poe.ninja (please set) |
 | `EXILIUM_LEAGUE` | auto | League name; auto-detects the current challenge league |
 | `EXILIUM_DB` | `exilium.db` | SQLite database path (one DB holds both games) |
 | `EXILIUM_PORT` | `4321` | Dashboard port |
+| `EXILIUM_MIN_EDGE` | `25` | Watch mode: minimum edge (%) to notify on |
+| `EXILIUM_WATCH_INTERVAL` | `600` | Watch mode: seconds between cycles (min 300) |
+| `EXILIUM_WEBHOOK` | — | Watch mode: Discord-compatible webhook URL |
+| `EXILIUM_CONTACT` | — | Optional: appended to the User-Agent poe.ninja sees. The tool already identifies itself via the repo URL; set this only if you operate a fork/deployment and want API operators to reach *you* |
 
 ## What the signals are (and aren't)
 
