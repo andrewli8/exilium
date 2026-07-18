@@ -1,8 +1,9 @@
 import type { Db } from './db.js';
-import type { CoreRates, MarketLine, MarketSnapshot } from '../domain/types.js';
+import type { CoreRates, Game, MarketLine, MarketSnapshot } from '../domain/types.js';
 
 interface SnapshotRow {
   readonly id: number;
+  readonly game: Game;
   readonly league: string;
   readonly category: string;
   readonly fetched_at: string;
@@ -31,7 +32,7 @@ export class SnapshotRepository {
 
   save(snapshot: MarketSnapshot): void {
     const insertSnapshot = this.db.prepare(
-      'INSERT INTO snapshots (league, category, fetched_at, core_json) VALUES (?, ?, ?, ?)',
+      'INSERT INTO snapshots (game, league, category, fetched_at, core_json) VALUES (?, ?, ?, ?, ?)',
     );
     const insertLine = this.db.prepare(
       `INSERT INTO market_lines
@@ -40,6 +41,7 @@ export class SnapshotRepository {
     );
     this.db.transaction(() => {
       const { lastInsertRowid } = insertSnapshot.run(
+        snapshot.game,
         snapshot.league,
         snapshot.category,
         snapshot.fetchedAt,
@@ -61,42 +63,44 @@ export class SnapshotRepository {
     })();
   }
 
-  latest(league: string, category: string): MarketSnapshot | null {
+  latest(game: Game, league: string, category: string): MarketSnapshot | null {
     const row = this.db
       .prepare(
-        'SELECT * FROM snapshots WHERE league = ? AND category = ? ORDER BY fetched_at DESC, id DESC LIMIT 1',
+        'SELECT * FROM snapshots WHERE game = ? AND league = ? AND category = ? ORDER BY fetched_at DESC, id DESC LIMIT 1',
       )
-      .get(league, category) as SnapshotRow | undefined;
+      .get(game, league, category) as SnapshotRow | undefined;
     return row === undefined ? null : this.hydrate(row);
   }
 
-  latestAll(league: string): readonly MarketSnapshot[] {
+  latestAll(game: Game, league: string): readonly MarketSnapshot[] {
     const categories = this.db
-      .prepare('SELECT DISTINCT category FROM snapshots WHERE league = ?')
-      .all(league) as readonly { category: string }[];
+      .prepare('SELECT DISTINCT category FROM snapshots WHERE game = ? AND league = ?')
+      .all(game, league) as readonly { category: string }[];
     return categories.flatMap((c) => {
-      const s = this.latest(league, c.category);
+      const s = this.latest(game, league, c.category);
       return s === null ? [] : [s];
     });
   }
 
-  history(league: string, itemId: string, limit: number): readonly PricePoint[] {
+  history(game: Game, league: string, itemId: string, limit: number): readonly PricePoint[] {
     const rows = this.db
       .prepare(
         `SELECT s.fetched_at, l.primary_value, l.volume_primary_value
          FROM market_lines l JOIN snapshots s ON s.id = l.snapshot_id
-         WHERE s.league = ? AND l.item_id = ?
+         WHERE s.game = ? AND s.league = ? AND l.item_id = ?
          ORDER BY s.fetched_at DESC LIMIT ?`,
       )
-      .all(league, itemId, limit) as readonly { fetched_at: string; primary_value: number; volume_primary_value: number }[];
+      .all(game, league, itemId, limit) as readonly { fetched_at: string; primary_value: number; volume_primary_value: number }[];
     return rows
       .map((r) => ({ fetchedAt: r.fetched_at, primaryValue: r.primary_value, volumePrimaryValue: r.volume_primary_value }))
       .reverse();
   }
 
-  leaguesSeen(): readonly string[] {
-    const rows = this.db.prepare('SELECT DISTINCT league FROM snapshots').all() as readonly { league: string }[];
-    return rows.map((r) => r.league);
+  leaguesSeen(): readonly { game: Game; league: string }[] {
+    const rows = this.db
+      .prepare('SELECT DISTINCT game, league FROM snapshots')
+      .all() as readonly { game: Game; league: string }[];
+    return rows.map((r) => ({ game: r.game, league: r.league }));
   }
 
   private hydrate(row: SnapshotRow): MarketSnapshot {
@@ -115,6 +119,6 @@ export class SnapshotRepository {
       sparkline: JSON.parse(l.sparkline_json) as readonly number[],
       totalChange: l.total_change,
     }));
-    return { league: row.league, category: row.category, fetchedAt: row.fetched_at, core, lines: mapped };
+    return { game: row.game, league: row.league, category: row.category, fetchedAt: row.fetched_at, core, lines: mapped };
   }
 }

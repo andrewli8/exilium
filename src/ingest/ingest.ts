@@ -1,12 +1,14 @@
 import { normalizeExchangeOverview } from '../sources/ninja/normalize.js';
+import type { Game } from '../domain/types.js';
 import type { SnapshotRepository } from '../storage/snapshot-repository.js';
 
 /** The subset of NinjaClient that ingestion needs (dependency inversion). */
 export interface ExchangeSource {
-  getExchangeOverview(league: string, type: string): Promise<unknown>;
+  getExchangeOverview(game: Game, league: string, type: string): Promise<unknown>;
 }
 
 export interface IngestOptions {
+  readonly game: Game;
   readonly league: string;
   readonly categories: readonly string[];
   /** Injected clock (ISO-8601) — keeps ingestion deterministic in tests. */
@@ -34,8 +36,9 @@ export async function ingestLeague(
   const errors: IngestError[] = [];
   for (const category of opts.categories) {
     try {
-      const raw = await source.getExchangeOverview(opts.league, category);
+      const raw = await source.getExchangeOverview(opts.game, opts.league, category);
       const snapshot = normalizeExchangeOverview(raw, {
+        game: opts.game,
         league: opts.league,
         category,
         fetchedAt: opts.now(),

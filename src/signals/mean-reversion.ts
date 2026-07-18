@@ -28,8 +28,9 @@ export function detectMeanReversion(snapshot: MarketSnapshot, opts: MeanReversio
     const action = latest < m ? 'buy (expect recovery toward trend)' : 'sell (expect pullback toward trend)';
     return [
       {
-        id: `mean-reversion:${snapshot.league}:${l.itemId}`,
+        id: `mean-reversion:${snapshot.game}:${snapshot.league}:${l.itemId}`,
         kind: 'mean-reversion',
+        game: snapshot.game,
         league: snapshot.league,
         itemId: l.itemId,
         itemName: l.name,

@@ -1,7 +1,8 @@
-/** Core immutable domain types. All prices are denominated in Divine Orbs
- * (poe.ninja's primary) unless a field name says otherwise. */
+/** Core immutable domain types. All prices are denominated in the game's
+ * primary currency (PoE1: Chaos Orb, PoE2: Divine Orb) unless a field name
+ * says otherwise. */
 
-export type Game = 'poe2';
+export type Game = 'poe1' | 'poe2';
 
 export interface League {
   readonly id: string;
@@ -13,9 +14,9 @@ export interface MarketLine {
   readonly itemId: string;
   readonly name: string;
   readonly category: string;
-  /** Price in Divine Orbs. */
+  /** Price in the game's primary currency. */
   readonly primaryValue: number;
-  /** Total traded volume, denominated in Divine Orbs. */
+  /** Total traded volume, denominated in the primary currency. */
   readonly volumePrimaryValue: number;
   /** Currency id of the highest-volume quote pair (e.g. 'exalted'). */
   readonly maxVolumeCurrency: string | null;
@@ -27,13 +28,15 @@ export interface MarketLine {
   readonly totalChange: number;
 }
 
-/** Reference rates from the snapshot core: units per one Divine Orb. */
+/** Reference rates from the snapshot core: units per one primary-currency
+ * unit (PoE1 primary: chaos; PoE2 primary: divine). */
 export interface CoreRates {
   readonly primary: string;
-  readonly perDivine: Readonly<Record<string, number>>;
+  readonly perPrimary: Readonly<Record<string, number>>;
 }
 
 export interface MarketSnapshot {
+  readonly game: Game;
   readonly league: string;
   readonly category: string;
   readonly fetchedAt: string; // ISO-8601
@@ -46,6 +49,7 @@ export type OpportunityKind = 'mean-reversion' | 'cross-rate-divergence';
 export interface Opportunity {
   readonly id: string;
   readonly kind: OpportunityKind;
+  readonly game: Game;
   readonly league: string;
   readonly itemId: string;
   readonly itemName: string;
@@ -62,10 +66,13 @@ export interface Opportunity {
 export interface PriceQuote {
   readonly itemId: string;
   readonly name: string;
+  readonly game: Game;
   readonly league: string;
-  readonly divineValue: number;
-  readonly exaltedValue: number | null;
-  readonly chaosValue: number | null;
+  /** The game's pricing unit for this quote (PoE1: chaos, PoE2: divine). */
+  readonly primaryCurrency: string;
+  readonly primaryValue: number;
+  /** Value converted into each other core currency (e.g. divine, exalted). */
+  readonly conversions: Readonly<Record<string, number>>;
   readonly confidence: number;
   readonly asOf: string;
 }

@@ -27,19 +27,21 @@ export function priceItem(query: string, snapshots: readonly MarketSnapshot[]): 
 
   if (match === null) return null;
   const { line, snapshot } = match;
-  const { perDivine } = snapshot.core;
-  const toUnits = (currency: string): number | null => {
-    const rate = perDivine[currency];
-    return rate === undefined ? null : line.primaryValue * rate;
-  };
+  const { primary, perPrimary } = snapshot.core;
+  const conversions = Object.fromEntries(
+    Object.entries(perPrimary)
+      .filter(([currency]) => currency !== primary)
+      .map(([currency, rate]) => [currency, line.primaryValue * rate]),
+  );
 
   return {
     itemId: line.itemId,
     name: line.name,
+    game: snapshot.game,
     league: snapshot.league,
-    divineValue: line.primaryValue,
-    exaltedValue: toUnits('exalted'),
-    chaosValue: toUnits('chaos'),
+    primaryCurrency: primary,
+    primaryValue: line.primaryValue,
+    conversions,
     confidence: volumeConfidence(line.volumePrimaryValue),
     asOf: snapshot.fetchedAt,
   };

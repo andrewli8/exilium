@@ -10,7 +10,8 @@ describe('loadConfig', () => {
     expect(c.league).toBeNull();
     expect(c.dashboardPort).toBe(4321);
     expect(c.userAgent).toContain('unset-contact');
-    expect(c.categories).toContain('Currency');
+    expect(c.game).toBe('poe1');
+    expect(c.categories).toEqual(['Currency']);
   });
 
   test('honors env overrides', () => {
@@ -19,11 +20,14 @@ describe('loadConfig', () => {
       EXILIUM_CONTACT: 'me@example.com',
       EXILIUM_LEAGUE: 'Standard',
       EXILIUM_PORT: '9999',
+      EXILIUM_GAME: 'poe2',
     });
     expect(c.dbPath).toBe('/tmp/x.db');
     expect(c.userAgent).toContain('me@example.com');
     expect(c.league).toBe('Standard');
     expect(c.dashboardPort).toBe(9999);
+    expect(c.game).toBe('poe2');
+    expect(c.categories.length).toBeGreaterThan(1);
   });
 });
 
@@ -47,13 +51,13 @@ describe('NinjaClient defaults', () => {
   test('uses the poe.ninja base URL by default', async () => {
     const fetchFn = vi.fn().mockResolvedValue(new Response('[]', { status: 200 }));
     const client = new NinjaClient({ fetchFn, userAgent: 'ua' });
-    await client.getLeagues();
+    await client.getLeagues('poe1');
     expect(String(fetchFn.mock.calls[0]![0])).toMatch(/^https:\/\/poe\.ninja\//);
   });
 
   test('rejects leagues payloads with unexpected shape', async () => {
     const fetchFn = vi.fn().mockResolvedValue(new Response('{"weird":1}', { status: 200 }));
     const client = new NinjaClient({ fetchFn, userAgent: 'ua' });
-    await expect(client.getLeagues()).rejects.toThrow(/shape/i);
+    await expect(client.getLeagues('poe1')).rejects.toThrow(/shape/i);
   });
 });

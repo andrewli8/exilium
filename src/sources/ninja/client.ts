@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { League } from '../../domain/types.js';
+import type { Game, League } from '../../domain/types.js';
 
 const leaguesSchema = z.array(z.object({ id: z.string(), name: z.string() }));
 
@@ -27,16 +27,16 @@ export class NinjaClient {
     this.userAgent = opts.userAgent;
   }
 
-  async getLeagues(): Promise<readonly League[]> {
-    const body = await this.getJson('/poe2/api/economy/leagues');
+  async getLeagues(game: Game): Promise<readonly League[]> {
+    const body = await this.getJson(`/${game}/api/economy/leagues`);
     const parsed = leaguesSchema.safeParse(body);
     if (!parsed.success) throw new Error('poe.ninja leagues response did not match expected shape');
     return parsed.data;
   }
 
-  async getExchangeOverview(league: string, type: string): Promise<unknown> {
+  async getExchangeOverview(game: Game, league: string, type: string): Promise<unknown> {
     const params = new URLSearchParams({ league, type });
-    return this.getJson(`/poe2/api/economy/exchange/current/overview?${params.toString()}`);
+    return this.getJson(`/${game}/api/economy/exchange/current/overview?${params.toString()}`);
   }
 
   private async getJson(path: string): Promise<unknown> {

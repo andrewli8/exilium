@@ -1,4 +1,4 @@
-import type { Opportunity, PriceQuote, TradePlan } from '../domain/types.js';
+import type { Game, Opportunity, PriceQuote, TradePlan } from '../domain/types.js';
 import { detectCrossRateDivergence } from '../signals/cross-rate.js';
 import { detectMeanReversion } from '../signals/mean-reversion.js';
 import { draftTradePlan } from '../signals/trade-plan.js';
@@ -23,6 +23,8 @@ export interface MoverSummary {
 }
 
 export interface MarketSummary {
+  readonly game: Game;
+  readonly primaryCurrency: string;
   readonly league: string;
   readonly asOf: string | null;
   readonly categories: number;
@@ -32,6 +34,7 @@ export interface MarketSummary {
 
 export interface PairHistory {
   readonly itemId: string;
+  readonly game: Game;
   readonly league: string;
   readonly points: readonly PricePoint[];
   readonly latestSparkline: readonly number[];
@@ -52,12 +55,12 @@ export class ExiliumService {
     private readonly detectors: DetectorConfig = DEFAULT_DETECTORS,
   ) {}
 
-  leagues(): { leagues: readonly string[] } {
+  leagues(): { leagues: readonly { game: Game; league: string }[] } {
     return { leagues: this.repo.leaguesSeen() };
   }
 
-  marketSnapshot(league: string): MarketSummary {
-    const snaps = this.repo.latestAll(league);
+  marketSnapshot(game: Game, league: string): MarketSummary {
+    const snaps = this.repo.latestAll(game, league);
     const lines = snaps.flatMap((s) => s.lines);
     const toSummary = (l: (typeof lines)[number]): MoverSummary => ({
       itemId: l.itemId,
@@ -68,6 +71,8 @@ export class ExiliumService {
       volumePrimaryValue: l.volumePrimaryValue,
     });
     return {
+      game,
+      primaryCurrency: snaps[0]?.core.primary ?? 'chaos',
       league,
       asOf: snaps[0]?.fetchedAt ?? null,
       categories: snaps.length,
@@ -76,25 +81,26 @@ export class ExiliumService {
     };
   }
 
-  pairHistory(league: string, itemId: string, limit = 100): PairHistory {
+  pairHistory(game: Game, league: string, itemId: string, limit = 100): PairHistory {
     const latest = this.repo
-      .latestAll(league)
+      .latestAll(game, league)
       .flatMap((s) => s.lines)
       .find((l) => l.itemId === itemId);
     return {
       itemId,
+      game,
       league,
-      points: this.repo.history(league, itemId, limit),
+      points: this.repo.history(game, league, itemId, limit),
       latestSparkline: latest?.sparkline ?? [],
     };
   }
 
-  price(query: string, league: string): PriceQuote | null {
-    return priceItem(query, this.repo.latestAll(league));
+  price(query: string, game: Game, league: string): PriceQuote | null {
+    return priceItem(query, this.repo.latestAll(game, league));
   }
 
-  opportunities(league: string, includeExperimental: boolean, minEdge = 0): OpportunitiesResult {
-    const snaps = this.repo.latestAll(league);
+  opportunities(game: Game, league: string, includeExperimental: boolean, minEdge = 0): OpportunitiesResult {
+    const snaps = this.repo.latestAll(game, league);
     const all = snaps.flatMap((s) => [
       ...detectMeanReversion(s, this.detectors),
       ...detectCrossRateDivergence(s, this.detectors),
@@ -105,8 +111,8 @@ export class ExiliumService {
     return { league, opportunities: filtered };
   }
 
-  plan(league: string, opportunityId: string): TradePlan {
-    const { opportunities } = this.opportunities(league, true);
+  plan(game: Game, league: string, opportunityId: string): TradePlan {
+    const { opportunities } = this.opportunities(game, league, true);
     const opp = opportunities.find((o) => o.id === opportunityId);
     if (opp === undefined) {
       throw new Error(`Unknown opportunity id "${opportunityId}" — call find_opportunities first; ids are recomputed from the latest snapshot.`);

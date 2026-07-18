@@ -24,12 +24,13 @@ describe('ingestLeague', () => {
     const client = {
       getExchangeOverview: vi
         .fn()
-        .mockImplementation(async (_league: string, type: string) => {
+        .mockImplementation(async (_game: string, _league: string, type: string) => {
           if (type === 'Runes') throw new Error('boom');
           return RAW_OK;
         }),
     };
     const result = await ingestLeague(client, repo, {
+      game: 'poe2',
       league: 'Runes of Aldur',
       categories: ['Currency', 'Runes', 'Essences'],
       now: () => '2026-07-18T18:00:00Z',
@@ -38,8 +39,8 @@ describe('ingestLeague', () => {
     expect(result.saved).toEqual(['Currency', 'Essences']);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]).toMatchObject({ category: 'Runes' });
-    expect(repo.latest('Runes of Aldur', 'Currency')?.lines[0]?.name).toBe('Chaos Orb');
-    expect(repo.latest('Runes of Aldur', 'Essences')?.fetchedAt).toBe('2026-07-18T18:00:00Z');
-    expect(repo.latest('Runes of Aldur', 'Runes')).toBeNull();
+    expect(repo.latest('poe2', 'Runes of Aldur', 'Currency')?.lines[0]?.name).toBe('Chaos Orb');
+    expect(repo.latest('poe2', 'Runes of Aldur', 'Essences')?.fetchedAt).toBe('2026-07-18T18:00:00Z');
+    expect(repo.latest('poe2', 'Runes of Aldur', 'Runes')).toBeNull();
   });
 });

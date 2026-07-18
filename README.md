@@ -3,7 +3,7 @@
 A trading terminal for the Path of Exile economy with an agent-native MCP server — AI agents watch markets, detect durable-edge opportunities, and draft trade plans; humans execute in-game.
 
 - **Product spec & architecture:** [PRD.md](./PRD.md) (v2.1, approved)
-- **Status:** v0 working. PoE2 community-source mode (poe.ninja exchange API, 7 categories, ~390 markets), SQLite storage, two detectors, 6-tool MCP server, lean dashboard.
+- **Status:** v0 working. **PoE1 by default** (PoE2 via `EXILIUM_GAME=poe2`) — poe.ninja exchange API, SQLite storage, two detectors, 6-tool MCP server, lean dashboard. Prices are in the game's primary currency: **chaos for PoE1, divine for PoE2**.
 
 ## Quick start
 
@@ -16,7 +16,7 @@ npm test                                            # 49 tests; npm run coverage
 npx tsx scripts/smoke-mcp.ts                        # end-to-end MCP smoke test
 ```
 
-Config via env: `EXILIUM_CONTACT` (identifies you to poe.ninja — set it), `EXILIUM_LEAGUE` (default: auto-detect current challenge league), `EXILIUM_DB` (default `exilium.db`), `EXILIUM_PORT` (default 4321).
+Config via env: `EXILIUM_GAME` (`poe1` default | `poe2`), `EXILIUM_CONTACT` (identifies you to poe.ninja — set it), `EXILIUM_LEAGUE` (default: auto-detect current challenge league), `EXILIUM_DB` (default `exilium.db`), `EXILIUM_PORT` (default 4321). One database holds both games; ingest each with its own `EXILIUM_GAME` run.
 
 ### Use with Claude Code / any MCP client
 
@@ -32,7 +32,7 @@ Config via env: `EXILIUM_CONTACT` (identifies you to poe.ninja — set it), `EXI
 }
 ```
 
-Tools: `get_leagues`, `get_market_snapshot`, `get_pair_history`, `price_item`, `find_opportunities`, `draft_trade_plan`. All serve cached snapshot data only — run `npm run ingest` (cron it every 5–10 min if you like) to refresh.
+Tools: `get_leagues`, `get_market_snapshot`, `get_pair_history`, `price_item`, `find_opportunities`, `draft_trade_plan`. Every tool takes an optional `game` (`poe1`|`poe2`) defaulting to the server's configured game (poe1 unless `EXILIUM_GAME=poe2`). All serve cached snapshot data only — run `npm run ingest` (cron it every 5–10 min if you like) to refresh.
 
 ## v0 scope notes
 

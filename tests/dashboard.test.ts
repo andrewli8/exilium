@@ -3,6 +3,8 @@ import { renderDashboard } from '../src/dashboard/render.js';
 import type { MarketSummary, OpportunitiesResult } from '../src/mcp/service.js';
 
 const SUMMARY: MarketSummary = {
+  game: 'poe2',
+  primaryCurrency: 'divine',
   league: 'Runes of Aldur',
   asOf: '2026-07-18T18:00:00Z',
   categories: 2,
@@ -40,6 +42,7 @@ describe('renderDashboard', () => {
     expect(html).toContain('Chaos Orb');
     expect(html).toContain('mean-reversion');
     expect(html).toContain('50.0%'); // edge formatted
+    expect(html).toMatch(/prices in divine/i);
   });
 
   test('escapes HTML in item names', () => {
@@ -50,7 +53,7 @@ describe('renderDashboard', () => {
 
   test('shows an empty-state message when there is no data', () => {
     const html = renderDashboard(
-      { league: 'X', asOf: null, categories: 0, topMovers: [], topVolume: [] },
+      { game: 'poe1', primaryCurrency: 'chaos', league: 'X', asOf: null, categories: 0, topMovers: [], topVolume: [] },
       { league: 'X', opportunities: [] },
     );
     expect(html).toMatch(/no data ingested/i);

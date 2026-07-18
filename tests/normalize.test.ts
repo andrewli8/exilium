@@ -29,12 +29,13 @@ const RAW = {
   ],
 };
 
-const CTX = { league: 'Runes of Aldur', category: 'Currency', fetchedAt: '2026-07-18T18:00:00Z' };
+const CTX = { game: 'poe2' as const, league: 'Runes of Aldur', category: 'Currency', fetchedAt: '2026-07-18T18:00:00Z' };
 
 describe('normalizeExchangeOverview', () => {
   test('maps lines to MarketLines with names resolved from items', () => {
     const snap = normalizeExchangeOverview(RAW, CTX);
     expect(snap.league).toBe('Runes of Aldur');
+    expect(snap.game).toBe('poe2');
     expect(snap.lines).toHaveLength(2);
     const chaos = snap.lines[0]!;
     expect(chaos.itemId).toBe('chaos');
@@ -56,7 +57,7 @@ describe('normalizeExchangeOverview', () => {
   test('exposes core rates as units-per-divine including divine itself', () => {
     const snap = normalizeExchangeOverview(RAW, CTX);
     expect(snap.core.primary).toBe('divine');
-    expect(snap.core.perDivine).toEqual({ divine: 1, exalted: 435.3, chaos: 7.62 });
+    expect(snap.core.perPrimary).toEqual({ divine: 1, exalted: 435.3, chaos: 7.62 });
   });
 
   test('rejects malformed payloads with a clear error', () => {

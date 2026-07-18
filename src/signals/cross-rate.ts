@@ -12,11 +12,11 @@ export interface CrossRateOptions {
  * cross rates. Persistent divergence marks one leg as mispriced. Snapshot
  * data is minutes old — treat as research signal, not a guaranteed fill. */
 export function detectCrossRateDivergence(snapshot: MarketSnapshot, opts: CrossRateOptions): readonly Opportunity[] {
-  const { perDivine } = snapshot.core;
+  const { perPrimary } = snapshot.core;
   const opps = snapshot.lines.flatMap((l): Opportunity[] => {
     if (l.volumePrimaryValue < opts.minVolume) return [];
     if (l.maxVolumeCurrency === null || l.maxVolumeRate === null || l.maxVolumeRate <= 0) return [];
-    const quotePerDivine = perDivine[l.maxVolumeCurrency];
+    const quotePerDivine = perPrimary[l.maxVolumeCurrency];
     if (quotePerDivine === undefined || quotePerDivine <= 0) return [];
     // maxVolumeRate = items per one quote unit; items per divine = rate * quotePerDivine.
     const impliedPrimaryValue = 1 / (l.maxVolumeRate * quotePerDivine);
@@ -25,8 +25,9 @@ export function detectCrossRateDivergence(snapshot: MarketSnapshot, opts: CrossR
     const cheapLeg = impliedPrimaryValue < l.primaryValue ? l.maxVolumeCurrency : snapshot.core.primary;
     return [
       {
-        id: `cross-rate-divergence:${snapshot.league}:${l.itemId}`,
+        id: `cross-rate-divergence:${snapshot.game}:${snapshot.league}:${l.itemId}`,
         kind: 'cross-rate-divergence',
+        game: snapshot.game,
         league: snapshot.league,
         itemId: l.itemId,
         itemName: l.name,

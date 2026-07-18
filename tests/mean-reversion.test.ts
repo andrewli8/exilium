@@ -19,10 +19,11 @@ function line(overrides: Partial<MarketLine>): MarketLine {
 
 function snap(lines: readonly MarketLine[]): MarketSnapshot {
   return {
+    game: 'poe2' as const,
     league: 'Runes of Aldur',
     category: 'Currency',
     fetchedAt: '2026-07-18T18:00:00Z',
-    core: { primary: 'divine', perDivine: { divine: 1, exalted: 435, chaos: 7.6 } },
+    core: { primary: 'divine', perPrimary: { divine: 1, exalted: 435, chaos: 7.6 } },
     lines,
   };
 }
@@ -71,6 +72,6 @@ describe('detectMeanReversion', () => {
     const b = line({ itemId: 'b', sparkline: [10, 11, 9, 10, 11, 9, -60] });
     const opps = detectMeanReversion(snap([a, b]), OPTS);
     expect(opps.map((o) => o.itemId)).toEqual(['b', 'a']);
-    expect(opps[0]!.id).toBe('mean-reversion:Runes of Aldur:b');
+    expect(opps[0]!.id).toBe('mean-reversion:poe2:Runes of Aldur:b');
   });
 });

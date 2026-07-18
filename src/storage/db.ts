@@ -5,12 +5,13 @@ export type Db = Database.Database;
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS snapshots (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  game TEXT NOT NULL,
   league TEXT NOT NULL,
   category TEXT NOT NULL,
   fetched_at TEXT NOT NULL,
   core_json TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_snapshots_lookup ON snapshots (league, category, fetched_at);
+CREATE INDEX IF NOT EXISTS idx_snapshots_lookup ON snapshots (game, league, category, fetched_at);
 
 CREATE TABLE IF NOT EXISTS market_lines (
   snapshot_id INTEGER NOT NULL REFERENCES snapshots(id) ON DELETE CASCADE,

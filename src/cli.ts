@@ -14,7 +14,7 @@ const repo = new SnapshotRepository(createDb(config.dbPath));
 
 async function resolveLeague(client: NinjaClient): Promise<string> {
   if (config.league !== null) return config.league;
-  const leagues = await client.getLeagues();
+  const leagues = await client.getLeagues(config.game);
   const challenge = leagues.find((l) => !/standard|hardcore|^hc /i.test(l.id));
   if (challenge === undefined) throw new Error('Could not auto-detect the current challenge league; set EXILIUM_LEAGUE.');
   return challenge.id;
@@ -23,8 +23,9 @@ async function resolveLeague(client: NinjaClient): Promise<string> {
 async function cmdIngest(): Promise<void> {
   const client = new NinjaClient({ userAgent: config.userAgent });
   const league = await resolveLeague(client);
-  console.log(`Ingesting ${league}: ${config.categories.join(', ')}`);
+  console.log(`Ingesting ${config.game}/${league}: ${config.categories.join(', ')}`);
   const result = await ingestLeague(client, repo, {
+    game: config.game,
     league,
     categories: config.categories,
     now: () => new Date().toISOString(),
@@ -35,17 +36,21 @@ async function cmdIngest(): Promise<void> {
 }
 
 async function cmdMcp(): Promise<void> {
-  const server = buildMcpServer(new ExiliumService(repo));
+  const server = buildMcpServer(new ExiliumService(repo), config.game);
   await server.connect(new StdioServerTransport());
   console.error('Exilium MCP server running on stdio (cached data only — run `npm run ingest` to refresh).');
 }
 
 async function cmdDashboard(): Promise<void> {
   const service = new ExiliumService(repo);
-  const league = config.league ?? repo.leaguesSeen()[0] ?? 'Standard';
+  const league =
+    config.league ?? repo.leaguesSeen().find((l) => l.game === config.game)?.league ?? 'Standard';
   const httpServer = createServer((_req, res) => {
     try {
-      const html = renderDashboard(service.marketSnapshot(league), service.opportunities(league, true));
+      const html = renderDashboard(
+        service.marketSnapshot(config.game, league),
+        service.opportunities(config.game, league, true),
+      );
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(html);
     } catch (err) {
       console.error('dashboard render failed:', err);
@@ -53,7 +58,7 @@ async function cmdDashboard(): Promise<void> {
     }
   });
   httpServer.listen(config.dashboardPort, () => {
-    console.log(`Exilium dashboard: http://localhost:${config.dashboardPort} (league: ${league})`);
+    console.log(`Exilium dashboard: http://localhost:${config.dashboardPort} (${config.game}, league: ${league})`);
   });
 }
 

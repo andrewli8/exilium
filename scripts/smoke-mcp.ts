@@ -15,23 +15,23 @@ console.log('tools:', tools.tools.map((t) => t.name).join(', '));
 
 const leagues = text(await client.callTool({ name: 'get_leagues', arguments: {} }));
 console.log('leagues:', leagues);
-const league = leagues.leagues[0];
+const { game, league } = leagues.leagues[0];
 
-const snap = text(await client.callTool({ name: 'get_market_snapshot', arguments: { league } }));
-console.log(`snapshot: ${snap.categories} categories, top mover: ${snap.topMovers[0].name} (${snap.topMovers[0].totalChange}%)`);
+const snap = text(await client.callTool({ name: 'get_market_snapshot', arguments: { game, league } }));
+console.log(`snapshot: ${snap.game}/${snap.league}, ${snap.categories} categories, primary=${snap.primaryCurrency}, top mover: ${snap.topMovers[0].name} (${snap.topMovers[0].totalChange}%)`);
 
-const price = text(await client.callTool({ name: 'price_item', arguments: { league, query: 'chaos orb' } }));
-console.log(`price chaos orb: ${price.divineValue} div / ${price.exaltedValue?.toFixed(1)} ex (confidence ${price.confidence.toFixed(2)})`);
+const price = text(await client.callTool({ name: 'price_item', arguments: { game, league, query: 'divine orb' } }));
+console.log(`price divine orb: ${price.primaryValue} ${price.primaryCurrency} (conversions: ${JSON.stringify(price.conversions)}, confidence ${price.confidence.toFixed(2)})`);
 
-const opps = text(await client.callTool({ name: 'find_opportunities', arguments: { league, include_experimental: true } }));
+const opps = text(await client.callTool({ name: 'find_opportunities', arguments: { game, league, include_experimental: true } }));
 console.log(`opportunities: ${opps.opportunities.length} total, ${opps.opportunities.filter((o: any) => !o.experimental).length} non-experimental`);
 const top = opps.opportunities[0];
 if (top !== undefined) {
   console.log(`top: [${top.kind}] ${top.itemName} edge=${(top.edge * 100).toFixed(1)}% — ${top.rationale.slice(0, 110)}`);
-  const plan = text(await client.callTool({ name: 'draft_trade_plan', arguments: { league, opportunity_id: top.id } }));
+  const plan = text(await client.callTool({ name: 'draft_trade_plan', arguments: { game, league, opportunity_id: top.id } }));
   console.log(`plan: ${plan.summary}`);
   console.log(`      steps=${plan.steps.length}, humanNote="${plan.humanExecutionNote.slice(0, 60)}..."`);
-  const hist = text(await client.callTool({ name: 'get_pair_history', arguments: { league, item_id: top.itemId } }));
+  const hist = text(await client.callTool({ name: 'get_pair_history', arguments: { game, league, item_id: top.itemId } }));
   console.log(`history for ${top.itemId}: ${hist.points.length} stored point(s), sparkline ${hist.latestSparkline.length} entries`);
 }
 

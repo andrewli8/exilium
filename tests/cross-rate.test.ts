@@ -19,10 +19,11 @@ function line(overrides: Partial<MarketLine>): MarketLine {
 
 function snap(lines: readonly MarketLine[]): MarketSnapshot {
   return {
+    game: 'poe2' as const,
     league: 'Runes of Aldur',
     category: 'Currency',
     fetchedAt: '2026-07-18T18:00:00Z',
-    core: { primary: 'divine', perDivine: { divine: 1, exalted: 400, chaos: 8 } },
+    core: { primary: 'divine', perPrimary: { divine: 1, exalted: 400, chaos: 8 } },
     lines,
   };
 }

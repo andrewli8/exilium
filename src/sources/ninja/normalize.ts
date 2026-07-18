@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { MarketLine, MarketSnapshot } from '../../domain/types.js';
+import type { Game, MarketLine, MarketSnapshot } from '../../domain/types.js';
 
 const itemSchema = z.object({
   id: z.string(),
@@ -31,6 +31,7 @@ const overviewSchema = z.object({
 });
 
 export interface NormalizeContext {
+  readonly game: Game;
   readonly league: string;
   readonly category: string;
   readonly fetchedAt: string;
@@ -61,10 +62,11 @@ export function normalizeExchangeOverview(raw: unknown, ctx: NormalizeContext): 
     }));
 
   return {
+    game: ctx.game,
     league: ctx.league,
     category: ctx.category,
     fetchedAt: ctx.fetchedAt,
-    core: { primary: core.primary, perDivine: { [core.primary]: 1, ...core.rates } },
+    core: { primary: core.primary, perPrimary: { [core.primary]: 1, ...core.rates } },
     lines: normalized,
   };
 }

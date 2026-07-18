@@ -11,19 +11,19 @@ describe('NinjaClient', () => {
   test('fetches leagues with the configured User-Agent', async () => {
     const fetchFn = vi.fn().mockResolvedValue(okJson(LEAGUES));
     const client = new NinjaClient({ fetchFn, userAgent: 'Exilium/0.1 (test)' });
-    const leagues = await client.getLeagues();
+    const leagues = await client.getLeagues('poe1');
     expect(leagues).toEqual(LEAGUES);
     const [url, init] = fetchFn.mock.calls[0]!;
-    expect(String(url)).toContain('/poe2/api/economy/leagues');
+    expect(String(url)).toContain('/poe1/api/economy/leagues');
     expect(init.headers['User-Agent']).toBe('Exilium/0.1 (test)');
   });
 
   test('fetches an exchange overview with league and type query params', async () => {
     const fetchFn = vi.fn().mockResolvedValue(okJson({ core: {}, lines: [] }));
     const client = new NinjaClient({ fetchFn, userAgent: 'ua' });
-    await client.getExchangeOverview('Runes of Aldur', 'Currency');
+    await client.getExchangeOverview('poe2', 'Runes of Aldur', 'Currency');
     const url = String(fetchFn.mock.calls[0]![0]);
-    expect(url).toContain('exchange/current/overview');
+    expect(url).toContain('/poe2/api/economy/exchange/current/overview');
     expect(url).toContain('league=Runes+of+Aldur');
     expect(url).toContain('type=Currency');
   });
@@ -31,6 +31,6 @@ describe('NinjaClient', () => {
   test('throws a descriptive error on non-2xx responses', async () => {
     const fetchFn = vi.fn().mockResolvedValue(new Response('nope', { status: 429 }));
     const client = new NinjaClient({ fetchFn, userAgent: 'ua' });
-    await expect(client.getLeagues()).rejects.toThrow(/429/);
+    await expect(client.getLeagues('poe1')).rejects.toThrow(/429/);
   });
 });

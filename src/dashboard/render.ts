@@ -32,12 +32,12 @@ export function renderDashboard(summary: MarketSummary, opps: OpportunitiesResul
     return `<html><head><style>${STYLE}</style></head><body><h1>Exilium</h1><p>No data ingested yet — run <code>npm run ingest</code> first.</p></body></html>`;
   }
   return `<html><head><title>Exilium — ${esc(summary.league)}</title><style>${STYLE}</style></head><body>
-<h1>Exilium <small>· ${esc(summary.league)} · as of ${esc(summary.asOf)} · prices in Divine Orbs · humans execute all trades</small></h1>
+<h1>Exilium <small>· ${esc(summary.game)} · ${esc(summary.league)} · as of ${esc(summary.asOf)} · prices in ${esc(summary.primaryCurrency)} · humans execute all trades</small></h1>
 <h2>Opportunities</h2>
 <table><tr><th>Detector</th><th>Item</th><th>Edge</th><th>Confidence</th><th>Rationale</th></tr>${oppRows(opps.opportunities)}</table>
 <h2>Top Movers</h2>
-<table><tr><th>Item</th><th>Category</th><th>Price (div)</th><th>Change</th><th>Volume (div)</th></tr>${moverRows(summary.topMovers)}</table>
+<table><tr><th>Item</th><th>Category</th><th>Price</th><th>Change</th><th>Volume</th></tr>${moverRows(summary.topMovers)}</table>
 <h2>Top Volume</h2>
-<table><tr><th>Item</th><th>Category</th><th>Price (div)</th><th>Change</th><th>Volume (div)</th></tr>${moverRows(summary.topVolume)}</table>
+<table><tr><th>Item</th><th>Category</th><th>Price</th><th>Change</th><th>Volume</th></tr>${moverRows(summary.topVolume)}</table>
 </body></html>`;
 }
