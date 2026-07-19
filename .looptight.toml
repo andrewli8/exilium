@@ -4,7 +4,7 @@
 verify = "npx tsc --noEmit && npm test && npm run eval"
 
 # Optional grounded task files and unattended primary-worktree permission.
-tasks = []
+tasks = ["docs/STATUS.md"]
 direct_main = false
 
 # Generate grounded tasks when the queue empties (set false, or pass --no-ideas).
