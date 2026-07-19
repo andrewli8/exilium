@@ -1,3 +1,4 @@
+import { assessFreshness } from '../domain/freshness.js';
 import type { MarketSummary, MoverSummary, OpportunitiesResult } from '../mcp/service.js';
 import type { Opportunity } from '../domain/types.js';
 
@@ -26,13 +27,28 @@ table{border-collapse:collapse;width:100%;margin-bottom:2rem}
 td,th{border:1px solid #30363d;padding:.4rem .6rem;text-align:left;font-size:.85rem}
 th{background:#161b22}h1,h2{color:#d4a017}small{color:#8b949e}`;
 
-/** Pure HTML renderer for the lean v0 dashboard (PRD: UI stays minimal). */
-export function renderDashboard(summary: MarketSummary, opps: OpportunitiesResult): string {
+export interface RenderOptions {
+  readonly nowMs: number;
+  /** Page self-reloads on this cadence (reads the local store — cheap). */
+  readonly reloadSec: number;
+}
+
+const FRESH_COLORS = { live: '#4cc38a', stale: '#e0a63f', old: '#e5534b' } as const;
+
+/** Pure HTML renderer for the lean live dashboard (PRD: UI stays minimal). */
+export function renderDashboard(
+  summary: MarketSummary,
+  opps: OpportunitiesResult,
+  opts: RenderOptions = { nowMs: Date.now(), reloadSec: 30 },
+): string {
   if (summary.asOf === null) {
     return `<html><head><style>${STYLE}</style></head><body><h1>Exilium</h1><p>No data ingested yet — run <code>npm run ingest</code> first.</p></body></html>`;
   }
-  return `<html><head><title>Exilium — ${esc(summary.league)}</title><style>${STYLE}</style></head><body>
-<h1>Exilium <small>· ${esc(summary.game)} · ${esc(summary.league)} · as of ${esc(summary.asOf)} · prices in ${esc(summary.primaryCurrency)} · humans execute all trades</small></h1>
+  const fresh = assessFreshness(summary.asOf, opts.nowMs);
+  const badge = fresh === null ? '' : `<span style="color:${FRESH_COLORS[fresh.level]}">●</span> ${esc(fresh.label)}`;
+  return `<html><head><title>Exilium — ${esc(summary.league)}</title><style>${STYLE}</style>
+<script>setTimeout(function () { location.reload(); }, ${opts.reloadSec * 1000});</script></head><body>
+<h1>Exilium <small>· ${esc(summary.game)} · ${esc(summary.league)} · ${badge} · prices in ${esc(summary.primaryCurrency)} · reloads every ${opts.reloadSec}s · humans execute all trades</small></h1>
 <h2>Opportunities</h2>
 <table><tr><th>Detector</th><th>Item</th><th>Edge</th><th>Confidence</th><th>Rationale</th></tr>${oppRows(opps.opportunities)}</table>
 <h2>Top Movers</h2>

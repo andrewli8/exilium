@@ -42,7 +42,8 @@ A full-screen terminal UI (built with Ink, the React-for-CLIs library) over the 
 - **1 · MOVERS** — biggest price moves with a 7-day unicode sparkline detail pane for the selected row
 - **2 · OPPORTUNITIES** — live detector signals with edge, confidence, and rationale
 - **3 · ARBITRAGE** — listed vs implied cross-rate table per market
-- `↑/↓` select · `←/→` cycle item categories (All → Currency → Scarab → …) · `r` re-ingest in place · `q` quit · auto-rereads every 30s
+- `↑/↓` select · `←/→` cycle item categories (All → Currency → Scarab → …) · `r` refresh now · `q` quit
+- **Stays live on its own**: refetches market data every 5 minutes (`EXILIUM_REFRESH`, floor 300s) and shows a freshness dot — green under 10 min, amber under 30, red beyond. Leave it on a second monitor while you map.
 
 ### CLI commands
 
@@ -90,7 +91,7 @@ EXILIUM_MIN_EDGE=50 EXILIUM_WATCH_INTERVAL=300 npm run watch   # ≥50% edges, e
 npm run dashboard        # → http://localhost:4321
 ```
 
-Opportunities (with rationale and confidence), top movers, and top-volume markets for your configured game/league.
+Opportunities (with rationale and confidence), top movers, and top-volume markets. **Self-sufficient**: ingests on boot, refetches every 5 minutes in the background, and the page reloads itself every 30s with a freshness badge — one tab replaces your poe.ninja tab pile.
 
 ### With Claude Code (recommended)
 
@@ -144,6 +145,7 @@ Every tool takes an optional `game` (`poe1`/`poe2`) defaulting to the server's c
 | `EXILIUM_LEAGUE` | auto | League name; auto-detects the current challenge league |
 | `EXILIUM_DB` | `exilium.db` | SQLite database path (one DB holds both games) |
 | `EXILIUM_PORT` | `4321` | Dashboard port |
+| `EXILIUM_REFRESH` | `300` | TUI/dashboard auto-refetch cadence in seconds (min 300) |
 | `EXILIUM_MIN_EDGE` | `25` | Watch mode: minimum edge (%) to notify on |
 | `EXILIUM_WATCH_INTERVAL` | `600` | Watch mode: seconds between cycles (min 300) |
 | `EXILIUM_WEBHOOK` | — | Watch mode: Discord-compatible webhook URL |

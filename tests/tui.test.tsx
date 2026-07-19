@@ -86,6 +86,19 @@ describe('ExiliumTui', () => {
     expect(before).not.toEqual(after);
   });
 
+  test('calls onIngest automatically on the autoIngestSec cadence', async () => {
+    let calls = 0;
+    const onIngest = async () => { calls += 1; };
+    render(<ExiliumTui service={makeService()} {...PROPS} autoIngestSec={0.05} onIngest={onIngest} />);
+    await new Promise((r) => setTimeout(r, 200));
+    expect(calls).toBeGreaterThanOrEqual(2);
+  });
+
+  test('shows a freshness indicator for old data', () => {
+    const { lastFrame } = render(<ExiliumTui service={makeService()} {...PROPS} />);
+    expect(lastFrame()!).toMatch(/h ago|m ago|just now/);
+  });
+
   test('shows the empty state when no data is ingested', () => {
     const repo = new SnapshotRepository(createDb(':memory:'));
     const { lastFrame } = render(

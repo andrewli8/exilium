@@ -51,6 +51,12 @@ describe('renderDashboard', () => {
     expect(html).toContain('Crashed &lt;Orb&gt;');
   });
 
+  test('embeds auto-reload and a data-age badge', () => {
+    const html = renderDashboard(SUMMARY, OPPS, { nowMs: Date.parse('2026-07-18T18:04:00Z'), reloadSec: 30 });
+    expect(html).toContain('4m ago');
+    expect(html).toMatch(/setTimeout.*location\.reload.*30000|content="30"/);
+  });
+
   test('shows an empty-state message when there is no data', () => {
     const html = renderDashboard(
       { game: 'poe1', primaryCurrency: 'chaos', league: 'X', asOf: null, categories: 0, topMovers: [], topVolume: [] },

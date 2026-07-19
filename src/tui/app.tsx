@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text, useApp, useInput, useStdin } from 'ink';
 import type { Game, Opportunity } from '../domain/types.js';
+import { assessFreshness } from '../domain/freshness.js';
 import type { ArbRow, DetailedMover, ExiliumService } from '../mcp/service.js';
 import { renderSparkline } from './sparkline.js';
 
@@ -14,19 +15,27 @@ export interface TuiProps {
   readonly refreshSec: number;
   /** Optional: triggers a live ingest when the user presses "r". */
   readonly onIngest?: (() => Promise<void>) | undefined;
+  /** Optional: auto-run onIngest every N seconds (live-companion mode). */
+  readonly autoIngestSec?: number | undefined;
 }
 
 const GOLD = '#d4a017';
 const DIM = 'gray';
 
+const FRESH_COLORS = { live: 'green', stale: 'yellow', old: 'red' } as const;
+
 function Header({ game, league, primary, asOf, ingesting }: {
   readonly game: string; readonly league: string; readonly primary: string;
   readonly asOf: string | null; readonly ingesting: boolean;
 }): React.JSX.Element {
+  const fresh = assessFreshness(asOf, Date.now());
   return (
     <Box justifyContent="space-between">
       <Text bold color={GOLD}>{' EXILIUM '}<Text color="white">· {game}/{league} · prices in {primary}</Text></Text>
-      <Text color={DIM}>{ingesting ? 'ingesting… ' : ''}as of {asOf ?? '—'} </Text>
+      <Text color={DIM}>
+        {ingesting ? 'ingesting… ' : ''}
+        {fresh === null ? 'no data ' : <Text><Text color={FRESH_COLORS[fresh.level]}>●</Text> {fresh.label} </Text>}
+      </Text>
     </Box>
   );
 }
@@ -110,7 +119,7 @@ const PAGE = 15;
 
 /** Bloomberg-style terminal UI over the local snapshot store. Reads cached
  * data only; "r" triggers a live ingest via the injected callback. */
-export function ExiliumTui({ service, game, league, refreshSec, onIngest }: TuiProps): React.JSX.Element {
+export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIngestSec }: TuiProps): React.JSX.Element {
   const { exit } = useApp();
   const { isRawModeSupported } = useStdin();
   const [view, setView] = useState<View>('movers');
@@ -123,6 +132,17 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest }: TuiP
     const t = setInterval(() => setTick((n) => n + 1), refreshSec * 1000);
     return () => clearInterval(t);
   }, [refreshSec]);
+
+  useEffect(() => {
+    if (onIngest === undefined || autoIngestSec === undefined) return;
+    const t = setInterval(() => {
+      setIngesting(true);
+      onIngest()
+        .catch(() => undefined)
+        .finally(() => { setIngesting(false); setTick((n) => n + 1); });
+    }, autoIngestSec * 1000);
+    return () => clearInterval(t);
+  }, [onIngest, autoIngestSec]);
 
   const data = useMemo(() => {
     const summary = service.marketSnapshot(game, league);

@@ -7,6 +7,9 @@ export interface ExiliumConfig {
   readonly league: string | null;
   readonly categories: readonly string[];
   readonly dashboardPort: number;
+  /** Seconds between automatic upstream refreshes in TUI/dashboard
+   * (floored at 300 for API politeness). */
+  readonly refreshSec: number;
   /** Seconds between watch-mode cycles (floored at 300 for API politeness). */
   readonly watchIntervalSec: number;
   /** Minimum edge (percent) for watch-mode notifications. */
@@ -45,6 +48,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): ExiliumConfig {
     league: env['EXILIUM_LEAGUE'] ?? null,
     categories: CATEGORIES_BY_GAME[game],
     dashboardPort: Number(env['EXILIUM_PORT'] ?? 4321),
+    refreshSec: Math.max(MIN_WATCH_INTERVAL_SEC, Number(env['EXILIUM_REFRESH'] ?? 300)),
     watchIntervalSec: Math.max(MIN_WATCH_INTERVAL_SEC, Number(env['EXILIUM_WATCH_INTERVAL'] ?? 600)),
     minEdgePct: Number(env['EXILIUM_MIN_EDGE'] ?? 25),
     webhookUrl: env['EXILIUM_WEBHOOK'],

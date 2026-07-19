@@ -20,6 +20,12 @@ describe('loadConfig', () => {
     expect(c.webhookUrl).toBeUndefined();
   });
 
+  test('EXILIUM_REFRESH sets the auto-refresh cadence with a 300s floor', () => {
+    expect(loadConfig({}).refreshSec).toBe(300);
+    expect(loadConfig({ EXILIUM_REFRESH: '60' }).refreshSec).toBe(300);
+    expect(loadConfig({ EXILIUM_REFRESH: '900' }).refreshSec).toBe(900);
+  });
+
   test('enforces a 300s floor on the watch interval (poe.ninja politeness)', () => {
     expect(loadConfig({ EXILIUM_WATCH_INTERVAL: '60' }).watchIntervalSec).toBe(300);
     expect(loadConfig({ EXILIUM_WATCH_INTERVAL: '900' }).watchIntervalSec).toBe(900);

@@ -185,11 +185,11 @@
       <div class="stat"><div class="n">93<span style="color:var(--dim)">%</span></div><div class="l">stmt coverage</div></div>
     </div>
     <div class="chips">
-      <span class="chip live">● TUI live</span>
+      <span class="chip live">● TUI — auto-refetch every 5 min</span>
       <span class="chip live">● MCP registered in Claude Code</span>
       <span class="chip live">● watch notifications</span>
       <span class="chip live">● arbitrage view</span>
-      <span class="chip live">● web dashboard</span>
+      <span class="chip live">● dashboard — self-refreshing</span>
       <span class="chip watch">◐ history accumulating with each ingest</span>
       <span class="chip hold">○ GGG OAuth app — not yet submitted</span>
     </div>
@@ -215,7 +215,7 @@ flowchart TB
   end
 
   subgraph loops["Refresh paths"]
-    ingest["exilium ingest<br/>manual / cron"]
+    ingest["auto-refresh<br/>TUI + dashboard · every 5 min"]
     watch["exilium watch<br/>5–10 min loop + dedupe"]
   end
 
@@ -253,8 +253,9 @@ flowchart TB
   <div class="surfaces">
     <div class="surface">
       <h3><code>exilium</code> — Terminal UI (default)</h3>
-      <p>Full-screen Ink app: MOVERS with 7-day sparkline detail, OPPORTUNITIES feed, ARBITRAGE table.
-        Keys: 1/2/3 panes, ↑↓ select, r re-ingest, q quit. Auto-rereads every 30s.</p>
+      <p>Full-screen Ink app: MOVERS with 7-day sparkline detail, OPPORTUNITIES feed, ARBITRAGE table,
+        ←→ category cycling. Refetches upstream every 5 min on its own with a freshness dot —
+        built to live on a second monitor while you play.</p>
     </div>
     <div class="surface">
       <h3><code>exilium &lt;cmd&gt;</code> — CLI</h3>

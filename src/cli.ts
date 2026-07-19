@@ -48,13 +48,30 @@ async function cmdMcp(): Promise<void> {
 
 async function cmdDashboard(): Promise<void> {
   const service = new ExiliumService(repo);
-  const league =
-    config.league ?? repo.leaguesSeen().find((l) => l.game === config.game)?.league ?? 'Standard';
+  const client = new NinjaClient({ userAgent: config.userAgent });
+  const league = await resolveLeague(client).catch(
+    () => repo.leaguesSeen().find((l) => l.game === config.game)?.league ?? 'Standard',
+  );
+  const refresh = async (): Promise<void> => {
+    const result = await ingestLeague(client, repo, {
+      game: config.game,
+      league,
+      categories: config.categories,
+      now: () => new Date().toISOString(),
+    });
+    for (const e of result.errors) console.error(`refresh ${e.category} failed: ${e.message}`);
+  };
+  await refresh().catch((err) => console.error('initial refresh failed:', err instanceof Error ? err.message : err));
+  setInterval(() => {
+    refresh().catch((err) => console.error('refresh failed:', err instanceof Error ? err.message : err));
+  }, config.refreshSec * 1000);
+
   const httpServer = createServer((_req, res) => {
     try {
       const html = renderDashboard(
         service.marketSnapshot(config.game, league),
         service.opportunities(config.game, league, true),
+        { nowMs: Date.now(), reloadSec: 30 },
       );
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(html);
     } catch (err) {
@@ -63,7 +80,9 @@ async function cmdDashboard(): Promise<void> {
     }
   });
   httpServer.listen(config.dashboardPort, () => {
-    console.log(`Exilium dashboard: http://localhost:${config.dashboardPort} (${config.game}, league: ${league})`);
+    console.log(
+      `Exilium dashboard: http://localhost:${config.dashboardPort} (${config.game}, league: ${league}) — refetching every ${config.refreshSec}s, page reloads every 30s`,
+    );
   });
 }
 
@@ -207,6 +226,7 @@ async function cmdTui(): Promise<void> {
       league,
       refreshSec: 30,
       onIngest,
+      autoIngestSec: config.refreshSec,
     }),
   );
 }
