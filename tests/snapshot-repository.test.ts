@@ -1,3 +1,6 @@
+import { existsSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { beforeEach, describe, expect, test } from 'vitest';
 import { createDb } from '../src/storage/db.js';
 import { SnapshotRepository } from '../src/storage/snapshot-repository.js';
@@ -32,6 +35,16 @@ describe('SnapshotRepository', () => {
 
   beforeEach(() => {
     repo = new SnapshotRepository(createDb(':memory:'));
+  });
+
+  test('createDb creates missing parent directories (global-install data dir)', () => {
+    const dir = join(tmpdir(), `exilium-test-${process.pid}`, 'nested');
+    const path = join(dir, 'db.sqlite');
+    rmSync(join(tmpdir(), `exilium-test-${process.pid}`), { recursive: true, force: true });
+    const db = createDb(path);
+    expect(existsSync(path)).toBe(true);
+    db.close();
+    rmSync(join(tmpdir(), `exilium-test-${process.pid}`), { recursive: true, force: true });
   });
 
   test('round-trips a snapshot through save and latest', () => {

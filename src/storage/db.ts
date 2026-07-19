@@ -1,3 +1,5 @@
+import { mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import Database from 'better-sqlite3';
 
 export type Db = Database.Database;
@@ -29,6 +31,7 @@ CREATE INDEX IF NOT EXISTS idx_lines_item ON market_lines (item_id, snapshot_id)
 
 /** Open (or create) the Exilium SQLite database and apply the schema. */
 export function createDb(path: string): Db {
+  if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');

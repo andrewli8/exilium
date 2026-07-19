@@ -1,3 +1,5 @@
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import type { Game } from './domain/types.js';
 
 export interface ExiliumConfig {
@@ -43,7 +45,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): ExiliumConfig {
   const game = parseGame(env['EXILIUM_GAME']);
   return {
     game,
-    dbPath: env['EXILIUM_DB'] ?? 'exilium.db',
+    dbPath: env['EXILIUM_DB'] ?? join(homedir(), '.exilium', 'exilium.db'),
     userAgent: contact === undefined ? BASE_USER_AGENT : `${BASE_USER_AGENT} (contact: ${contact})`,
     league: env['EXILIUM_LEAGUE'] ?? null,
     categories: CATEGORIES_BY_GAME[game],

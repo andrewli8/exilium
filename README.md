@@ -13,21 +13,27 @@ Supports **PoE1 (default)** and **PoE2** (`EXILIUM_GAME=poe2`). Prices are in ea
 - **Node.js 20+** (`node --version`)
 - ~5 minutes
 
-## Setup
+## Install
 
 ```bash
 git clone https://github.com/andrewli8/exilium.git
 cd exilium
 npm install
-
-# Pull the latest market data (PoE1, current challenge league auto-detected)
-npm run ingest
-
-# Optional: also pull PoE2 data into the same database
-EXILIUM_GAME=poe2 npm run ingest
+npm link        # makes `exilium` a global command (sudo npm link if /usr/local/bin is root-owned,
+                # or: ln -s "$PWD/bin/exilium.js" ~/.local/bin/exilium)
 ```
 
-Data is a snapshot at ingest time. Re-run `npm run ingest` whenever you want fresh prices — each run also builds up price history. Or let **watch mode** (below) handle refreshing for you.
+Then from anywhere:
+
+```bash
+exilium              # launches the terminal UI — ingests and stays live on its own
+exilium ingest       # or pull data explicitly
+EXILIUM_GAME=poe2 exilium ingest   # optional: PoE2 into the same database
+```
+
+Data lives in `~/.exilium/exilium.db` regardless of where you run it. The TUI and dashboard keep it fresh automatically; `exilium ingest` and watch mode also work if you prefer explicit control.
+
+*(Not yet on the npm registry — `npm install -g exilium` will work once published; until then `npm link` gives the identical experience.)*
 
 ## Using it
 
@@ -143,7 +149,7 @@ Every tool takes an optional `game` (`poe1`/`poe2`) defaulting to the server's c
 |---|---|---|
 | `EXILIUM_GAME` | `poe1` | `poe1` or `poe2` |
 | `EXILIUM_LEAGUE` | auto | League name; auto-detects the current challenge league |
-| `EXILIUM_DB` | `exilium.db` | SQLite database path (one DB holds both games) |
+| `EXILIUM_DB` | `~/.exilium/exilium.db` | SQLite database path (one DB holds both games) |
 | `EXILIUM_PORT` | `4321` | Dashboard port |
 | `EXILIUM_REFRESH` | `300` | TUI/dashboard auto-refetch cadence in seconds (min 300) |
 | `EXILIUM_MIN_EDGE` | `25` | Watch mode: minimum edge (%) to notify on |

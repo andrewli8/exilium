@@ -1,3 +1,5 @@
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, test, vi } from 'vitest';
 import { loadConfig } from '../src/config.js';
 import { mean, stddev, volumeConfidence } from '../src/signals/stats.js';
@@ -6,7 +8,7 @@ import { NinjaClient } from '../src/sources/ninja/client.js';
 describe('loadConfig', () => {
   test('applies defaults when env is empty', () => {
     const c = loadConfig({});
-    expect(c.dbPath).toBe('exilium.db');
+    expect(c.dbPath).toBe(join(homedir(), '.exilium', 'exilium.db'));
     expect(c.league).toBeNull();
     expect(c.dashboardPort).toBe(4321);
     expect(c.userAgent).toContain('github.com/andrewli8/exilium');

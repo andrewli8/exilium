@@ -1,7 +1,7 @@
 {
   "name": "exilium",
   "version": "0.1.0",
-  "description": "A trading terminal for the Path of Exile economy with an agent-native MCP server — AI agents watch markets, detect durable-edge opportunities, and draft trade plans; humans execute in-game.",
+  "description": "Path of Exile trading terminal with an agent-native MCP server — live market data, signals, arbitrage view, TUI, and human-in-the-loop trade plans",
   "main": "index.js",
   "scripts": {
     "test": "vitest run",
@@ -18,7 +18,13 @@
     "type": "git",
     "url": "git+https://github.com/andrewli8/exilium.git"
   },
-  "keywords": [],
+  "keywords": [
+    "path-of-exile",
+    "poe",
+    "trading",
+    "mcp",
+    "terminal"
+  ],
   "author": "",
   "license": "MIT",
   "type": "module",
@@ -45,5 +51,13 @@
   },
   "bin": {
     "exilium": "bin/exilium.js"
-  }
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ]
 }
