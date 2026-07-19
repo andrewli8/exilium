@@ -23,6 +23,8 @@ Working backlog for the looptight loop. Each task carries evidence from the repo
 
 (queue empty — regenerate when new evidence-backed work appears)
 
+- `exilium stash`: own-account stash valuation over the session cookie (client-side, same trust model as live), net-worth history (migration v4), and a gained/lost/value-delta trade check between snapshots. Landed with tests/stash.test.ts + tests/stash-repository.test.ts.
+
 Small follow-ups from approval conditions: TUI `r` within the 240s shared gate silently no-ops — surface "fetched Xs ago, skipped" in the TUI header.
 
 ## Review-response round (2026-07-19), completed

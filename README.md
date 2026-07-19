@@ -68,6 +68,7 @@ After `npm install`, run via `npx exilium <command>` (or `npm run <command>` for
 | `exilium watch` | Notification loop (below) |
 | `exilium watches [add\|rm\|events]` | Manage persistent watches (the same ones agents create via MCP) |
 | `exilium live <trade-url>` | Monitor pathofexile.com live searches; whispers auto-copied to clipboard ([walkthrough](examples/05-live-search.md)) |
+| `exilium stash --account NAME` | Value your own stash, track net worth, and see the trade-check delta since last snapshot |
 | `exilium journal [add]` | Record and review trade outcomes; prints your fill rate |
 | `exilium backtest [--horizon N]` | Replay stored history: signal-onset hit rate vs an all-items baseline, wall-clock horizons |
 | `exilium sellsheet --file counts.txt [--discount N]` | Price your dump tab and get a paste-ready bulk WTS message |
@@ -187,7 +188,7 @@ Every tool takes an optional `game` (`poe1`/`poe2`) defaulting to the server's c
 | Price history accumulation | ✅ grows with each ingest |
 | Bulk↔single spread detector | ⛔ blocked: poe.ninja retired listing-based price APIs (everything is exchange-based now); needs a listing data source |
 | Backtesting | ✅ `exilium backtest` — sharpens as history accumulates |
-| OAuth stash valuation | 🕐 P1 — needs GGG application approval |
+| Stash valuation + net-worth tracking | ✅ `exilium stash` (session-based; OAuth transport can swap in later) |
 | Rare-item valuation | ⛔ out of scope by design (multi-month subsystem) |
 
 ## Examples and walkthroughs
@@ -230,7 +231,7 @@ Non-negotiable design anchors:
 
 - Read-only market analytics from public community APIs, with a proper User-Agent.
 - No trade execution, no game automation, no game-file interaction — in line with GGG's third-party tool expectations.
-- POESESSID never touches any server of ours: `exilium live` is the one feature that uses it, runs entirely on your machine with your own session, sends the cookie only to pathofexile.com, and copies whispers to your clipboard instead of sending them (a paste is a single user action; auto-send is the automation line we will not cross).
+- POESESSID never touches any server of ours: `exilium live` and `exilium stash` use it entirely on your machine with your own session, sending the cookie only to pathofexile.com. Whispers are copied to your clipboard, never sent (a paste is a single user action; auto-send is the automation line we will not cross). Stash reading is your own account only; the official GGG OAuth flow can replace this transport later without changing anything else.
 - poe.ninja is a community resource: Exilium caches aggressively and polls politely. Don't cron faster than every 5 minutes.
 
 ## License

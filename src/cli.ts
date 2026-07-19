@@ -20,6 +20,8 @@ import { readFileSync } from 'node:fs';
 import { runBacktest } from './backtest/backtest.js';
 import { buildSellSheet, parseCounts } from './trade/sellsheet.js';
 import { buildLiveWsUrl, handleNewListings, parseTradeUrl } from './trade/live-search.js';
+import { diffStash, fetchAllStashItems, valueStash } from './trade/stash.js';
+import { StashRepository } from './storage/stash-repository.js';
 import { createNotifier } from './watch/notify.js';
 import { initialWatchState, watchTick } from './watch/watch.js';
 
@@ -507,6 +509,63 @@ async function cmdBacktest(): Promise<void> {
   console.log('\nCaveat: hit rate measures direction over the horizon, not realized profit — gold fees and fills are what the journal measures.');
 }
 
+async function cmdStash(): Promise<void> {
+  const account = flagValue('--account') ?? process.env['EXILIUM_ACCOUNT'];
+  const sessionId = process.env['EXILIUM_POESESSID'];
+  if (account === undefined || sessionId === undefined || sessionId === '') {
+    throw new Error(
+      'Stash reading needs your own session and account name:\n  EXILIUM_POESESSID=<cookie> exilium stash --account "Your Account Name"\n(or set EXILIUM_ACCOUNT). The cookie stays on this machine and goes only to pathofexile.com — same trust model as `exilium live`.',
+    );
+  }
+  const league = storedLeague();
+  const service = makeService();
+  const stashRepo = new StashRepository(db);
+  console.log(`Reading stash for ${account} (${config.game}/${league}) — one request per tab, politely spaced…`);
+  const items = await fetchAllStashItems(account, league, sessionId, {
+    fetchFn: (url, init) => fetch(url, init),
+    delayMs: 600,
+  });
+  const market = repo
+    .latestAll(config.game, league)
+    .flatMap((s) => s.lines)
+    .map((l) => ({ itemId: l.itemId, name: l.name, category: l.category, primaryValue: l.primaryValue, totalChange: l.totalChange, volumePrimaryValue: l.volumePrimaryValue, sparkline: l.sparkline }));
+  const primary = service.marketSnapshot(config.game, league).primaryCurrency;
+  const valuation = valueStash(items, market);
+  const previous = stashRepo.latest(config.game, league, account);
+  stashRepo.save({
+    game: config.game,
+    league,
+    account,
+    takenAt: new Date().toISOString(),
+    totalValue: valuation.total,
+    items,
+  });
+
+  for (const l of valuation.lines.slice(0, 15)) {
+    console.log(`${String(l.count).padStart(6)}x ${l.name.padEnd(40)} ${l.each.toPrecision(4).padStart(10)} ${primary}  = ${Math.round(l.total).toLocaleString('en-US')}`);
+  }
+  if (valuation.lines.length > 15) console.log(`  … and ${valuation.lines.length - 15} more priced lines`);
+  console.log(`\nStash value (currency/stackables): ${Math.round(valuation.total).toLocaleString('en-US')} ${primary}`);
+  if (valuation.unmatched.length > 0) {
+    console.log(`Unpriced (gear/uniques are out of scope): ${valuation.unmatched.length} item types`);
+  }
+  if (previous !== null) {
+    const d = diffStash(previous.items, items, market);
+    if (d.gained.length === 0 && d.lost.length === 0) {
+      console.log(`\nNo changes since last snapshot (${previous.takenAt}).`);
+    } else {
+      console.log(`\nSince last snapshot (${previous.takenAt}) — your trade check:`);
+      for (const g of d.gained) console.log(`  + ${g.count}x ${g.name}`);
+      for (const l of d.lost) console.log(`  - ${l.count}x ${l.name}`);
+      console.log(`  net value change: ${d.valueDelta >= 0 ? '+' : ''}${Math.round(d.valueDelta).toLocaleString('en-US')} ${primary}`);
+    }
+  }
+  const history = stashRepo.netWorthHistory(config.game, league, account, 100);
+  if (history.length >= 2) {
+    console.log(`\nNet worth over ${history.length} snapshots: ${history.map((h) => Math.round(h.totalValue)).join(' → ')}`);
+  }
+}
+
 async function cmdSellsheet(): Promise<void> {
   const file = flagValue('--file');
   if (file === undefined) {
@@ -564,6 +623,7 @@ const commands: Record<string, () => Promise<void>> = {
   backtest: cmdBacktest,
   sellsheet: cmdSellsheet,
   rising: cmdRising,
+  stash: cmdStash,
   snapshot: cmdSnapshot,
   arb: cmdArb,
 };
@@ -571,7 +631,7 @@ const commands: Record<string, () => Promise<void>> = {
 const cmd = process.argv[2] ?? 'tui';
 const run = commands[cmd];
 if (run === undefined) {
-  console.error('Usage: exilium [tui]|ingest|watch|watches|live|snapshot|categories|list|rising|sellsheet|opps|arb|price|journal|backtest|dashboard|mcp');
+  console.error('Usage: exilium [tui]|ingest|watch|watches|live|stash|snapshot|categories|list|rising|sellsheet|opps|arb|price|journal|backtest|dashboard|mcp');
   process.exit(2);
 }
 run().catch((err) => {

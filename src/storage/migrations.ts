@@ -6,7 +6,7 @@ import type { Db } from './db.js';
  * either a fresh database or a legacy DB created before versioning existed;
  * the v1 baseline uses IF NOT EXISTS so both cases converge safely. */
 
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 4;
 
 const V1_BASELINE = `
 CREATE TABLE IF NOT EXISTS snapshots (
@@ -122,6 +122,23 @@ const MIGRATIONS: readonly Migration[] = [
           db.exec(`ALTER TABLE opportunity_log ADD COLUMN ${col}`);
         }
       }
+    },
+  },
+  {
+    version: 4,
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS stash_snapshots (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          game TEXT NOT NULL,
+          league TEXT NOT NULL,
+          account TEXT NOT NULL,
+          taken_at TEXT NOT NULL,
+          total_value REAL NOT NULL,
+          items_json TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_stash_lookup ON stash_snapshots (game, league, account, taken_at);
+      `);
     },
   },
 ];
