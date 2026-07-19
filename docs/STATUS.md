@@ -13,6 +13,7 @@ Working backlog for the looptight loop. Each task carries evidence from the repo
 - Journal summary breaks fill rate down per detector (parsed from opportunity-id prefixes); `exilium journal` prints the breakdown.
 - TUI opportunities pane shows the full trade plan for the selected row, including the journal command.
 - Dashboard renders a Watch Events section fed by the same store as the TUI pane.
+- `exilium live <trade-url>`: live-search monitoring over the user's own session (client-side only), whisper auto-copied to clipboard, never auto-sent. Landed with tests/live-search.test.ts.
 
 ## Next
 

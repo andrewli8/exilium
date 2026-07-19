@@ -129,6 +129,14 @@ When                      Item     Outcome  Expected edge  Note
 
 Outcomes are filled, partial, no-fill, or skipped. The fill rate is the honest number this product cannot get anywhere else: whether the detector's edges survive contact with the actual market. Agents can record outcomes too, through the record_outcome tool.
 
+## exilium live
+
+Your pathofexile.com live searches, in the terminal, with the whisper copied to your clipboard the moment a listing appears. Needs your own POESESSID cookie. Covered properly in [the live search walkthrough](05-live-search.md).
+
+```bash
+EXILIUM_POESESSID=<cookie> exilium live "https://www.pathofexile.com/trade/search/Mirage/AbC123xyz"
+```
+
 ## exilium dashboard
 
 A local web page on port 4321. It ingests on boot, refetches every five minutes, and reloads itself every 30 seconds. Price history charts for the top-volume markets appear once you have two or more snapshots stored, and fired watch events show in their own section.

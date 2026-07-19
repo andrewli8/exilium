@@ -67,6 +67,7 @@ After `npm install`, run via `npx exilium <command>` (or `npm run <command>` for
 | `exilium price <item name>` | Price any currency/stackable |
 | `exilium watch` | Notification loop (below) |
 | `exilium watches [add\|rm\|events]` | Manage persistent watches (the same ones agents create via MCP) |
+| `exilium live <trade-url>` | Monitor pathofexile.com live searches; whispers auto-copied to clipboard ([walkthrough](examples/05-live-search.md)) |
 | `exilium journal [add]` | Record and review trade outcomes; prints your fill rate |
 | `exilium dashboard` | Local web dashboard |
 | `exilium mcp` | MCP server on stdio for AI agents |
@@ -224,7 +225,8 @@ Non-negotiable design anchors:
 ## Compliance
 
 - Read-only market analytics from public community APIs, with a proper User-Agent.
-- No trade execution, no game automation, no POESESSID handling, no game-file interaction — in line with GGG's third-party tool expectations.
+- No trade execution, no game automation, no game-file interaction — in line with GGG's third-party tool expectations.
+- POESESSID never touches any server of ours: `exilium live` is the one feature that uses it, runs entirely on your machine with your own session, sends the cookie only to pathofexile.com, and copies whispers to your clipboard instead of sending them (a paste is a single user action; auto-send is the automation line we will not cross).
 - poe.ninja is a community resource: Exilium caches aggressively and polls politely. Don't cron faster than every 5 minutes.
 
 ## License

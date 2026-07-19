@@ -8,6 +8,7 @@ Start with the first one if you have never run Exilium before. The others assume
 2. [A tour of the CLI](02-cli-tour.md). Every command, what it prints, and which flags matter.
 3. [Common workflows](03-common-workflows.md). A daily flipping session, setting up alerts, and using Exilium through Claude.
 4. [Arbitrage events](04-arbitrage.md). What the arb table actually measures, how to read it, and why most gaps are small.
+5. [Live search](05-live-search.md). Your trade-site live searches in the terminal, with the whisper landing on your clipboard.
 
 There is also an eval suite that checks the detectors against planted, known-answer data:
 

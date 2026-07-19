@@ -15,6 +15,7 @@ import { WatchRepository } from './storage/watch-repository.js';
 import { JournalRepository } from './storage/journal-repository.js';
 import { OUTCOMES } from './storage/journal-repository.js';
 import type { Outcome } from './storage/journal-repository.js';
+import { buildLiveWsUrl, handleNewListings, parseTradeUrl } from './trade/live-search.js';
 import { createNotifier } from './watch/notify.js';
 import { initialWatchState, watchTick } from './watch/watch.js';
 
@@ -355,6 +356,91 @@ async function cmdWatches(): Promise<void> {
   console.log(formatWatchTable(service.listWatches()));
 }
 
+async function cmdLive(): Promise<void> {
+  const urls = process.argv.slice(3).filter((a) => !a.startsWith('--'));
+  if (urls.length === 0) {
+    throw new Error('Usage: exilium live <trade search URL> [more URLs] — copy the URL from pathofexile.com/trade after setting up your search.');
+  }
+  const sessionId = process.env['EXILIUM_POESESSID'];
+  if (sessionId === undefined || sessionId === '') {
+    throw new Error(
+      'EXILIUM_POESESSID is not set. Log into pathofexile.com in a browser, copy the POESESSID cookie value (devtools > Application > Cookies), and run:\n  EXILIUM_POESESSID=<value> exilium live <url>\nThe cookie stays on this machine and is sent only to pathofexile.com.',
+    );
+  }
+  const searches = urls.map(parseTradeUrl);
+  const { default: WebSocket } = await import('ws');
+  const { execFile, spawn } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const exec = promisify(execFile);
+  const clipboard = async (text: string): Promise<void> => {
+    if (process.platform === 'darwin' || process.platform === 'linux') {
+      const child =
+        process.platform === 'darwin' ? spawn('pbcopy') : spawn('xclip', ['-selection', 'clipboard']);
+      child.stdin.end(text);
+      await new Promise<void>((resolve, reject) => {
+        child.on('close', () => resolve());
+        child.on('error', reject);
+      });
+    } else {
+      throw new Error('no clipboard helper on this platform');
+    }
+  };
+  const notifier = createNotifier({
+    platform: process.platform,
+    execFn: async (cmd, args) => exec(cmd, [...args]),
+    fetchFn: (url, init) => fetch(url, init),
+    webhookUrl: config.webhookUrl,
+    log: (m) => console.error(m),
+  });
+  const deps = {
+    fetchFn: (url: string, init: { headers: Record<string, string> }) => fetch(url, init),
+    clipboard,
+    notify: (title: string, message: string) => notifier.notify(title, message),
+    log: (m: string) => console.error(m),
+  };
+
+  console.log('Exilium live search — whispers are COPIED to your clipboard, never sent. Paste in game to contact the seller. Ctrl+C to stop.');
+  for (const search of searches) {
+    const seen = new Set<string>();
+    const connect = (): void => {
+      const ws = new WebSocket(buildLiveWsUrl(search), {
+        headers: {
+          Cookie: `POESESSID=${sessionId}`,
+          'User-Agent': 'Exilium/0.1.0 (+https://github.com/andrewli8/exilium)',
+          Origin: 'https://www.pathofexile.com',
+        },
+      });
+      ws.on('open', () => console.log(`watching ${search.league}/${search.searchId} (${search.realm})`));
+      ws.on('message', (data: Buffer) => {
+        void (async () => {
+          try {
+            const msg = JSON.parse(data.toString()) as { new?: string[] };
+            const fresh = (msg.new ?? []).filter((id) => !seen.has(id));
+            if (fresh.length === 0) return;
+            for (const id of fresh) seen.add(id);
+            const listings = await handleNewListings(fresh, search, sessionId, deps);
+            const stamp = new Date().toISOString();
+            for (const l of listings) {
+              console.log(`[${stamp}] ${l.itemName} · ${l.priceText} · seller ${l.seller}`);
+              if (l.whisper !== '') console.log(`  whisper (copied): ${l.whisper}`);
+            }
+          } catch (err) {
+            console.error(err instanceof Error ? err.message : String(err));
+          }
+        })();
+      });
+      ws.on('close', (code: number) => {
+        console.error(`live socket for ${search.searchId} closed (${code}) — reconnecting in 30s`);
+        setTimeout(connect, 30_000);
+      });
+      ws.on('error', (err: Error) => {
+        console.error(`live socket error for ${search.searchId}: ${err.message}${err.message.includes('401') ? ' — check EXILIUM_POESESSID' : ''}`);
+      });
+    };
+    connect();
+  }
+}
+
 const commands: Record<string, () => Promise<void>> = {
   tui: cmdTui,
   ingest: cmdIngest,
@@ -367,6 +453,7 @@ const commands: Record<string, () => Promise<void>> = {
   opps: cmdOpps,
   journal: cmdJournal,
   watches: cmdWatches,
+  live: cmdLive,
   snapshot: cmdSnapshot,
   arb: cmdArb,
 };
@@ -374,7 +461,7 @@ const commands: Record<string, () => Promise<void>> = {
 const cmd = process.argv[2] ?? 'tui';
 const run = commands[cmd];
 if (run === undefined) {
-  console.error('Usage: exilium [tui]|ingest|watch|watches|snapshot|categories|list|opps|arb|price|journal|dashboard|mcp');
+  console.error('Usage: exilium [tui]|ingest|watch|watches|live|snapshot|categories|list|opps|arb|price|journal|dashboard|mcp');
   process.exit(2);
 }
 run().catch((err) => {
