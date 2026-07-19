@@ -46,6 +46,16 @@ describe('JournalRepository', () => {
     ).toThrow(/outcome/i);
   });
 
+  test('summary breaks fill rate down per detector, parsed from opportunity ids', () => {
+    const base = { itemName: 'X', expectedEdgePct: 20, note: null, recordedAt: '2026-07-19T01:00:00Z' };
+    repo.record({ ...base, opportunityId: 'mean-reversion:poe1:Mirage:a', outcome: 'filled' });
+    repo.record({ ...base, opportunityId: 'mean-reversion:poe1:Mirage:b', outcome: 'no-fill' });
+    repo.record({ ...base, opportunityId: 'cross-rate-divergence:poe1:Mirage:c', outcome: 'filled' });
+    const s = repo.summary();
+    expect(s.perDetector['mean-reversion']).toEqual({ total: 2, fillRate: 0.5 });
+    expect(s.perDetector['cross-rate-divergence']).toEqual({ total: 1, fillRate: 1 });
+  });
+
   test('summary reports counts and fill rate', () => {
     const base = { itemName: 'X', expectedEdgePct: 20, note: null, recordedAt: '2026-07-19T01:00:00Z' };
     repo.record({ ...base, opportunityId: 'a', outcome: 'filled' });
@@ -74,16 +84,22 @@ describe('formatJournal', () => {
           recordedAt: '2026-07-19T01:00:00Z',
         },
       ],
-      { total: 1, counts: { filled: 1, partial: 0, 'no-fill': 0, skipped: 0 }, fillRate: 1 },
+      {
+        total: 1,
+        counts: { filled: 1, partial: 0, 'no-fill': 0, skipped: 0 },
+        fillRate: 1,
+        perDetector: { 'mean-reversion': { total: 1, fillRate: 1 } },
+      },
     );
     expect(out).toContain('Blessed Orb');
+    expect(out).toMatch(/mean-reversion.*100%/);
     expect(out).toContain('filled');
     expect(out).toContain('35');
     expect(out).toMatch(/fill rate.*100%/i);
   });
 
   test('explains an empty journal', () => {
-    const out = formatJournal([], { total: 0, counts: { filled: 0, partial: 0, 'no-fill': 0, skipped: 0 }, fillRate: 0 });
+    const out = formatJournal([], { total: 0, counts: { filled: 0, partial: 0, 'no-fill': 0, skipped: 0 }, fillRate: 0, perDetector: {} });
     expect(out).toMatch(/no outcomes recorded/i);
   });
 });

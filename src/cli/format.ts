@@ -92,7 +92,10 @@ export function formatJournal(entries: readonly JournalEntry[], summary: Journal
     entries.map((e) => [e.recordedAt, e.itemName, e.outcome, `${e.expectedEdgePct.toFixed(1)}%`, e.note ?? '']),
   );
   const c = summary.counts;
-  return `${rows}\n\n${summary.total} recorded · fill rate ${(summary.fillRate * 100).toFixed(0)}% (filled ${c.filled}, partial ${c.partial}, no-fill ${c['no-fill']}, skipped ${c.skipped})`;
+  const perDetector = Object.entries(summary.perDetector)
+    .map(([d, s]) => `  ${d}: ${(s.fillRate * 100).toFixed(0)}% fill over ${s.total}`)
+    .join('\n');
+  return `${rows}\n\n${summary.total} recorded · fill rate ${(summary.fillRate * 100).toFixed(0)}% (filled ${c.filled}, partial ${c.partial}, no-fill ${c['no-fill']}, skipped ${c.skipped})${perDetector === '' ? '' : `\nBy detector:\n${perDetector}`}`;
 }
 
 export function formatWatchTable(watches: readonly Watch[]): string {

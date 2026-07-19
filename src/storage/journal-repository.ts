@@ -16,11 +16,18 @@ export interface JournalEntry extends JournalEntryInput {
   readonly id: number;
 }
 
+export interface DetectorFillRate {
+  readonly total: number;
+  readonly fillRate: number;
+}
+
 export interface JournalSummary {
   readonly total: number;
   readonly counts: Readonly<Record<Outcome, number>>;
   /** filled + half credit for partial, over total. The honest realized-fill proxy. */
   readonly fillRate: number;
+  /** Fill rate per detector, parsed from opportunity-id prefixes. */
+  readonly perDetector: Readonly<Record<string, DetectorFillRate>>;
 }
 
 const SCHEMA = `
@@ -80,13 +87,24 @@ export class JournalRepository {
 
   summary(): JournalSummary {
     const counts = Object.fromEntries(OUTCOMES.map((o) => [o, 0])) as Record<Outcome, number>;
-    const rows = this.db.prepare('SELECT outcome, COUNT(*) AS n FROM journal GROUP BY outcome').all() as readonly {
-      outcome: Outcome;
-      n: number;
-    }[];
-    for (const r of rows) if (r.outcome in counts) counts[r.outcome] = r.n;
+    const rows = this.db
+      .prepare('SELECT opportunity_id, outcome, COUNT(*) AS n FROM journal GROUP BY opportunity_id, outcome')
+      .all() as readonly { opportunity_id: string; outcome: Outcome; n: number }[];
+    const fillCredit = (o: Outcome): number => (o === 'filled' ? 1 : o === 'partial' ? 0.5 : 0);
+    const perDetectorAcc = new Map<string, { total: number; credit: number }>();
+    for (const r of rows) {
+      if (r.outcome in counts) counts[r.outcome] += r.n;
+      const detector = r.opportunity_id.includes(':') ? r.opportunity_id.split(':')[0]! : 'unknown';
+      const acc = perDetectorAcc.get(detector) ?? { total: 0, credit: 0 };
+      perDetectorAcc.set(detector, { total: acc.total + r.n, credit: acc.credit + fillCredit(r.outcome) * r.n });
+    }
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
     const fillRate = total === 0 ? 0 : (counts.filled + 0.5 * counts.partial) / total;
-    return { total, counts, fillRate };
+    const perDetector = Object.fromEntries(
+      [...perDetectorAcc.entries()]
+        .filter(([detector]) => detector !== 'unknown')
+        .map(([detector, acc]) => [detector, { total: acc.total, fillRate: acc.total === 0 ? 0 : acc.credit / acc.total }]),
+    );
+    return { total, counts, fillRate, perDetector };
   }
 }
