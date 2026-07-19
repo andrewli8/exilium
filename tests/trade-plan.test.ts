@@ -27,6 +27,13 @@ describe('draftTradePlan', () => {
     expect(plan.expectedEdge).toBe(0.12);
   });
 
+  test('final step tells the user exactly how to record the outcome', () => {
+    const plan = draftTradePlan(OPP);
+    const last = plan.steps[plan.steps.length - 1]!;
+    expect(last.instruction).toContain('exilium journal add');
+    expect(last.instruction).toContain(OPP.id);
+  });
+
   test('always carries gold-fee and human-execution notes', () => {
     const plan = draftTradePlan(OPP);
     expect(plan.goldFeeNote).toMatch(/gold/i);

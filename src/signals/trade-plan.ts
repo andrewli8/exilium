@@ -16,7 +16,7 @@ export function draftTradePlan(opp: Opportunity): TradePlan {
     `Open the Currency Exchange in-game (league: ${opp.league}).`,
     `Check the live ratio for ${opp.itemName} — proceed only if the ${(opp.edge * 100).toFixed(1)}% edge still holds.`,
     `Place your order for ${opp.itemName} at or better than the signal ratio; note the gold fee before confirming.`,
-    `Record the outcome (filled / partial / no-fill) to judge this detector's real-world hit rate.`,
+    `Record the outcome so detector quality stays honest: exilium journal add ${opp.id} <filled|partial|no-fill|skipped> — or ask your agent to call record_outcome.`,
   ];
   const steps: readonly TradePlanStep[] = instructions.map((instruction, i) => ({ order: i + 1, instruction }));
 
