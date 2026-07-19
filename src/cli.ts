@@ -16,7 +16,9 @@ import { JournalRepository } from './storage/journal-repository.js';
 import { OpportunityLogRepository } from './storage/opportunity-log-repository.js';
 import { OUTCOMES } from './storage/journal-repository.js';
 import type { Outcome } from './storage/journal-repository.js';
+import { readFileSync } from 'node:fs';
 import { runBacktest } from './backtest/backtest.js';
+import { buildSellSheet, parseCounts } from './trade/sellsheet.js';
 import { buildLiveWsUrl, handleNewListings, parseTradeUrl } from './trade/live-search.js';
 import { createNotifier } from './watch/notify.js';
 import { initialWatchState, watchTick } from './watch/watch.js';
@@ -494,6 +496,47 @@ async function cmdBacktest(): Promise<void> {
   console.log('\nCaveat: hit rate measures direction over the horizon, not realized profit — gold fees and fills are what the journal measures.');
 }
 
+async function cmdSellsheet(): Promise<void> {
+  const file = flagValue('--file');
+  if (file === undefined) {
+    throw new Error('Usage: exilium sellsheet --file counts.txt [--discount 10]\nLines: "<count> <item name>", e.g. "12 Ambush Scarab of Containment". # comments allowed.');
+  }
+  const discount = Number(flagValue('--discount') ?? 0) / 100;
+  if (Number.isNaN(discount) || discount < 0 || discount >= 1) throw new Error('--discount must be a percentage between 0 and 99');
+  const league = storedLeague();
+  const service = makeService();
+  const market = repo
+    .latestAll(config.game, league)
+    .flatMap((s) => s.lines)
+    .map((l) => ({ itemId: l.itemId, name: l.name, category: l.category, primaryValue: l.primaryValue, totalChange: l.totalChange, volumePrimaryValue: l.volumePrimaryValue, sparkline: l.sparkline }));
+  const primary = service.marketSnapshot(config.game, league).primaryCurrency;
+  const sheet = buildSellSheet(parseCounts(readFileSync(file, 'utf8')), market, primary, discount);
+  for (const l of sheet.lines) {
+    console.log(`${String(l.count).padStart(4)}x ${l.name.padEnd(40)} ${l.askEach.toPrecision(4).padStart(10)} ${primary} each  = ${Math.round(l.total).toLocaleString('en-US')}`);
+  }
+  console.log(`\nTotal: ${Math.round(sheet.total).toLocaleString('en-US')} ${primary}`);
+  if (sheet.unmatched.length > 0) console.log(`Unmatched (price these yourself): ${sheet.unmatched.join(', ')}`);
+  if (sheet.wtsMessage !== '') {
+    console.log(`\nWTS message (paste into trade chat or TFT):\n${sheet.wtsMessage}`);
+  }
+}
+
+async function cmdRising(): Promise<void> {
+  const league = storedLeague();
+  const limit = Number(flagValue('--limit') ?? 15);
+  const service = makeService();
+  const primary = service.marketSnapshot(config.game, league).primaryCurrency;
+  const scored = repo
+    .latestAll(config.game, league)
+    .flatMap((s) => s.lines)
+    .filter((l) => l.totalChange > 0 && l.volumePrimaryValue > 0)
+    .map((l) => ({ l, score: l.totalChange * Math.log10(1 + l.volumePrimaryValue) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+  console.log(`${config.game}/${league} · rising items (7d gain weighted by volume) — league-start lens\n`);
+  console.log(formatItemTable(scored.map(({ l }) => ({ itemId: l.itemId, name: l.name, category: l.category, primaryValue: l.primaryValue, totalChange: l.totalChange, volumePrimaryValue: l.volumePrimaryValue, sparkline: l.sparkline })), primary));
+}
+
 const commands: Record<string, () => Promise<void>> = {
   tui: cmdTui,
   ingest: cmdIngest,
@@ -508,6 +551,8 @@ const commands: Record<string, () => Promise<void>> = {
   watches: cmdWatches,
   live: cmdLive,
   backtest: cmdBacktest,
+  sellsheet: cmdSellsheet,
+  rising: cmdRising,
   snapshot: cmdSnapshot,
   arb: cmdArb,
 };
@@ -515,7 +560,7 @@ const commands: Record<string, () => Promise<void>> = {
 const cmd = process.argv[2] ?? 'tui';
 const run = commands[cmd];
 if (run === undefined) {
-  console.error('Usage: exilium [tui]|ingest|watch|watches|live|snapshot|categories|list|opps|arb|price|journal|backtest|dashboard|mcp');
+  console.error('Usage: exilium [tui]|ingest|watch|watches|live|snapshot|categories|list|rising|sellsheet|opps|arb|price|journal|backtest|dashboard|mcp');
   process.exit(2);
 }
 run().catch((err) => {
