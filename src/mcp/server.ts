@@ -39,6 +39,33 @@ export function buildMcpServer(service: ExiliumService, defaultGame: Game = 'poe
   );
 
   server.registerTool(
+    'get_categories',
+    {
+      description: `Item categories (Currency, Scarab, Fragment, Essence, DivinationCard, …) with market counts and traded volume for a league. Use these names for category filters. Read-only cached data. ${HUMAN_RULE}`,
+      inputSchema: { game: gameSchema, league: z.string().min(1) },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ game, league }) => json({ league, categories: service.categoryList(resolveGame(game), league) }),
+  );
+
+  server.registerTool(
+    'list_items',
+    {
+      description: `Every market in one category (e.g. all Scarabs), sorted by value, volume, or change. Compact rows with price, 7d change, volume, sparkline. Read-only cached data. ${HUMAN_RULE}`,
+      inputSchema: {
+        game: gameSchema,
+        league: z.string().min(1),
+        category: z.string().min(1),
+        sort: z.enum(['value', 'volume', 'change']).optional(),
+        limit: z.number().int().positive().max(500).optional(),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ game, league, category, sort, limit }) =>
+      json({ league, category, items: service.listItems(resolveGame(game), league, category, sort ?? 'value').slice(0, limit ?? 100) }),
+  );
+
+  server.registerTool(
     'get_pair_history',
     {
       description: `Stored price history (from repeated ingestion) plus the latest trailing sparkline for one item. Read-only cached data. ${HUMAN_RULE}`,
@@ -70,11 +97,12 @@ export function buildMcpServer(service: ExiliumService, defaultGame: Game = 'poe
         league: z.string().min(1),
         include_experimental: z.boolean().optional(),
         min_edge_pct: z.number().nonnegative().optional(),
+        category: z.string().optional(),
       },
       annotations: { readOnlyHint: true },
     },
-    async ({ game, league, include_experimental, min_edge_pct }) =>
-      json(service.opportunities(resolveGame(game), league, include_experimental ?? false, (min_edge_pct ?? 0) / 100)),
+    async ({ game, league, include_experimental, min_edge_pct, category }) =>
+      json(service.opportunities(resolveGame(game), league, include_experimental ?? false, (min_edge_pct ?? 0) / 100, category)),
   );
 
   server.registerTool(
@@ -86,11 +114,12 @@ export function buildMcpServer(service: ExiliumService, defaultGame: Game = 'poe
         league: z.string().min(1),
         min_divergence_pct: z.number().nonnegative().optional(),
         limit: z.number().int().positive().max(200).optional(),
+        category: z.string().optional(),
       },
       annotations: { readOnlyHint: true },
     },
-    async ({ game, league, min_divergence_pct, limit }) =>
-      json({ league, rows: service.arbitrage(resolveGame(game), league, min_divergence_pct ?? 0).slice(0, limit ?? 50) }),
+    async ({ game, league, min_divergence_pct, limit, category }) =>
+      json({ league, rows: service.arbitrage(resolveGame(game), league, min_divergence_pct ?? 0, category).slice(0, limit ?? 50) }),
   );
 
   server.registerTool(

@@ -26,6 +26,14 @@ export interface DetailedMover extends MoverSummary {
   readonly sparkline: readonly number[];
 }
 
+export interface CategorySummary {
+  readonly category: string;
+  readonly markets: number;
+  readonly volumePrimaryValue: number;
+}
+
+export type ItemSort = 'value' | 'volume' | 'change';
+
 export interface MarketSummary {
   readonly game: Game;
   readonly primaryCurrency: string;
@@ -77,6 +85,45 @@ export class ExiliumService {
     return { leagues: this.repo.leaguesSeen() };
   }
 
+  /** Per-category market counts and traded volume, sorted by volume. */
+  categoryList(game: Game, league: string): readonly CategorySummary[] {
+    return this.repo
+      .latestAll(game, league)
+      .map((s) => ({
+        category: s.category,
+        markets: s.lines.length,
+        volumePrimaryValue: s.lines.reduce((acc, l) => acc + l.volumePrimaryValue, 0),
+      }))
+      .sort((a, b) => b.volumePrimaryValue - a.volumePrimaryValue);
+  }
+
+  /** Every market in one category (case-insensitive), sorted by value,
+   * volume, or change. Throws listing valid categories on a bad name. */
+  listItems(game: Game, league: string, category: string, sort: ItemSort = 'value'): readonly DetailedMover[] {
+    const snaps = this.repo.latestAll(game, league);
+    const match = snaps.find((s) => s.category.toLowerCase() === category.toLowerCase());
+    if (match === undefined) {
+      const valid = snaps.map((s) => s.category).join(', ');
+      throw new Error(`Unknown category "${category}" for ${game}/${league}. Available: ${valid}`);
+    }
+    const sorters: Record<ItemSort, (a: DetailedMover, b: DetailedMover) => number> = {
+      value: (a, b) => b.primaryValue - a.primaryValue,
+      volume: (a, b) => b.volumePrimaryValue - a.volumePrimaryValue,
+      change: (a, b) => Math.abs(b.totalChange) - Math.abs(a.totalChange),
+    };
+    return match.lines
+      .map((l) => ({
+        itemId: l.itemId,
+        name: l.name,
+        category: l.category,
+        primaryValue: l.primaryValue,
+        totalChange: l.totalChange,
+        volumePrimaryValue: l.volumePrimaryValue,
+        sparkline: l.sparkline,
+      }))
+      .sort(sorters[sort]);
+  }
+
   marketSnapshot(game: Game, league: string): MarketSummary {
     const snaps = this.repo.latestAll(game, league);
     const lines = snaps.flatMap((s) => s.lines);
@@ -100,9 +147,10 @@ export class ExiliumService {
   }
 
   /** Top movers including their sparkline series (for the TUI detail pane). */
-  moversDetailed(game: Game, league: string, limit: number): readonly DetailedMover[] {
+  moversDetailed(game: Game, league: string, limit: number, category?: string): readonly DetailedMover[] {
     return this.repo
       .latestAll(game, league)
+      .filter((s) => category === undefined || s.category.toLowerCase() === category.toLowerCase())
       .flatMap((s) => s.lines)
       .sort((a, b) => Math.abs(b.totalChange) - Math.abs(a.totalChange))
       .slice(0, limit)
@@ -135,8 +183,10 @@ export class ExiliumService {
     return priceItem(query, this.repo.latestAll(game, league));
   }
 
-  opportunities(game: Game, league: string, includeExperimental: boolean, minEdge = 0): OpportunitiesResult {
-    const snaps = this.repo.latestAll(game, league);
+  opportunities(game: Game, league: string, includeExperimental: boolean, minEdge = 0, category?: string): OpportunitiesResult {
+    const snaps = this.repo
+      .latestAll(game, league)
+      .filter((s) => category === undefined || s.category.toLowerCase() === category.toLowerCase());
     const all = snaps.flatMap((s) => [
       ...detectMeanReversion(s, this.detectors),
       ...detectCrossRateDivergence(s, this.detectors),
@@ -149,8 +199,10 @@ export class ExiliumService {
 
   /** Raw cross-rate arbitrage table: listed vs implied price for every
    * market with a usable quote pair, regardless of threshold. */
-  arbitrage(game: Game, league: string, minDivergencePct = 0): readonly ArbRow[] {
-    const snaps = this.repo.latestAll(game, league);
+  arbitrage(game: Game, league: string, minDivergencePct = 0, category?: string): readonly ArbRow[] {
+    const snaps = this.repo
+      .latestAll(game, league)
+      .filter((s) => category === undefined || s.category.toLowerCase() === category.toLowerCase());
     const rows = snaps.flatMap((s) =>
       s.lines.flatMap((l): ArbRow[] => {
         if (l.maxVolumeCurrency === null || l.maxVolumeRate === null || l.maxVolumeRate <= 0) return [];

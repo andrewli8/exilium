@@ -83,9 +83,11 @@ describe('Exilium MCP server', () => {
       'draft_trade_plan',
       'find_arbitrage',
       'find_opportunities',
+      'get_categories',
       'get_leagues',
       'get_market_snapshot',
       'get_pair_history',
+      'list_items',
       'price_item',
     ]);
     const draft = tools.find((t) => t.name === 'draft_trade_plan')!;
@@ -164,6 +166,21 @@ describe('Exilium MCP server', () => {
     expect(row).toHaveProperty('divergencePct');
     const gaps = res.rows.map((r: any) => r.divergencePct);
     expect(gaps).toEqual([...gaps].sort((a: number, b: number) => b - a));
+  });
+
+  test('get_categories and list_items browse by item type', async () => {
+    const cats = parseText(await client.callTool({ name: 'get_categories', arguments: { league: 'Mirage' } }));
+    expect(cats.categories[0]).toHaveProperty('category');
+    expect(cats.categories[0]).toHaveProperty('markets');
+
+    const items = parseText(
+      await client.callTool({ name: 'list_items', arguments: { league: 'Mirage', category: 'currency', sort: 'volume' } }),
+    );
+    expect(items.items.length).toBeGreaterThan(0);
+    expect(items.items.every((i: any) => i.category === 'Currency')).toBe(true);
+
+    const bad = await client.callTool({ name: 'list_items', arguments: { league: 'Mirage', category: 'Wands' } });
+    expect(bad.isError).toBe(true);
   });
 
   test('get_pair_history and get_leagues serve stored data only', async () => {

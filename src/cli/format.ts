@@ -1,5 +1,5 @@
 import type { Opportunity, PriceQuote } from '../domain/types.js';
-import type { ArbRow, MarketSummary } from '../mcp/service.js';
+import type { ArbRow, CategorySummary, DetailedMover, MarketSummary } from '../mcp/service.js';
 
 function table(headers: readonly string[], rows: readonly (readonly string[])[]): string {
   const widths = headers.map((h, i) => Math.max(h.length, ...rows.map((r) => (r[i] ?? '').length)));
@@ -46,6 +46,22 @@ export function formatSnapshotTable(s: MarketSummary): string {
     'Top volume:',
     table(headers, rows(s.topVolume)),
   ].join('\n');
+}
+
+export function formatCategoryTable(categories: readonly CategorySummary[], primaryCurrency: string): string {
+  if (categories.length === 0) return 'No data ingested yet — run `exilium ingest` first.';
+  return table(
+    ['Category', 'Markets', `Volume (${primaryCurrency})`],
+    categories.map((c) => [c.category, String(c.markets), Math.round(c.volumePrimaryValue).toLocaleString('en-US')]),
+  );
+}
+
+export function formatItemTable(items: readonly DetailedMover[], primaryCurrency: string): string {
+  if (items.length === 0) return 'No markets in this category.';
+  return table(
+    ['Item', `Price (${primaryCurrency})`, '7d change', `Volume (${primaryCurrency})`],
+    items.map((i) => [i.name, i.primaryValue.toPrecision(4), `${i.totalChange.toFixed(1)}%`, Math.round(i.volumePrimaryValue).toLocaleString('en-US')]),
+  );
 }
 
 export function formatArbTable(rows: readonly ArbRow[], primaryCurrency: string): string {

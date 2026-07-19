@@ -7,7 +7,7 @@ import { renderDashboard } from './dashboard/render.js';
 import { ingestLeague } from './ingest/ingest.js';
 import { buildMcpServer } from './mcp/server.js';
 import { ExiliumService } from './mcp/service.js';
-import { formatArbTable, formatOpportunityTable, formatPriceQuote, formatSnapshotTable } from './cli/format.js';
+import { formatArbTable, formatCategoryTable, formatItemTable, formatOpportunityTable, formatPriceQuote, formatSnapshotTable } from './cli/format.js';
 import { NinjaClient } from './sources/ninja/client.js';
 import { createDb } from './storage/db.js';
 import { SnapshotRepository } from './storage/snapshot-repository.js';
@@ -136,11 +136,34 @@ async function cmdPrice(): Promise<void> {
   console.log(quote === null ? `No match for "${query}" (currency/stackables only).` : formatPriceQuote(quote));
 }
 
+async function cmdCategories(): Promise<void> {
+  const league = storedLeague();
+  const service = new ExiliumService(repo);
+  console.log(`${config.game}/${league} · item categories\n`);
+  console.log(formatCategoryTable(service.categoryList(config.game, league), service.marketSnapshot(config.game, league).primaryCurrency));
+}
+
+async function cmdList(): Promise<void> {
+  const category = process.argv[3];
+  if (category === undefined || category.startsWith('--')) {
+    throw new Error('Usage: exilium list <category> [--sort value|volume|change] — see `exilium categories`');
+  }
+  const sortRaw = flagValue('--sort') ?? 'value';
+  if (sortRaw !== 'value' && sortRaw !== 'volume' && sortRaw !== 'change') {
+    throw new Error(`--sort must be value, volume, or change (got "${sortRaw}")`);
+  }
+  const league = storedLeague();
+  const service = new ExiliumService(repo);
+  const items = service.listItems(config.game, league, category, sortRaw);
+  console.log(`${config.game}/${league} · ${items[0]?.category ?? category} · ${items.length} markets · sorted by ${sortRaw}\n`);
+  console.log(formatItemTable(items, service.marketSnapshot(config.game, league).primaryCurrency));
+}
+
 async function cmdOpps(): Promise<void> {
   const minEdge = Number(flagValue('--min-edge') ?? config.minEdgePct) / 100;
   const experimental = process.argv.includes('--experimental');
   const league = storedLeague();
-  const { opportunities } = new ExiliumService(repo).opportunities(config.game, league, experimental, minEdge);
+  const { opportunities } = new ExiliumService(repo).opportunities(config.game, league, experimental, minEdge, flagValue('--category'));
   console.log(`${config.game}/${league} · edges ≥ ${(minEdge * 100).toFixed(0)}%${experimental ? ' · incl. experimental' : ''}\n`);
   console.log(formatOpportunityTable(opportunities));
 }
@@ -154,7 +177,7 @@ async function cmdArb(): Promise<void> {
   const limit = Number(flagValue('--limit') ?? 25);
   const league = storedLeague();
   const service = new ExiliumService(repo);
-  const rows = service.arbitrage(config.game, league, minDiv).slice(0, limit);
+  const rows = service.arbitrage(config.game, league, minDiv, flagValue('--category')).slice(0, limit);
   const primary = service.marketSnapshot(config.game, league).primaryCurrency;
   console.log(`${config.game}/${league} · cross-rate arbitrage (listed vs implied) · top ${limit}\n`);
   console.log(formatArbTable(rows, primary));
@@ -195,6 +218,8 @@ const commands: Record<string, () => Promise<void>> = {
   dashboard: cmdDashboard,
   watch: cmdWatch,
   price: cmdPrice,
+  categories: cmdCategories,
+  list: cmdList,
   opps: cmdOpps,
   snapshot: cmdSnapshot,
   arb: cmdArb,
@@ -203,7 +228,7 @@ const commands: Record<string, () => Promise<void>> = {
 const cmd = process.argv[2] ?? 'tui';
 const run = commands[cmd];
 if (run === undefined) {
-  console.error('Usage: exilium [tui]|ingest|watch|snapshot|opps|arb|price|dashboard|mcp');
+  console.error('Usage: exilium [tui]|ingest|watch|snapshot|categories|list|opps|arb|price|dashboard|mcp');
   process.exit(2);
 }
 run().catch((err) => {

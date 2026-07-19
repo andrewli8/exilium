@@ -31,7 +31,7 @@ function Header({ game, league, primary, asOf, ingesting }: {
   );
 }
 
-function Tabs({ view }: { readonly view: View }): React.JSX.Element {
+function Tabs({ view, category }: { readonly view: View; readonly category: string }): React.JSX.Element {
   const tab = (key: string, name: string, active: boolean) => (
     <Text key={name} inverse={active} color={active ? GOLD : DIM}>{` ${key}:${name} `}</Text>
   );
@@ -40,7 +40,8 @@ function Tabs({ view }: { readonly view: View }): React.JSX.Element {
       {tab('1', 'MOVERS', view === 'movers')}
       {tab('2', 'OPPORTUNITIES', view === 'opps')}
       {tab('3', 'ARBITRAGE', view === 'arb')}
-      <Text color={DIM}>  ↑↓ select · r ingest · q quit</Text>
+      <Text color={GOLD}>{` [${category}]`}</Text>
+      <Text color={DIM}>  ↑↓ select · ←→ category · r ingest · q quit</Text>
     </Box>
   );
 }
@@ -114,6 +115,7 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest }: TuiP
   const { isRawModeSupported } = useStdin();
   const [view, setView] = useState<View>('movers');
   const [selected, setSelected] = useState(0);
+  const [categoryIdx, setCategoryIdx] = useState(0);
   const [tick, setTick] = useState(0);
   const [ingesting, setIngesting] = useState(false);
 
@@ -124,11 +126,14 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest }: TuiP
 
   const data = useMemo(() => {
     const summary = service.marketSnapshot(game, league);
-    const movers = service.moversDetailed(game, league, PAGE);
-    const opps = service.opportunities(game, league, true).opportunities.slice(0, PAGE);
-    const arb = service.arbitrage(game, league).slice(0, PAGE);
-    return { summary, movers, opps, arb };
-  }, [service, game, league, tick, ingesting]);
+    const categories = ['All', ...service.categoryList(game, league).map((c) => c.category)];
+    const category = categories[categoryIdx % categories.length] ?? 'All';
+    const filter = category === 'All' ? undefined : category;
+    const movers = service.moversDetailed(game, league, PAGE, filter);
+    const opps = service.opportunities(game, league, true, 0, filter).opportunities.slice(0, PAGE);
+    const arb = service.arbitrage(game, league, 0, filter).slice(0, PAGE);
+    return { summary, categories, category, movers, opps, arb };
+  }, [service, game, league, tick, ingesting, categoryIdx]);
 
   const rowCount = view === 'movers' ? data.movers.length : view === 'opps' ? data.opps.length : data.arb.length;
 
@@ -139,6 +144,8 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest }: TuiP
     if (input === '3') { setView('arb'); setSelected(0); }
     if (key.downArrow) setSelected((s) => Math.min(rowCount - 1, s + 1));
     if (key.upArrow) setSelected((s) => Math.max(0, s - 1));
+    if (key.rightArrow) { setCategoryIdx((c) => c + 1); setSelected(0); }
+    if (key.leftArrow) { setCategoryIdx((c) => Math.max(0, c - 1)); setSelected(0); }
     if (input === 'r' && onIngest !== undefined && !ingesting) {
       setIngesting(true);
       onIngest()
@@ -159,7 +166,7 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest }: TuiP
   return (
     <Box flexDirection="column" paddingX={1}>
       <Header game={game} league={league} primary={data.summary.primaryCurrency} asOf={data.summary.asOf} ingesting={ingesting} />
-      <Tabs view={view} />
+      <Tabs view={view} category={data.category} />
       <Box marginTop={1}>
         {view === 'movers' && <MoversPane movers={data.movers} selected={selected} primary={data.summary.primaryCurrency} />}
         {view === 'opps' && <OppsPane opps={data.opps} selected={selected} />}

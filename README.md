@@ -42,7 +42,7 @@ A full-screen terminal UI (built with Ink, the React-for-CLIs library) over the 
 - **1 · MOVERS** — biggest price moves with a 7-day unicode sparkline detail pane for the selected row
 - **2 · OPPORTUNITIES** — live detector signals with edge, confidence, and rationale
 - **3 · ARBITRAGE** — listed vs implied cross-rate table per market
-- `↑/↓` select · `r` re-ingest fresh data in place · `q` quit · auto-rereads the store every 30s
+- `↑/↓` select · `←/→` cycle item categories (All → Currency → Scarab → …) · `r` re-ingest in place · `q` quit · auto-rereads every 30s
 
 ### CLI commands
 
@@ -53,8 +53,10 @@ After `npm install`, run via `npx exilium <command>` (or `npm run <command>` for
 | `exilium` / `exilium tui` | Full-screen terminal UI (default) |
 | `exilium ingest` | Pull the latest market snapshots (PoE1: 13 categories, ~600 markets) |
 | `exilium snapshot` | Top movers and top-volume markets in your terminal |
-| `exilium opps [--min-edge N] [--experimental]` | Current detector signals |
-| `exilium arb [--min-gap N] [--limit N]` | Cross-rate arbitrage table: listed vs implied price per market |
+| `exilium categories` | Item categories with market counts and volume |
+| `exilium list <category> [--sort value\|volume\|change]` | Browse every market in a category (Scarabs, Fragments, …) |
+| `exilium opps [--min-edge N] [--experimental] [--category C]` | Current detector signals |
+| `exilium arb [--min-gap N] [--limit N] [--category C]` | Cross-rate arbitrage table: listed vs implied price per market |
 | `exilium price <item name>` | Price any currency/stackable |
 | `exilium watch` | Notification loop (below) |
 | `exilium dashboard` | Local web dashboard |
@@ -125,7 +127,9 @@ Then just talk to Claude in any session:
 | `get_leagues` | Leagues with ingested data, per game |
 | `get_market_snapshot` | Top movers + top volume for a league |
 | `get_pair_history` | Stored price history + trailing sparkline for one item |
-| `find_arbitrage` | Cross-rate arbitrage table (listed vs implied), sorted by gap |
+| `get_categories` | Item categories with market counts and volume |
+| `list_items` | Every market in one category, sorted by value/volume/change |
+| `find_arbitrage` | Cross-rate arbitrage table (listed vs implied), sorted by gap; category-filterable |
 | `price_item` | Price a currency/stackable by name, with conversions and confidence |
 | `find_opportunities` | Current detector signals, filterable by edge; experimental signals are opt-in |
 | `draft_trade_plan` | Turn an opportunity into an ordered, human-executable plan (gold fees flagged) |
@@ -152,7 +156,7 @@ Every tool takes an optional `game` (`poe1`/`poe2`) defaulting to the server's c
 | Market ingestion (poe.ninja exchange, PoE1 + PoE2) | ✅ 13 + 7 categories |
 | Signal engine: mean-reversion | ✅ |
 | Cross-rate arbitrage (`arb`, `find_arbitrage`) | ✅ (two-leg; markets are usually efficient) |
-| MCP server (7 tools) | ✅ |
+| MCP server (9 tools) | ✅ |
 | Watch/alerts (desktop, terminal, Discord webhook) | ✅ |
 | Dashboard | ✅ lean web + full terminal UI (Ink) |
 | Price history accumulation | ✅ grows with each ingest |
