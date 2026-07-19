@@ -81,6 +81,7 @@ describe('Exilium MCP server', () => {
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual([
       'draft_trade_plan',
+      'find_arbitrage',
       'find_opportunities',
       'get_leagues',
       'get_market_snapshot',
@@ -150,6 +151,19 @@ describe('Exilium MCP server', () => {
       arguments: { league: 'Mirage', opportunity_id: 'nope' },
     });
     expect(bad.isError).toBe(true);
+  });
+
+  test('find_arbitrage returns listed-vs-implied rows sorted by gap', async () => {
+    const res = parseText(
+      await client.callTool({ name: 'find_arbitrage', arguments: { league: 'Mirage' } }),
+    );
+    expect(res.rows.length).toBeGreaterThan(0);
+    const row = res.rows[0];
+    expect(row).toHaveProperty('listed');
+    expect(row).toHaveProperty('implied');
+    expect(row).toHaveProperty('divergencePct');
+    const gaps = res.rows.map((r: any) => r.divergencePct);
+    expect(gaps).toEqual([...gaps].sort((a: number, b: number) => b - a));
   });
 
   test('get_pair_history and get_leagues serve stored data only', async () => {

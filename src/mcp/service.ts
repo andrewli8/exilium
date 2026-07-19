@@ -40,6 +40,20 @@ export interface PairHistory {
   readonly latestSparkline: readonly number[];
 }
 
+/** One market's cross-rate consistency check — the raw arbitrage view. */
+export interface ArbRow {
+  readonly itemId: string;
+  readonly itemName: string;
+  readonly category: string;
+  /** Listed price in the primary currency. */
+  readonly listed: number;
+  /** Price implied by the highest-volume quote pair and core rates. */
+  readonly implied: number;
+  readonly quoteCurrency: string;
+  readonly divergencePct: number;
+  readonly volumePrimaryValue: number;
+}
+
 export interface OpportunitiesResult {
   readonly league: string;
   readonly opportunities: readonly Opportunity[];
@@ -109,6 +123,35 @@ export class ExiliumService {
       .filter((o) => (includeExperimental || !o.experimental) && o.edge >= minEdge)
       .sort((a, b) => b.edge - a.edge);
     return { league, opportunities: filtered };
+  }
+
+  /** Raw cross-rate arbitrage table: listed vs implied price for every
+   * market with a usable quote pair, regardless of threshold. */
+  arbitrage(game: Game, league: string, minDivergencePct = 0): readonly ArbRow[] {
+    const snaps = this.repo.latestAll(game, league);
+    const rows = snaps.flatMap((s) =>
+      s.lines.flatMap((l): ArbRow[] => {
+        if (l.maxVolumeCurrency === null || l.maxVolumeRate === null || l.maxVolumeRate <= 0) return [];
+        const quotePerPrimary = s.core.perPrimary[l.maxVolumeCurrency];
+        if (quotePerPrimary === undefined || quotePerPrimary <= 0) return [];
+        const implied = 1 / (l.maxVolumeRate * quotePerPrimary);
+        const divergencePct = Math.abs(1 - implied / l.primaryValue) * 100;
+        if (divergencePct < minDivergencePct) return [];
+        return [
+          {
+            itemId: l.itemId,
+            itemName: l.name,
+            category: l.category,
+            listed: l.primaryValue,
+            implied,
+            quoteCurrency: l.maxVolumeCurrency,
+            divergencePct,
+            volumePrimaryValue: l.volumePrimaryValue,
+          },
+        ];
+      }),
+    );
+    return [...rows].sort((a, b) => b.divergencePct - a.divergencePct);
   }
 
   plan(game: Game, league: string, opportunityId: string): TradePlan {

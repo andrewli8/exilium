@@ -31,6 +31,25 @@ Data is a snapshot at ingest time. Re-run `npm run ingest` whenever you want fre
 
 ## Using it
 
+### CLI commands
+
+After `npm install`, run via `npx exilium <command>` (or `npm run <command>` for the long-running ones):
+
+| Command | What it does |
+|---|---|
+| `exilium ingest` | Pull the latest market snapshots (PoE1: 13 categories, ~600 markets) |
+| `exilium snapshot` | Top movers and top-volume markets in your terminal |
+| `exilium opps [--min-edge N] [--experimental]` | Current detector signals |
+| `exilium arb [--min-gap N] [--limit N]` | Cross-rate arbitrage table: listed vs implied price per market |
+| `exilium price <item name>` | Price any currency/stackable |
+| `exilium watch` | Notification loop (below) |
+| `exilium dashboard` | Local web dashboard |
+| `exilium mcp` | MCP server on stdio for AI agents |
+
+### Arbitrage detection — honest scope
+
+`exilium arb` (and the `find_arbitrage` MCP tool) compares every market's **listed price** against the **price implied by its highest-volume quote pair** and the core cross-rates — a two-leg cross-rate consistency check. Findings so far: the in-game exchange is *efficient* — gaps run under 0.5% in practice, which wouldn't survive gold fees. When a wide gap does appear (league start, low-volume markets, breaking news), `arb` and the watch loop will surface it. What Exilium deliberately does **not** claim: multi-leg triangular routes (the data source only quotes each market against the primary + one quote currency) and latency-race arbitrage (our data is minutes old and execution is human — see [PRD.md](./PRD.md) §2 for why we target durable edges instead).
+
 ### Watch mode — get pinged when a trade is available
 
 ```bash
@@ -92,6 +111,7 @@ Then just talk to Claude in any session:
 | `get_leagues` | Leagues with ingested data, per game |
 | `get_market_snapshot` | Top movers + top volume for a league |
 | `get_pair_history` | Stored price history + trailing sparkline for one item |
+| `find_arbitrage` | Cross-rate arbitrage table (listed vs implied), sorted by gap |
 | `price_item` | Price a currency/stackable by name, with conversions and confidence |
 | `find_opportunities` | Current detector signals, filterable by edge; experimental signals are opt-in |
 | `draft_trade_plan` | Turn an opportunity into an ordered, human-executable plan (gold fees flagged) |
@@ -110,6 +130,22 @@ Every tool takes an optional `game` (`poe1`/`poe2`) defaulting to the server's c
 | `EXILIUM_WATCH_INTERVAL` | `600` | Watch mode: seconds between cycles (min 300) |
 | `EXILIUM_WEBHOOK` | — | Watch mode: Discord-compatible webhook URL |
 | `EXILIUM_CONTACT` | — | Optional: appended to the User-Agent poe.ninja sees. The tool already identifies itself via the repo URL; set this only if you operate a fork/deployment and want API operators to reach *you* |
+
+## Feature status vs the PRD
+
+| PRD feature | Status |
+|---|---|
+| Market ingestion (poe.ninja exchange, PoE1 + PoE2) | ✅ 13 + 7 categories |
+| Signal engine: mean-reversion | ✅ |
+| Cross-rate arbitrage (`arb`, `find_arbitrage`) | ✅ (two-leg; markets are usually efficient) |
+| MCP server (7 tools) | ✅ |
+| Watch/alerts (desktop, terminal, Discord webhook) | ✅ |
+| Dashboard | ✅ lean |
+| Price history accumulation | ✅ grows with each ingest |
+| Bulk↔single spread detector | ⛔ blocked: poe.ninja retired listing-based price APIs (everything is exchange-based now); needs a listing data source |
+| Backtesting, fill-likelihood | 🕐 deferred until a full league of history is accumulated |
+| OAuth stash valuation | 🕐 P1 — needs GGG application approval |
+| Rare-item valuation | ⛔ out of scope by design (multi-month subsystem) |
 
 ## What the signals are (and aren't)
 

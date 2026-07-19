@@ -7,6 +7,7 @@ import { renderDashboard } from './dashboard/render.js';
 import { ingestLeague } from './ingest/ingest.js';
 import { buildMcpServer } from './mcp/server.js';
 import { ExiliumService } from './mcp/service.js';
+import { formatArbTable, formatOpportunityTable, formatPriceQuote, formatSnapshotTable } from './cli/format.js';
 import { NinjaClient } from './sources/ninja/client.js';
 import { createDb } from './storage/db.js';
 import { SnapshotRepository } from './storage/snapshot-repository.js';
@@ -115,17 +116,66 @@ async function cmdWatch(): Promise<void> {
   setInterval(cycle, config.watchIntervalSec * 1000);
 }
 
+function storedLeague(): string {
+  const league = config.league ?? repo.leaguesSeen().find((l) => l.game === config.game)?.league;
+  if (league === undefined) {
+    throw new Error(`No ${config.game} data ingested yet — run \`exilium ingest\` first (or set EXILIUM_LEAGUE).`);
+  }
+  return league;
+}
+
+function flagValue(name: string): string | undefined {
+  const i = process.argv.indexOf(name);
+  return i === -1 ? undefined : process.argv[i + 1];
+}
+
+async function cmdPrice(): Promise<void> {
+  const query = process.argv.slice(3).filter((a) => !a.startsWith('--')).join(' ');
+  if (query === '') throw new Error('Usage: exilium price <item name>');
+  const quote = new ExiliumService(repo).price(query, config.game, storedLeague());
+  console.log(quote === null ? `No match for "${query}" (currency/stackables only).` : formatPriceQuote(quote));
+}
+
+async function cmdOpps(): Promise<void> {
+  const minEdge = Number(flagValue('--min-edge') ?? config.minEdgePct) / 100;
+  const experimental = process.argv.includes('--experimental');
+  const league = storedLeague();
+  const { opportunities } = new ExiliumService(repo).opportunities(config.game, league, experimental, minEdge);
+  console.log(`${config.game}/${league} · edges ≥ ${(minEdge * 100).toFixed(0)}%${experimental ? ' · incl. experimental' : ''}\n`);
+  console.log(formatOpportunityTable(opportunities));
+}
+
+async function cmdSnapshot(): Promise<void> {
+  console.log(formatSnapshotTable(new ExiliumService(repo).marketSnapshot(config.game, storedLeague())));
+}
+
+async function cmdArb(): Promise<void> {
+  const minDiv = Number(flagValue('--min-gap') ?? 0);
+  const limit = Number(flagValue('--limit') ?? 25);
+  const league = storedLeague();
+  const service = new ExiliumService(repo);
+  const rows = service.arbitrage(config.game, league, minDiv).slice(0, limit);
+  const primary = service.marketSnapshot(config.game, league).primaryCurrency;
+  console.log(`${config.game}/${league} · cross-rate arbitrage (listed vs implied) · top ${limit}\n`);
+  console.log(formatArbTable(rows, primary));
+  console.log('\nGaps are usually <0.5% — the exchange is efficient. Wide gaps on low volume are stale-data suspects; re-verify in-game before acting.');
+}
+
 const commands: Record<string, () => Promise<void>> = {
   ingest: cmdIngest,
   mcp: cmdMcp,
   dashboard: cmdDashboard,
   watch: cmdWatch,
+  price: cmdPrice,
+  opps: cmdOpps,
+  snapshot: cmdSnapshot,
+  arb: cmdArb,
 };
 
 const cmd = process.argv[2] ?? '';
 const run = commands[cmd];
 if (run === undefined) {
-  console.error('Usage: exilium <ingest|mcp|dashboard|watch>');
+  console.error('Usage: exilium <ingest|watch|snapshot|opps|arb|price|dashboard|mcp>');
   process.exit(2);
 }
 run().catch((err) => {

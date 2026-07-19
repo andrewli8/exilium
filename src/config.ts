@@ -15,10 +15,10 @@ export interface ExiliumConfig {
   readonly webhookUrl: string | undefined;
 }
 
-/** poe.ninja groups all PoE1 exchange markets under one Currency request;
- * PoE2 splits them across several category types. */
+/** Exchange category type names per game, as poe.ninja's API expects them
+ * (PoE1 uses singular names; PoE2 uses plural). */
 const CATEGORIES_BY_GAME: Readonly<Record<Game, readonly string[]>> = {
-  poe1: ['Currency'],
+  poe1: ['Currency', 'Fragment', 'Scarab', 'Essence', 'Oil', 'Fossil', 'Resonator', 'DeliriumOrb', 'Tattoo', 'Omen', 'DivinationCard', 'Artifact', 'AllflameEmber'],
   poe2: ['Currency', 'Runes', 'Essences', 'Delirium', 'Ritual', 'Expedition', 'Breach'],
 };
 

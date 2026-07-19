@@ -78,6 +78,22 @@ export function buildMcpServer(service: ExiliumService, defaultGame: Game = 'poe
   );
 
   server.registerTool(
+    'find_arbitrage',
+    {
+      description: `Cross-rate arbitrage table: every market's listed price vs the price implied by its highest-volume quote pair and core rates. min_divergence_pct filters small gaps (default 0 = show all, sorted widest first). Gaps are usually <0.5% — the in-game exchange is efficient; treat wide gaps as stale-data suspects and re-verify in-game. Read-only cached data. ${HUMAN_RULE}`,
+      inputSchema: {
+        game: gameSchema,
+        league: z.string().min(1),
+        min_divergence_pct: z.number().nonnegative().optional(),
+        limit: z.number().int().positive().max(200).optional(),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ game, league, min_divergence_pct, limit }) =>
+      json({ league, rows: service.arbitrage(resolveGame(game), league, min_divergence_pct ?? 0).slice(0, limit ?? 50) }),
+  );
+
+  server.registerTool(
     'draft_trade_plan',
     {
       description: `Turn an opportunity id (from find_opportunities) into an ordered, human-executable trade plan with gold-fee guidance. Exilium never executes trades; the plan is for the human to carry out in-game.`,

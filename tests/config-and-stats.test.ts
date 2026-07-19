@@ -12,7 +12,9 @@ describe('loadConfig', () => {
     expect(c.userAgent).toContain('github.com/andrewli8/exilium');
     expect(c.userAgent).not.toContain('contact:');
     expect(c.game).toBe('poe1');
-    expect(c.categories).toEqual(['Currency']);
+    expect(c.categories).toContain('Currency');
+    expect(c.categories).toContain('Scarab');
+    expect(c.categories).toContain('DivinationCard');
     expect(c.watchIntervalSec).toBe(600);
     expect(c.minEdgePct).toBe(25);
     expect(c.webhookUrl).toBeUndefined();
