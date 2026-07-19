@@ -1,0 +1,344 @@
+<title>Exilium — System Status</title>
+<style>
+  :root {
+    --ink: #f4f2ec;
+    --panel: #ffffff;
+    --panel-edge: #d8d3c6;
+    --text: #22262e;
+    --dim: #6d7480;
+    --gold: #a87c0d;
+    --gold-soft: #a87c0d22;
+    --good: #1f7a4d;
+    --good-bg: #1f7a4d1a;
+    --warn: #8a5a13;
+    --warn-bg: #8a5a131a;
+    --hold: #6d7480;
+    --hold-bg: #6d74801a;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #0c0f14;
+      --panel: #151a23;
+      --panel-edge: #262d3a;
+      --text: #dbe2ec;
+      --dim: #8b95a4;
+      --gold: #d4a017;
+      --gold-soft: #d4a01726;
+      --good: #4cc38a;
+      --good-bg: #4cc38a1f;
+      --warn: #e0a63f;
+      --warn-bg: #e0a63f1f;
+      --hold: #8b95a4;
+      --hold-bg: #8b95a41f;
+    }
+  }
+  :root[data-theme="light"] {
+    --ink: #f4f2ec; --panel: #ffffff; --panel-edge: #d8d3c6; --text: #22262e; --dim: #6d7480;
+    --gold: #a87c0d; --gold-soft: #a87c0d22;
+    --good: #1f7a4d; --good-bg: #1f7a4d1a; --warn: #8a5a13; --warn-bg: #8a5a131a; --hold: #6d7480; --hold-bg: #6d74801a;
+  }
+  :root[data-theme="dark"] {
+    --ink: #0c0f14; --panel: #151a23; --panel-edge: #262d3a; --text: #dbe2ec; --dim: #8b95a4;
+    --gold: #d4a017; --gold-soft: #d4a01726;
+    --good: #4cc38a; --good-bg: #4cc38a1f; --warn: #e0a63f; --warn-bg: #e0a63f1f; --hold: #8b95a4; --hold-bg: #8b95a41f;
+  }
+
+  body {
+    background: var(--ink);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.6;
+    margin: 0;
+    padding: 3rem 1.25rem 5rem;
+  }
+  main { max-width: 960px; margin: 0 auto; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: .72rem;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: var(--gold);
+    margin: 0 0 .5rem;
+  }
+  h1 {
+    font-family: var(--mono);
+    font-size: clamp(1.9rem, 4.5vw, 2.6rem);
+    letter-spacing: .04em;
+    margin: 0 0 .35rem;
+    text-wrap: balance;
+  }
+  .sub { color: var(--dim); max-width: 62ch; margin: 0 0 2.25rem; }
+  .sub a { color: var(--gold); }
+
+  h2 {
+    font-family: var(--mono);
+    font-size: .95rem;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--gold);
+    border-bottom: 1px solid var(--panel-edge);
+    padding-bottom: .5rem;
+    margin: 3rem 0 1rem;
+  }
+  h2 span.count { color: var(--dim); letter-spacing: 0; }
+
+  /* status board */
+  .board {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: .75rem;
+    margin: 0 0 .75rem;
+  }
+  .stat {
+    background: var(--panel);
+    border: 1px solid var(--panel-edge);
+    border-radius: 6px;
+    padding: .8rem 1rem;
+  }
+  .stat .n {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 1.45rem;
+    font-weight: 700;
+  }
+  .stat .n em { font-style: normal; color: var(--gold); }
+  .stat .l { font-size: .75rem; color: var(--dim); letter-spacing: .06em; text-transform: uppercase; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: .5rem; margin: .75rem 0 0; }
+  .chip {
+    font-family: var(--mono);
+    font-size: .74rem;
+    padding: .22rem .6rem;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .chip.live { color: var(--good); background: var(--good-bg); }
+  .chip.watch { color: var(--warn); background: var(--warn-bg); }
+  .chip.hold { color: var(--hold); background: var(--hold-bg); }
+
+  /* panels & tables */
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--panel-edge);
+    border-radius: 6px;
+    padding: 1rem 1.25rem;
+    overflow-x: auto;
+  }
+  table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+  th {
+    font-family: var(--mono);
+    font-size: .7rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--dim);
+    text-align: left;
+    padding: .45rem .75rem .45rem 0;
+    border-bottom: 1px solid var(--panel-edge);
+  }
+  td {
+    padding: .5rem .75rem .5rem 0;
+    border-bottom: 1px solid var(--panel-edge);
+    vertical-align: top;
+  }
+  tr:last-child td { border-bottom: none; }
+  td.mono, .mono { font-family: var(--mono); font-size: .82rem; white-space: nowrap; }
+  td .why { color: var(--dim); }
+
+  .surfaces { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: .75rem; }
+  .surface { background: var(--panel); border: 1px solid var(--panel-edge); border-radius: 6px; padding: 1rem 1.1rem; }
+  .surface h3 { font-family: var(--mono); font-size: .9rem; margin: 0 0 .3rem; }
+  .surface h3 code { color: var(--gold); background: var(--gold-soft); padding: .1rem .4rem; border-radius: 4px; font-size: .8rem; }
+  .surface p { margin: 0; font-size: .86rem; color: var(--dim); }
+
+  .anchor-list { margin: 0; padding-left: 1.2rem; }
+  .anchor-list li { margin-bottom: .4rem; }
+  .anchor-list strong { color: var(--gold); font-family: var(--mono); font-size: .85rem; }
+
+  code { font-family: var(--mono); font-size: .85em; }
+  .note { color: var(--dim); font-size: .84rem; max-width: 70ch; }
+
+  .diagram-panel { padding: 1.25rem; }
+  .diagram-panel .note { margin: .75rem 0 0; }
+  pre.mermaid { margin: 0; display: flex; justify-content: center; }
+
+  footer { margin-top: 3.5rem; color: var(--dim); font-size: .8rem; font-family: var(--mono); }
+  footer a { color: var(--gold); }
+</style>
+
+<main>
+  <p class="eyebrow">System status · 2026-07-18</p>
+  <h1>EXILIUM</h1>
+  <p class="sub">A market terminal for the Path of Exile economy with an agent-native MCP server.
+    Decision support only — every trade is executed by a human, in-game.
+    Source at <a href="https://github.com/andrewli8/exilium">github.com/andrewli8/exilium</a>, spec in <code>PRD.md</code> (v2.1, approved with conditions).</p>
+
+  <section>
+    <div class="board">
+      <div class="stat"><div class="n"><em>~1,000</em></div><div class="l">markets tracked</div></div>
+      <div class="stat"><div class="n">13 + 7</div><div class="l">categories · PoE1 + PoE2</div></div>
+      <div class="stat"><div class="n">7</div><div class="l">MCP tools</div></div>
+      <div class="stat"><div class="n">9</div><div class="l">CLI commands</div></div>
+      <div class="stat"><div class="n">76</div><div class="l">tests · all green</div></div>
+      <div class="stat"><div class="n">93<span style="color:var(--dim)">%</span></div><div class="l">stmt coverage</div></div>
+    </div>
+    <div class="chips">
+      <span class="chip live">● TUI live</span>
+      <span class="chip live">● MCP registered in Claude Code</span>
+      <span class="chip live">● watch notifications</span>
+      <span class="chip live">● arbitrage view</span>
+      <span class="chip live">● web dashboard</span>
+      <span class="chip watch">◐ history accumulating with each ingest</span>
+      <span class="chip hold">○ GGG OAuth app — not yet submitted</span>
+    </div>
+  </section>
+
+  <h2>System architecture</h2>
+  <div class="panel diagram-panel">
+    <pre class="mermaid">
+flowchart TB
+  subgraph upstream["Upstream (public community APIs)"]
+    ninja["poe.ninja exchange API<br/>PoE1: 13 categories · PoE2: 7 categories<br/>current ratios · volume · 7d sparklines"]
+  end
+
+  subgraph core["Exilium core (TypeScript monolith)"]
+    client["NinjaClient<br/>repo-URL User-Agent · DI fetch"]
+    norm["Normalizer<br/>zod-validated · null-gap handling"]
+    db[("SQLite store<br/>game + league scoped snapshots<br/>price history grows per ingest")]
+    engine["Signal engine<br/>mean-reversion · cross-rate divergence<br/>arbitrage table (listed vs implied)"]
+    svc["ExiliumService<br/>one service layer, cached data only"]
+    client --> norm --> db
+    db --> engine --> svc
+    db --> svc
+  end
+
+  subgraph loops["Refresh paths"]
+    ingest["exilium ingest<br/>manual / cron"]
+    watch["exilium watch<br/>5–10 min loop + dedupe"]
+  end
+
+  subgraph surfaces["Surfaces"]
+    tui["Terminal UI (Ink)<br/>movers · opportunities · arb"]
+    cli["CLI<br/>price · opps · arb · snapshot"]
+    dash["Web dashboard<br/>localhost:4321"]
+    mcp["MCP server (stdio)<br/>7 read-only tools"]
+  end
+
+  agents["AI agents<br/>Claude Code · Claude Desktop"]
+  notify["Desktop notification<br/>terminal · Discord webhook"]
+  human(["Human trader<br/>executes in-game — always"])
+
+  ninja --> client
+  ingest --> client
+  watch --> client
+  svc --> tui
+  svc --> cli
+  svc --> dash
+  svc --> mcp
+  mcp --> agents
+  watch --> notify
+  tui --> human
+  cli --> human
+  dash --> human
+  agents -- "draft trade plans" --> human
+  notify --> human
+    </pre>
+    <p class="note">Two invariants hold everywhere: the MCP layer serves cached local data only and can never trigger an
+      upstream request (agents can't spend the API quota), and nothing in the system executes a trade — plans end at the human.</p>
+  </div>
+
+  <h2>Surfaces <span class="count">· four ways in, one engine</span></h2>
+  <div class="surfaces">
+    <div class="surface">
+      <h3><code>exilium</code> — Terminal UI (default)</h3>
+      <p>Full-screen Ink app: MOVERS with 7-day sparkline detail, OPPORTUNITIES feed, ARBITRAGE table.
+        Keys: 1/2/3 panes, ↑↓ select, r re-ingest, q quit. Auto-rereads every 30s.</p>
+    </div>
+    <div class="surface">
+      <h3><code>exilium &lt;cmd&gt;</code> — CLI</h3>
+      <p><code>ingest</code> · <code>watch</code> · <code>snapshot</code> · <code>opps</code> ·
+        <code>arb</code> · <code>price</code> · <code>dashboard</code> · <code>mcp</code> — aligned tables straight to the terminal.</p>
+    </div>
+    <div class="surface">
+      <h3>MCP server — for AI agents</h3>
+      <p><code>get_leagues</code> · <code>get_market_snapshot</code> · <code>get_pair_history</code> ·
+        <code>price_item</code> · <code>find_opportunities</code> · <code>find_arbitrage</code> ·
+        <code>draft_trade_plan</code>. Registered and connected in Claude Code.</p>
+    </div>
+    <div class="surface">
+      <h3>Watch mode — get pinged</h3>
+      <p>Refreshes on an interval, notifies once per new signal above your edge floor:
+        desktop notification, terminal rationale, optional Discord webhook.</p>
+    </div>
+  </div>
+
+  <h2>Signal engine</h2>
+  <div class="panel">
+    <table>
+      <tr><th>Signal</th><th>Method</th><th>Honest status</th></tr>
+      <tr>
+        <td class="mono">mean-reversion</td>
+        <td>Z-score of the latest daily change vs the trailing 7-day window; volume-scaled confidence; gold-fee-aware trade plans.</td>
+        <td>Live — headline detector. ~40 signals on current PoE1 league data.</td>
+      </tr>
+      <tr>
+        <td class="mono">cross-rate divergence</td>
+        <td>Listed price vs price implied by the highest-volume quote pair and core rates (two-leg consistency check).</td>
+        <td>Live as the <code>arb</code> view. Markets are efficient — gaps run &lt;0.5% in practice; wide gaps surface at league starts and on thin volume.</td>
+      </tr>
+      <tr>
+        <td class="mono">bulk↔single spread</td>
+        <td>Exchange bulk price vs individual listing price.</td>
+        <td>Blocked — poe.ninja retired listing-based price APIs; needs a listing data source.</td>
+      </tr>
+    </table>
+  </div>
+
+  <h2>Data</h2>
+  <div class="panel">
+    <table>
+      <tr><th>Source</th><th>Coverage</th><th>Freshness</th></tr>
+      <tr>
+        <td>poe.ninja exchange API</td>
+        <td class="mono">PoE1 · Mirage — 13 categories, ~600 markets<br/>PoE2 · Runes of Aldur — 7 categories, ~390 markets</td>
+        <td>Minutes at ingest; snapshots accumulate into local price history</td>
+      </tr>
+      <tr>
+        <td>SQLite store (<code>exilium.db</code>)</td>
+        <td>Both games, league-scoped; prices in each game's primary currency — chaos (PoE1), divine (PoE2)</td>
+        <td>Rereads are instant and offline</td>
+      </tr>
+      <tr>
+        <td>GGG official OAuth API</td>
+        <td class="why">Hourly exchange digests, stash valuation — PRD P1</td>
+        <td class="why">Pending application submission</td>
+      </tr>
+    </table>
+  </div>
+
+  <h2>Compliance anchors <span class="count">· non-negotiable</span></h2>
+  <div class="panel">
+    <ol class="anchor-list">
+      <li><strong>01</strong> — Human-in-the-loop execution: no trade automation, ever. Every MCP tool description carries the rule.</li>
+      <li><strong>02</strong> — Durable edges, not latency races: data is minutes old and execution is human, so signals target inefficiencies that persist for hours.</li>
+      <li><strong>03</strong> — MCP serves cached data only: agents can never trigger upstream calls or burn rate limits.</li>
+      <li><strong>04</strong> — No POESESSID server-side, ever: no session cookies, no game-file access, polite User-Agent identifying the tool.</li>
+    </ol>
+  </div>
+
+  <h2>How it got here</h2>
+  <div class="panel">
+    <table>
+      <tr><th>Phase</th><th>Outcome</th></tr>
+      <tr><td class="mono">PRD v1 → v2.1</td><td>Architect subagent review found 5 critical flaws (arb-on-stale-data thesis, POESESSID liability, infeasible listing sampler); all resolved by restructuring. Approver subagent issued GO with 4 conditions, all incorporated.</td></tr>
+      <tr><td class="mono">v0 build</td><td>TDD throughout — ingestion, storage, detectors, MCP, dashboard. Live-verified end-to-end against real market data.</td></tr>
+      <tr><td class="mono">Iterations</td><td>PoE1 as default with per-game primary currencies · watch notifications · arbitrage view + CLI commands · full 13-category PoE1 coverage (found by sniffing poe.ninja's own site traffic) · Ink terminal UI.</td></tr>
+    </table>
+  </div>
+
+  <footer>
+    exilium v0.1.0 · <a href="https://github.com/andrewli8/exilium">github.com/andrewli8/exilium</a> · data via poe.ninja · humans execute all trades
+  </footer>
+</main>
