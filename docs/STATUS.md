@@ -25,7 +25,8 @@ Working backlog for the looptight loop. Each task carries evidence from the repo
 
 ## Review-response round (2026-07-19), completed
 - Versioned migrations (C1); retention + latestAll cache (C2); onset/wall-clock/baseline backtest (C3); journal decayed-id warning + resolution (C4)
-- Opportunity log (H1); track records + run_backtest in MCP (H2); shared ingest cadence gate (H3); live-search backoff ceiling (H5); idempotent record_outcome (H6)
+- Opportunity log (H1); track records + run_backtest in MCP (H2); idempotent record_outcome (H6)
+- H3 shared ingest gate and H5 live-search backoff: first landing was dead code (caught by the approver — patch script aborted mid-application and the record overstated it); re-landed for real in the follow-up commit, with the gate now DEFAULT-ON inside ingestLeague and a default-path test so it cannot silently unwire again
 - Freshness envelopes, sparkline opt-in, unchanged_since (M2/M3/M4)
 - PM round: sellsheet, rising, release workflow + install.sh + docs/INSTALL.md (delegated track)
 - Not done: cli.ts decomposition (H4, deferred — mechanical refactor), delta cursors beyond unchanged_since, npm publish (needs owner npm login), GGG OAuth (owner-deferred)

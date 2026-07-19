@@ -261,7 +261,7 @@ export function buildMcpServer(service: ExiliumService, defaultGame: Game = 'poe
       const report = service.cachedBacktest(resolveGame(game), league, horizon_hours ?? 6);
       return json({
         ...report,
-        methodology: 'Signal onsets only; wall-clock horizons; baselineHitRate is the fraction of ALL items that moved in the predicted direction over the same windows — a detector only has edge above that number.',
+        methodology: 'Signal onsets only (a signal active at the previous tick is the same episode; note: after a data gap a still-active signal re-counts as a new onset); wall-clock horizons; baselineHitRate is the fraction of ALL items that moved in the predicted direction over the same windows — a detector only has edge above that number.',
       });
     },
   );

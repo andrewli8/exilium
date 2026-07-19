@@ -19,6 +19,19 @@ const RAW_OK = {
 };
 
 describe('ingestLeague', () => {
+  test('the gate is ON BY DEFAULT — callers that pass nothing are still protected', async () => {
+    const repo = new SnapshotRepository(createDb(':memory:'));
+    const client = { getExchangeOverview: vi.fn().mockResolvedValue(RAW_OK) };
+    const base = { game: 'poe2' as const, league: 'L', categories: ['Currency'] };
+    await ingestLeague(client, repo, { ...base, now: () => '2026-07-19T10:00:00Z' });
+    const second = await ingestLeague(client, repo, { ...base, now: () => '2026-07-19T10:02:00Z' });
+    expect(second.skipped).toBe(true);
+    expect(client.getExchangeOverview).toHaveBeenCalledTimes(1);
+    // Explicit 0 forces (the manual `exilium ingest` path).
+    const forced = await ingestLeague(client, repo, { ...base, now: () => '2026-07-19T10:03:00Z', minIntervalSec: 0 });
+    expect(forced.saved).toEqual(['Currency']);
+  });
+
   test('skips refetch when another process fetched within the shared min interval', async () => {
     const db = createDb(':memory:');
     const repo = new SnapshotRepository(db);

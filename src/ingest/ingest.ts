@@ -14,7 +14,8 @@ export interface IngestOptions {
   /** Injected clock (ISO-8601) — keeps ingestion deterministic in tests. */
   readonly now: () => string;
   /** Shared minimum seconds between sweeps across ALL processes (TUI +
-   * dashboard + watch each have their own timer; the DB is the referee). */
+   * dashboard + watch each have their own timer; the DB is the referee).
+   * DEFAULTS ON (240s). Pass 0 to force — only `exilium ingest` does. */
   readonly minIntervalSec?: number;
 }
 
@@ -38,7 +39,7 @@ export async function ingestLeague(
   opts: IngestOptions,
 ): Promise<IngestResult> {
   const scope = `${opts.game}:${opts.league}`;
-  const minInterval = opts.minIntervalSec ?? 0;
+  const minInterval = opts.minIntervalSec ?? 240;
   if (minInterval > 0) {
     const last = repo.lastFetchAt(scope);
     if (last !== null && Date.parse(opts.now()) - Date.parse(last) < minInterval * 1000) {

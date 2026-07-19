@@ -77,6 +77,7 @@ async function cmdIngest(): Promise<void> {
     league,
     categories: config.categories,
     now: () => new Date().toISOString(),
+    minIntervalSec: 0, // explicit user command always fetches
   });
   console.log(`Saved: ${result.saved.join(', ') || '(none)'}`);
   for (const e of result.errors) console.error(`FAILED ${e.category}: ${e.message}`);
@@ -412,6 +413,7 @@ async function cmdLive(): Promise<void> {
   console.log('Exilium live search — whispers are COPIED to your clipboard, never sent. Paste in game to contact the seller. Ctrl+C to stop.');
   for (const search of searches) {
     const seen = new Set<string>();
+    let consecutiveFailures = 0;
     const connect = (): void => {
       const ws = new WebSocket(buildLiveWsUrl(search), {
         headers: {
@@ -420,7 +422,10 @@ async function cmdLive(): Promise<void> {
           Origin: 'https://www.pathofexile.com',
         },
       });
-      ws.on('open', () => console.log(`watching ${search.league}/${search.searchId} (${search.realm})`));
+      ws.on('open', () => {
+        consecutiveFailures = 0;
+        console.log(`watching ${search.league}/${search.searchId} (${search.realm})`);
+      });
       ws.on('message', (data: Buffer) => {
         void (async () => {
           try {
@@ -440,8 +445,14 @@ async function cmdLive(): Promise<void> {
         })();
       });
       ws.on('close', (code: number) => {
-        console.error(`live socket for ${search.searchId} closed (${code}) — reconnecting in 30s`);
-        setTimeout(connect, 30_000);
+        consecutiveFailures += 1;
+        if (consecutiveFailures >= 5) {
+          console.error(`live socket for ${search.searchId} failed ${consecutiveFailures} times in a row — giving up on this search. Check EXILIUM_POESESSID and the URL, then rerun.`);
+          return;
+        }
+        const delay = Math.min(300_000, 30_000 * 2 ** (consecutiveFailures - 1));
+        console.error(`live socket for ${search.searchId} closed (${code}) — reconnecting in ${Math.round(delay / 1000)}s`);
+        setTimeout(connect, delay);
       });
       ws.on('error', (err: Error) => {
         console.error(`live socket error for ${search.searchId}: ${err.message}${err.message.includes('401') ? ' — check EXILIUM_POESESSID' : ''}`);
