@@ -179,9 +179,9 @@
     <div class="board">
       <div class="stat"><div class="n"><em>~1,000</em></div><div class="l">markets tracked</div></div>
       <div class="stat"><div class="n">13 + 7</div><div class="l">categories · PoE1 + PoE2</div></div>
-      <div class="stat"><div class="n">9</div><div class="l">MCP tools</div></div>
+      <div class="stat"><div class="n">13</div><div class="l">MCP tools</div></div>
       <div class="stat"><div class="n">11</div><div class="l">CLI commands</div></div>
-      <div class="stat"><div class="n">91</div><div class="l">tests · all green</div></div>
+      <div class="stat"><div class="n">109</div><div class="l">tests · all green</div></div>
       <div class="stat"><div class="n">93<span style="color:var(--dim)">%</span></div><div class="l">stmt coverage</div></div>
     </div>
     <div class="chips">
@@ -191,7 +191,10 @@
       <span class="chip live">● arbitrage view</span>
       <span class="chip live">● dashboard — self-refreshing</span>
       <span class="chip watch">◐ history accumulating with each ingest</span>
-      <span class="chip hold">○ GGG OAuth app — not yet submitted</span>
+      <span class="chip live">● agent watches (create/poll via MCP)</span>
+      <span class="chip live">● price-history charts</span>
+      <span class="chip live">● 429 backoff + telemetry</span>
+      <span class="chip hold">○ GGG OAuth app — deferred (poe.ninja is the beta backbone)</span>
     </div>
   </section>
 
@@ -223,7 +226,7 @@ flowchart TB
     tui["Terminal UI (Ink)<br/>movers · opps · arb · category cycling"]
     cli["CLI<br/>price · opps · arb · snapshot"]
     dash["Web dashboard<br/>localhost:4321"]
-    mcp["MCP server (stdio)<br/>9 read-only tools"]
+    mcp["MCP server (stdio)<br/>13 tools incl. agent watches"]
   end
 
   agents["AI agents<br/>Claude Code · Claude Desktop"]
@@ -266,7 +269,8 @@ flowchart TB
       <h3>MCP server — for AI agents</h3>
       <p><code>get_leagues</code> · <code>get_market_snapshot</code> · <code>get_pair_history</code> ·
         <code>price_item</code> · <code>find_opportunities</code> · <code>find_arbitrage</code> ·
-        <code>get_categories</code> · <code>list_items</code> · <code>draft_trade_plan</code>.
+        <code>get_categories</code> · <code>list_items</code> · <code>draft_trade_plan</code> ·
+        <code>create_watch</code> · <code>list_watches</code> · <code>delete_watch</code> · <code>poll_watch_results</code>.
         Registered and connected in Claude Code.</p>
     </div>
     <div class="surface">

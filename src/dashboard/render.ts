@@ -1,4 +1,6 @@
 import { assessFreshness } from '../domain/freshness.js';
+import { renderPriceChart } from './chart.js';
+import type { PricePoint } from '../storage/snapshot-repository.js';
 import type { MarketSummary, MoverSummary, OpportunitiesResult } from '../mcp/service.js';
 import type { Opportunity } from '../domain/types.js';
 
@@ -27,6 +29,12 @@ table{border-collapse:collapse;width:100%;margin-bottom:2rem}
 td,th{border:1px solid #30363d;padding:.4rem .6rem;text-align:left;font-size:.85rem}
 th{background:#161b22}h1,h2{color:#d4a017}small{color:#8b949e}`;
 
+export interface PairChartData {
+  readonly itemId: string;
+  readonly name: string;
+  readonly points: readonly PricePoint[];
+}
+
 export interface RenderOptions {
   readonly nowMs: number;
   /** Page self-reloads on this cadence (reads the local store — cheap). */
@@ -40,6 +48,7 @@ export function renderDashboard(
   summary: MarketSummary,
   opps: OpportunitiesResult,
   opts: RenderOptions = { nowMs: Date.now(), reloadSec: 30 },
+  charts: readonly PairChartData[] = [],
 ): string {
   if (summary.asOf === null) {
     return `<html><head><style>${STYLE}</style></head><body><h1>Exilium</h1><p>No data ingested yet — run <code>npm run ingest</code> first.</p></body></html>`;
@@ -51,6 +60,10 @@ export function renderDashboard(
 <h1>Exilium <small>· ${esc(summary.game)} · ${esc(summary.league)} · ${badge} · prices in ${esc(summary.primaryCurrency)} · reloads every ${opts.reloadSec}s · humans execute all trades</small></h1>
 <h2>Opportunities</h2>
 <table><tr><th>Detector</th><th>Item</th><th>Edge</th><th>Confidence</th><th>Rationale</th></tr>${oppRows(opps.opportunities)}</table>
+${charts.length === 0 ? '' : `<h2>Price History <small>(local snapshots, in ${esc(summary.primaryCurrency)})</small></h2>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem;margin-bottom:2rem">
+${charts.map((c) => `<div><div style="font-size:.8rem;color:#8b949e;margin-bottom:.2rem">${esc(c.name)}</div>${renderPriceChart(c.points, { width: 300, height: 80 })}</div>`).join('')}
+</div>`}
 <h2>Top Movers</h2>
 <table><tr><th>Item</th><th>Category</th><th>Price</th><th>Change</th><th>Volume</th></tr>${moverRows(summary.topMovers)}</table>
 <h2>Top Volume</h2>

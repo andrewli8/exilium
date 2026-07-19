@@ -123,6 +123,72 @@ export function buildMcpServer(service: ExiliumService, defaultGame: Game = 'poe
   );
 
   server.registerTool(
+    'create_watch',
+    {
+      description: `Create (or idempotently update, by id) a persistent server-side watch. Kinds: price_above/price_below (item_id + threshold in the game's primary currency), change_abs (|7d change| ≥ threshold %, item_id or category scoped), opportunity (detector edge ≥ threshold %). mode 'once' (default) deactivates after first fire; 'repeat' fires once per data snapshot. Results via poll_watch_results or an optional webhook. ${HUMAN_RULE}`,
+      inputSchema: {
+        game: gameSchema,
+        league: z.string().min(1),
+        kind: z.enum(['price_above', 'price_below', 'change_abs', 'opportunity']),
+        item_id: z.string().optional(),
+        category: z.string().optional(),
+        threshold: z.number(),
+        mode: z.enum(['once', 'repeat']).optional(),
+        webhook_url: z.string().url().optional(),
+        id: z.string().min(1).max(64).optional(),
+      },
+    },
+    async ({ game, league, kind, item_id, category, threshold, mode, webhook_url, id }) => {
+      if ((kind === 'price_above' || kind === 'price_below') && item_id === undefined) {
+        throw new Error(`${kind} watches require item_id`);
+      }
+      const g = resolveGame(game);
+      const watch = service.createWatch({
+        id: id ?? `${kind}:${g}:${league}:${item_id ?? category ?? 'any'}:${threshold}`,
+        game: g,
+        league,
+        kind,
+        itemId: item_id ?? null,
+        category: category ?? null,
+        threshold,
+        mode: mode ?? 'once',
+        webhookUrl: webhook_url ?? null,
+        createdAt: new Date().toISOString(),
+        active: true,
+      });
+      return json({ watch });
+    },
+  );
+
+  server.registerTool(
+    'list_watches',
+    {
+      description: `List active watches. Read-only. ${HUMAN_RULE}`,
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    async () => json({ watches: service.listWatches() }),
+  );
+
+  server.registerTool(
+    'delete_watch',
+    {
+      description: `Delete a watch and its recorded events by id. ${HUMAN_RULE}`,
+      inputSchema: { id: z.string().min(1) },
+    },
+    async ({ id }) => json({ id, deleted: service.deleteWatch(id) }),
+  );
+
+  server.registerTool(
+    'poll_watch_results',
+    {
+      description: `Evaluate due watches against the latest cached data and return fired events after the cursor. Pass the returned nextCursor on the next call. Evaluation uses cached snapshots only — never triggers upstream calls. ${HUMAN_RULE}`,
+      inputSchema: { cursor: z.number().int().nonnegative(), limit: z.number().int().positive().max(200).optional() },
+    },
+    async ({ cursor, limit }) => json(service.pollWatchResults(cursor, limit ?? 50)),
+  );
+
+  server.registerTool(
     'draft_trade_plan',
     {
       description: `Turn an opportunity id (from find_opportunities) into an ordered, human-executable trade plan with gold-fee guidance. Exilium never executes trades; the plan is for the human to carry out in-game.`,

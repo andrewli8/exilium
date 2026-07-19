@@ -29,8 +29,38 @@ describe('NinjaClient', () => {
   });
 
   test('throws a descriptive error on non-2xx responses', async () => {
-    const fetchFn = vi.fn().mockResolvedValue(new Response('nope', { status: 429 }));
+    const fetchFn = vi.fn().mockResolvedValue(new Response('nope', { status: 500 }));
     const client = new NinjaClient({ fetchFn, userAgent: 'ua' });
-    await expect(client.getLeagues('poe1')).rejects.toThrow(/429/);
+    await expect(client.getLeagues('poe1')).rejects.toThrow(/500/);
+  });
+
+  test('enters cooldown on 429 honoring Retry-After and fails fast without network', async () => {
+    let now = 1_000_000;
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('slow down', { status: 429, headers: { 'Retry-After': '120' } }))
+      .mockResolvedValue(new Response('[]', { status: 200 }));
+    const client = new NinjaClient({ fetchFn, userAgent: 'ua', nowMs: () => now });
+
+    await expect(client.getLeagues('poe1')).rejects.toThrow(/rate limit/i);
+    expect(client.upstreamHealth().cooldownRemainingSec).toBe(120);
+
+    // during cooldown: fail fast, no network call
+    await expect(client.getLeagues('poe1')).rejects.toThrow(/cooldown/i);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+
+    // after cooldown passes: requests flow again and health clears
+    now += 121_000;
+    await expect(client.getLeagues('poe1')).resolves.toEqual([]);
+    expect(client.upstreamHealth().cooldownRemainingSec).toBe(0);
+    expect(client.upstreamHealth().total429s).toBe(1);
+  });
+
+  test('defaults to a 60s cooldown when Retry-After is missing', async () => {
+    let now = 0;
+    const fetchFn = vi.fn().mockResolvedValue(new Response('x', { status: 429 }));
+    const client = new NinjaClient({ fetchFn, userAgent: 'ua', nowMs: () => now });
+    await expect(client.getLeagues('poe1')).rejects.toThrow(/rate limit/i);
+    expect(client.upstreamHealth().cooldownRemainingSec).toBe(60);
   });
 });

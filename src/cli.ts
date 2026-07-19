@@ -11,11 +11,42 @@ import { formatArbTable, formatCategoryTable, formatItemTable, formatOpportunity
 import { NinjaClient } from './sources/ninja/client.js';
 import { createDb } from './storage/db.js';
 import { SnapshotRepository } from './storage/snapshot-repository.js';
+import { WatchRepository } from './storage/watch-repository.js';
 import { createNotifier } from './watch/notify.js';
 import { initialWatchState, watchTick } from './watch/watch.js';
 
 const config = loadConfig(process.env);
-const repo = new SnapshotRepository(createDb(config.dbPath));
+const db = createDb(config.dbPath);
+const repo = new SnapshotRepository(db);
+const watchRepo = new WatchRepository(db);
+
+function makeService(): ExiliumService {
+  return new ExiliumService(repo, undefined, watchRepo);
+}
+
+/** Evaluate agent watches after a data refresh; deliver webhook payloads.
+ * Failures log — they never break the refresh loop. */
+async function dispatchWatchEvents(service: ExiliumService): Promise<void> {
+  try {
+    const fired = service.runWatchEvaluation();
+    for (const e of fired) {
+      if (e.webhookUrl === null) continue;
+      try {
+        const res = await fetch(e.webhookUrl, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ content: `**Exilium watch ${e.watchId}**\n${JSON.stringify(e.payload)}` }),
+        });
+        if (!res.ok) console.error(`watch webhook ${e.watchId} returned ${res.status}`);
+      } catch (err) {
+        console.error(`watch webhook ${e.watchId} failed: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+    if (fired.length > 0) console.error(`watches fired: ${fired.length}`);
+  } catch (err) {
+    console.error(`watch evaluation failed: ${err instanceof Error ? err.message : err}`);
+  }
+}
 
 async function resolveLeague(client: NinjaClient): Promise<string> {
   if (config.league !== null) return config.league;
@@ -41,13 +72,13 @@ async function cmdIngest(): Promise<void> {
 }
 
 async function cmdMcp(): Promise<void> {
-  const server = buildMcpServer(new ExiliumService(repo), config.game);
+  const server = buildMcpServer(makeService(), config.game);
   await server.connect(new StdioServerTransport());
   console.error('Exilium MCP server running on stdio (cached data only — run `npm run ingest` to refresh).');
 }
 
 async function cmdDashboard(): Promise<void> {
-  const service = new ExiliumService(repo);
+  const service = makeService();
   const client = new NinjaClient({ userAgent: config.userAgent });
   const league = await resolveLeague(client).catch(
     () => repo.leaguesSeen().find((l) => l.game === config.game)?.league ?? 'Standard',
@@ -60,6 +91,7 @@ async function cmdDashboard(): Promise<void> {
       now: () => new Date().toISOString(),
     });
     for (const e of result.errors) console.error(`refresh ${e.category} failed: ${e.message}`);
+    await dispatchWatchEvents(service);
   };
   await refresh().catch((err) => console.error('initial refresh failed:', err instanceof Error ? err.message : err));
   setInterval(() => {
@@ -68,10 +100,17 @@ async function cmdDashboard(): Promise<void> {
 
   const httpServer = createServer((_req, res) => {
     try {
+      const summary = service.marketSnapshot(config.game, league);
+      const charts = summary.topVolume.slice(0, 6).map((m) => ({
+        itemId: m.itemId,
+        name: m.name,
+        points: service.pairHistory(config.game, league, m.itemId, 200).points,
+      }));
       const html = renderDashboard(
-        service.marketSnapshot(config.game, league),
+        summary,
         service.opportunities(config.game, league, true),
         { nowMs: Date.now(), reloadSec: 30 },
+        charts,
       );
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(html);
     } catch (err) {
@@ -89,7 +128,7 @@ async function cmdDashboard(): Promise<void> {
 async function cmdWatch(): Promise<void> {
   const client = new NinjaClient({ userAgent: config.userAgent });
   const league = await resolveLeague(client);
-  const service = new ExiliumService(repo);
+  const service = makeService();
   const notifier = createNotifier({
     platform: process.platform,
     execFn: async (cmd, args) => promisify(execFile)(cmd, [...args]),
@@ -98,13 +137,16 @@ async function cmdWatch(): Promise<void> {
     log: (m) => console.error(m),
   });
   const deps = {
-    ingest: () =>
-      ingestLeague(client, repo, {
+    ingest: async () => {
+      const result = await ingestLeague(client, repo, {
         game: config.game,
         league,
         categories: config.categories,
         now: () => new Date().toISOString(),
-      }),
+      });
+      await dispatchWatchEvents(service);
+      return result;
+    },
     opportunities: () =>
       service.opportunities(config.game, league, false, config.minEdgePct / 100).opportunities,
     notifier,
@@ -151,13 +193,13 @@ function flagValue(name: string): string | undefined {
 async function cmdPrice(): Promise<void> {
   const query = process.argv.slice(3).filter((a) => !a.startsWith('--')).join(' ');
   if (query === '') throw new Error('Usage: exilium price <item name>');
-  const quote = new ExiliumService(repo).price(query, config.game, storedLeague());
+  const quote = makeService().price(query, config.game, storedLeague());
   console.log(quote === null ? `No match for "${query}" (currency/stackables only).` : formatPriceQuote(quote));
 }
 
 async function cmdCategories(): Promise<void> {
   const league = storedLeague();
-  const service = new ExiliumService(repo);
+  const service = makeService();
   console.log(`${config.game}/${league} · item categories\n`);
   console.log(formatCategoryTable(service.categoryList(config.game, league), service.marketSnapshot(config.game, league).primaryCurrency));
 }
@@ -172,7 +214,7 @@ async function cmdList(): Promise<void> {
     throw new Error(`--sort must be value, volume, or change (got "${sortRaw}")`);
   }
   const league = storedLeague();
-  const service = new ExiliumService(repo);
+  const service = makeService();
   const items = service.listItems(config.game, league, category, sortRaw);
   console.log(`${config.game}/${league} · ${items[0]?.category ?? category} · ${items.length} markets · sorted by ${sortRaw}\n`);
   console.log(formatItemTable(items, service.marketSnapshot(config.game, league).primaryCurrency));
@@ -182,20 +224,20 @@ async function cmdOpps(): Promise<void> {
   const minEdge = Number(flagValue('--min-edge') ?? config.minEdgePct) / 100;
   const experimental = process.argv.includes('--experimental');
   const league = storedLeague();
-  const { opportunities } = new ExiliumService(repo).opportunities(config.game, league, experimental, minEdge, flagValue('--category'));
+  const { opportunities } = makeService().opportunities(config.game, league, experimental, minEdge, flagValue('--category'));
   console.log(`${config.game}/${league} · edges ≥ ${(minEdge * 100).toFixed(0)}%${experimental ? ' · incl. experimental' : ''}\n`);
   console.log(formatOpportunityTable(opportunities));
 }
 
 async function cmdSnapshot(): Promise<void> {
-  console.log(formatSnapshotTable(new ExiliumService(repo).marketSnapshot(config.game, storedLeague())));
+  console.log(formatSnapshotTable(makeService().marketSnapshot(config.game, storedLeague())));
 }
 
 async function cmdArb(): Promise<void> {
   const minDiv = Number(flagValue('--min-gap') ?? 0);
   const limit = Number(flagValue('--limit') ?? 25);
   const league = storedLeague();
-  const service = new ExiliumService(repo);
+  const service = makeService();
   const rows = service.arbitrage(config.game, league, minDiv, flagValue('--category')).slice(0, limit);
   const primary = service.marketSnapshot(config.game, league).primaryCurrency;
   console.log(`${config.game}/${league} · cross-rate arbitrage (listed vs implied) · top ${limit}\n`);
@@ -211,6 +253,7 @@ async function cmdTui(): Promise<void> {
   ]);
   const league = storedLeague();
   const client = new NinjaClient({ userAgent: config.userAgent });
+  const tuiService = makeService();
   const onIngest = async (): Promise<void> => {
     await ingestLeague(client, repo, {
       game: config.game,
@@ -218,10 +261,11 @@ async function cmdTui(): Promise<void> {
       categories: config.categories,
       now: () => new Date().toISOString(),
     });
+    await dispatchWatchEvents(tuiService);
   };
   render(
     React.default.createElement(ExiliumTui, {
-      service: new ExiliumService(repo),
+      service: tuiService,
       game: config.game,
       league,
       refreshSec: 30,

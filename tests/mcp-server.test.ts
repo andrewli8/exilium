@@ -5,6 +5,7 @@ import { buildMcpServer } from '../src/mcp/server.js';
 import { ExiliumService } from '../src/mcp/service.js';
 import { createDb } from '../src/storage/db.js';
 import { SnapshotRepository } from '../src/storage/snapshot-repository.js';
+import { WatchRepository } from '../src/storage/watch-repository.js';
 import type { MarketLine, MarketSnapshot } from '../src/domain/types.js';
 
 function line(overrides: Partial<MarketLine>): MarketLine {
@@ -54,10 +55,11 @@ const POE2_SNAP: MarketSnapshot = {
 };
 
 async function connectedClient() {
-  const repo = new SnapshotRepository(createDb(':memory:'));
+  const db = createDb(':memory:');
+  const repo = new SnapshotRepository(db);
   repo.save(POE1_SNAP);
   repo.save(POE2_SNAP);
-  const server = buildMcpServer(new ExiliumService(repo), 'poe1');
+  const server = buildMcpServer(new ExiliumService(repo, undefined, new WatchRepository(db)), 'poe1');
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'test', version: '0.0.1' });
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -80,6 +82,8 @@ describe('Exilium MCP server', () => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual([
+      'create_watch',
+      'delete_watch',
       'draft_trade_plan',
       'find_arbitrage',
       'find_opportunities',
@@ -88,6 +92,8 @@ describe('Exilium MCP server', () => {
       'get_market_snapshot',
       'get_pair_history',
       'list_items',
+      'list_watches',
+      'poll_watch_results',
       'price_item',
     ]);
     const draft = tools.find((t) => t.name === 'draft_trade_plan')!;
@@ -166,6 +172,43 @@ describe('Exilium MCP server', () => {
     expect(row).toHaveProperty('divergencePct');
     const gaps = res.rows.map((r: any) => r.divergencePct);
     expect(gaps).toEqual([...gaps].sort((a: number, b: number) => b - a));
+  });
+
+  test('watch lifecycle: create, list, evaluate, poll, delete', async () => {
+    const created = parseText(
+      await client.callTool({
+        name: 'create_watch',
+        arguments: { league: 'Mirage', kind: 'price_above', item_id: 'fusing', threshold: 0.4, id: 'test-watch' },
+      }),
+    );
+    expect(created.watch.id).toBe('test-watch');
+
+    const listed = parseText(await client.callTool({ name: 'list_watches', arguments: {} }));
+    expect(listed.watches.some((w: any) => w.id === 'test-watch')).toBe(true);
+
+    // creating again with the same id is idempotent, not a duplicate
+    await client.callTool({
+      name: 'create_watch',
+      arguments: { league: 'Mirage', kind: 'price_above', item_id: 'fusing', threshold: 0.4, id: 'test-watch' },
+    });
+    const listed2 = parseText(await client.callTool({ name: 'list_watches', arguments: {} }));
+    expect(listed2.watches.filter((w: any) => w.id === 'test-watch')).toHaveLength(1);
+
+    const polled = parseText(await client.callTool({ name: 'poll_watch_results', arguments: { cursor: 0 } }));
+    // fusing trades at 0.5 >= 0.4 — the poll itself triggers evaluation of due watches
+    expect(polled.events.length).toBeGreaterThan(0);
+    expect(polled.events[0].payload.itemId).toBe('fusing');
+    expect(polled.nextCursor).toBeGreaterThan(0);
+
+    const afterCursor = parseText(
+      await client.callTool({ name: 'poll_watch_results', arguments: { cursor: polled.nextCursor } }),
+    );
+    expect(afterCursor.events).toHaveLength(0);
+
+    const deleted = parseText(await client.callTool({ name: 'delete_watch', arguments: { id: 'test-watch' } }));
+    expect(deleted.deleted).toBe(true);
+    const listed3 = parseText(await client.callTool({ name: 'list_watches', arguments: {} }));
+    expect(listed3.watches.some((w: any) => w.id === 'test-watch')).toBe(false);
   });
 
   test('get_categories and list_items browse by item type', async () => {

@@ -97,7 +97,7 @@ EXILIUM_MIN_EDGE=50 EXILIUM_WATCH_INTERVAL=300 npm run watch   # ≥50% edges, e
 npm run dashboard        # → http://localhost:4321
 ```
 
-Opportunities (with rationale and confidence), top movers, and top-volume markets. **Self-sufficient**: ingests on boot, refetches every 5 minutes in the background, and the page reloads itself every 30s with a freshness badge — one tab replaces your poe.ninja tab pile.
+Opportunities (with rationale and confidence), **price-history charts for the top-volume markets** (drawn from your local snapshot history — they deepen the longer Exilium runs), top movers, and top-volume tables. **Self-sufficient**: ingests on boot, refetches every 5 minutes in the background, and the page reloads itself every 30s with a freshness badge — one tab replaces your poe.ninja tab pile.
 
 ### With Claude Code (recommended)
 
@@ -137,11 +137,16 @@ Then just talk to Claude in any session:
 | `get_categories` | Item categories with market counts and volume |
 | `list_items` | Every market in one category, sorted by value/volume/change |
 | `find_arbitrage` | Cross-rate arbitrage table (listed vs implied), sorted by gap; category-filterable |
+| `create_watch` | Persistent server-side watch: price_above/below, change_abs, or opportunity; once/repeat modes; optional webhook; idempotent by id |
+| `list_watches` / `delete_watch` | Manage watches |
+| `poll_watch_results` | Evaluate due watches and page fired events by cursor — agents without webhooks poll this |
 | `price_item` | Price a currency/stackable by name, with conversions and confidence |
 | `find_opportunities` | Current detector signals, filterable by edge; experimental signals are opt-in |
 | `draft_trade_plan` | Turn an opportunity into an ordered, human-executable plan (gold fees flagged) |
 
-Every tool takes an optional `game` (`poe1`/`poe2`) defaulting to the server's configured game. All tools serve locally cached data only — an agent can never trigger upstream API calls or spend anyone's rate limit.
+Every tool takes an optional `game` (`poe1`/`poe2`) defaulting to the server's configured game. All tools serve locally cached data only — an agent can never trigger upstream API calls or spend anyone's rate limit. Watches are evaluated after every data refresh (TUI, dashboard, and watch-mode loops all evaluate them) and on each `poll_watch_results` call; fired events dedupe per data snapshot, and `once`-mode watches deactivate after firing.
+
+**Rate-limit citizenship:** on a 429 from poe.ninja the client honors `Retry-After`, enters a cooldown (requests fail fast without hitting the network), and reports upstream health — if you see cooldown errors, raise `EXILIUM_REFRESH`.
 
 ## Configuration
 
@@ -164,8 +169,11 @@ Every tool takes an optional `game` (`poe1`/`poe2`) defaulting to the server's c
 | Market ingestion (poe.ninja exchange, PoE1 + PoE2) | ✅ 13 + 7 categories |
 | Signal engine: mean-reversion | ✅ |
 | Cross-rate arbitrage (`arb`, `find_arbitrage`) | ✅ (two-leg; markets are usually efficient) |
-| MCP server (9 tools) | ✅ |
+| MCP server (13 tools incl. agent watches) | ✅ |
 | Watch/alerts (desktop, terminal, Discord webhook) | ✅ |
+| Agent watches via MCP (create/list/delete/poll, webhooks) | ✅ |
+| Pair price-history charts | ✅ dashboard; deepens as history accumulates |
+| 429 backoff + upstream health telemetry | ✅ |
 | Dashboard | ✅ lean web + full terminal UI (Ink) |
 | Price history accumulation | ✅ grows with each ingest |
 | Bulk↔single spread detector | ⛔ blocked: poe.ninja retired listing-based price APIs (everything is exchange-based now); needs a listing data source |

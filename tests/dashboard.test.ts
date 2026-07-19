@@ -57,6 +57,23 @@ describe('renderDashboard', () => {
     expect(html).toMatch(/setTimeout.*location\.reload.*30000|content="30"/);
   });
 
+  test('renders pair charts when history is provided', () => {
+    const html = renderDashboard(SUMMARY, OPPS, { nowMs: Date.parse('2026-07-18T18:04:00Z'), reloadSec: 30 }, [
+      {
+        itemId: 'chaos',
+        name: 'Chaos Orb',
+        points: [
+          { fetchedAt: '2026-07-18T17:00:00Z', primaryValue: 0.12, volumePrimaryValue: 100 },
+          { fetchedAt: '2026-07-18T18:00:00Z', primaryValue: 0.13, volumePrimaryValue: 100 },
+        ],
+      },
+    ]);
+    expect(html).toContain('Price History');
+    expect(html).toContain('Chaos Orb');
+    expect(html).toContain('<svg');
+    expect(html).toContain('polyline');
+  });
+
   test('shows an empty-state message when there is no data', () => {
     const html = renderDashboard(
       { game: 'poe1', primaryCurrency: 'chaos', league: 'X', asOf: null, categories: 0, topMovers: [], topVolume: [] },

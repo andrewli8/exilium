@@ -3,7 +3,9 @@ import { detectCrossRateDivergence } from '../signals/cross-rate.js';
 import { detectMeanReversion } from '../signals/mean-reversion.js';
 import { draftTradePlan } from '../signals/trade-plan.js';
 import { priceItem } from '../pricing/price-item.js';
+import { evaluateWatches } from '../signals/watch-eval.js';
 import type { PricePoint, SnapshotRepository } from '../storage/snapshot-repository.js';
+import type { Watch, WatchEvent, WatchRepository } from '../storage/watch-repository.js';
 
 export interface DetectorConfig {
   readonly minVolume: number;
@@ -75,11 +77,65 @@ const TOP_N = 10;
 
 /** Serves the MCP tool surface from stored snapshots only — this layer never
  * performs upstream requests (PRD invariant: agents cannot spend our quota). */
+export interface FiredWatchEvent {
+  readonly watchId: string;
+  readonly webhookUrl: string | null;
+  readonly payload: Record<string, unknown>;
+}
+
 export class ExiliumService {
   constructor(
     private readonly repo: SnapshotRepository,
     private readonly detectors: DetectorConfig = DEFAULT_DETECTORS,
+    private readonly watches?: WatchRepository,
   ) {}
+
+  private requireWatches(): WatchRepository {
+    if (this.watches === undefined) throw new Error('Watches are not enabled for this service instance.');
+    return this.watches;
+  }
+
+  createWatch(watch: Watch): Watch {
+    this.requireWatches().upsert(watch);
+    return watch;
+  }
+
+  listWatches(): readonly Watch[] {
+    return this.requireWatches().list();
+  }
+
+  deleteWatch(id: string): boolean {
+    const repo = this.requireWatches();
+    const existed = repo.list(true).some((w) => w.id === id);
+    repo.delete(id);
+    return existed;
+  }
+
+  /** Evaluate all active watches against the latest snapshots, record fresh
+   * events (deduped per snapshot instance), deactivate 'once' watches that
+   * fired, and return what fired with any webhook targets. */
+  runWatchEvaluation(): readonly FiredWatchEvent[] {
+    const repo = this.requireWatches();
+    const active = repo.list();
+    const events = evaluateWatches(active, this, (watchId, key) => repo.hasEvent(watchId, key));
+    repo.recordEvents(events);
+    const byId = new Map(active.map((w) => [w.id, w]));
+    const firedOnce = new Set(
+      events.map((e) => e.watchId).filter((id) => byId.get(id)?.mode === 'once'),
+    );
+    for (const id of firedOnce) repo.deactivate(id);
+    return events.map((e) => ({
+      watchId: e.watchId,
+      webhookUrl: byId.get(e.watchId)?.webhookUrl ?? null,
+      payload: e.payload,
+    }));
+  }
+
+  pollWatchResults(cursor: number, limit: number): { events: readonly WatchEvent[]; nextCursor: number } {
+    this.runWatchEvaluation();
+    const events = this.requireWatches().eventsSince(cursor, limit);
+    return { events, nextCursor: events.length === 0 ? cursor : events[events.length - 1]!.seq };
+  }
 
   leagues(): { leagues: readonly { game: Game; league: string }[] } {
     return { leagues: this.repo.leaguesSeen() };
