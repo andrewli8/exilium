@@ -97,13 +97,45 @@ Watching poe1/Mirage every 600s for edges ≥ 50% — Ctrl+C to stop.
 
 Each signal notifies once. The loop will not ping you about the same thing every ten minutes.
 
+## exilium watches
+
+The persistent version of alerts. Watches live in the database, so they survive restarts, and any running surface (TUI, dashboard, watch mode) evaluates them after each refresh. Agents create them through MCP; this command is how you see and manage the same set.
+
+```bash
+exilium watches add --kind price_above --item divine --threshold 750 --mode repeat
+exilium watches
+exilium watches events
+exilium watches rm price_above:poe1:Mirage:divine:750
+```
+
+Kinds: `price_above` and `price_below` take a price in the primary currency, `change_abs` takes a 7-day change percent, `opportunity` takes a minimum edge percent. `--mode once` (the default) fires a single time and deactivates. `--webhook` posts fired events to a Discord webhook.
+
+## exilium journal
+
+The other half of every trade plan. After you act on one (or decide not to), record what happened:
+
+```bash
+exilium journal add mean-reversion:poe1:Mirage:blessed filled "sold 40 at 190c"
+exilium journal
+```
+
+```
+When                      Item     Outcome  Expected edge  Note
+------------------------  -------  -------  -------------  -------------------
+2026-07-19T03:04:46.828Z  blessed  filled   35.0%          sold 40 at 190c
+
+1 recorded · fill rate 100% (filled 1, partial 0, no-fill 0, skipped 0)
+```
+
+Outcomes are filled, partial, no-fill, or skipped. The fill rate is the honest number this product cannot get anywhere else: whether the detector's edges survive contact with the actual market. Agents can record outcomes too, through the record_outcome tool.
+
 ## exilium dashboard
 
 A local web page on port 4321. It ingests on boot, refetches every five minutes, and reloads itself every 30 seconds. Price history charts for the top-volume markets appear once you have two or more snapshots stored.
 
 ## exilium tui
 
-The default. Three views (movers, opportunities, arbitrage), switched with 1, 2, 3. Arrow keys select rows and cycle category filters. Press r to refetch immediately; it also refetches every five minutes on its own. The dot in the top right tells you data age: green under ten minutes, yellow under thirty, red past that.
+The default. Four views (movers, opportunities, arbitrage, fired watch events), switched with 1, 2, 3, 4. Arrow keys select rows and cycle category filters. Press r to refetch immediately; it also refetches every five minutes on its own. The dot in the top right tells you data age: green under ten minutes, yellow under thirty, red past that.
 
 ## exilium mcp
 

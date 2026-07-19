@@ -66,6 +66,8 @@ After `npm install`, run via `npx exilium <command>` (or `npm run <command>` for
 | `exilium arb [--min-gap N] [--limit N] [--category C]` | Cross-rate arbitrage table: listed vs implied price per market |
 | `exilium price <item name>` | Price any currency/stackable |
 | `exilium watch` | Notification loop (below) |
+| `exilium watches [add\|rm\|events]` | Manage persistent watches (the same ones agents create via MCP) |
+| `exilium journal [add]` | Record and review trade outcomes; prints your fill rate |
 | `exilium dashboard` | Local web dashboard |
 | `exilium mcp` | MCP server on stdio for AI agents |
 
@@ -140,6 +142,7 @@ Then just talk to Claude in any session:
 | `create_watch` | Persistent server-side watch: price_above/below, change_abs, or opportunity; once/repeat modes; optional webhook; idempotent by id |
 | `list_watches` / `delete_watch` | Manage watches |
 | `poll_watch_results` | Evaluate due watches and page fired events by cursor — agents without webhooks poll this |
+| `record_outcome` | Log what actually happened after a trade plan (filled/partial/no-fill/skipped) — builds the fill-reality journal |
 | `price_item` | Price a currency/stackable by name, with conversions and confidence |
 | `find_opportunities` | Current detector signals, filterable by edge; experimental signals are opt-in |
 | `draft_trade_plan` | Turn an opportunity into an ordered, human-executable plan (gold fees flagged) |
@@ -169,9 +172,10 @@ Every tool takes an optional `game` (`poe1`/`poe2`) defaulting to the server's c
 | Market ingestion (poe.ninja exchange, PoE1 + PoE2) | ✅ 13 + 7 categories |
 | Signal engine: mean-reversion | ✅ |
 | Cross-rate arbitrage (`arb`, `find_arbitrage`) | ✅ (two-leg; markets are usually efficient) |
-| MCP server (13 tools incl. agent watches) | ✅ |
+| MCP server (14 tools incl. agent watches and outcome journal) | ✅ |
 | Watch/alerts (desktop, terminal, Discord webhook) | ✅ |
 | Agent watches via MCP (create/list/delete/poll, webhooks) | ✅ |
+| Trade journal / fill-reality tracking | ✅ `exilium journal` + record_outcome |
 | Pair price-history charts | ✅ dashboard; deepens as history accumulates |
 | 429 backoff + upstream health telemetry | ✅ |
 | Dashboard | ✅ lean web + full terminal UI (Ink) |
