@@ -152,6 +152,7 @@ link_launcher() {
   case ":${PATH}:" in
     *":${BIN_DIR}:"*) : ;;
     *) warn "${BIN_DIR} is not on your PATH. Add this to your shell profile:"
+       # shellcheck disable=SC2016  # $PATH is meant to be shown literally to the user
        printf '\n    export PATH="%s:$PATH"\n' "$BIN_DIR" >&2 ;;
   esac
 }

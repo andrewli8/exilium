@@ -13,6 +13,7 @@ import { createDb } from './storage/db.js';
 import { SnapshotRepository } from './storage/snapshot-repository.js';
 import { WatchRepository } from './storage/watch-repository.js';
 import { JournalRepository } from './storage/journal-repository.js';
+import { OpportunityLogRepository } from './storage/opportunity-log-repository.js';
 import { OUTCOMES } from './storage/journal-repository.js';
 import type { Outcome } from './storage/journal-repository.js';
 import { runBacktest } from './backtest/backtest.js';
@@ -25,15 +26,18 @@ const db = createDb(config.dbPath);
 const repo = new SnapshotRepository(db);
 const watchRepo = new WatchRepository(db);
 const journalRepo = new JournalRepository(db);
+const oppLogRepo = new OpportunityLogRepository(db);
 
 function makeService(): ExiliumService {
-  return new ExiliumService(repo, undefined, watchRepo, journalRepo);
+  return new ExiliumService(repo, undefined, watchRepo, journalRepo, oppLogRepo);
 }
 
 /** Evaluate agent watches after a data refresh; deliver webhook payloads.
  * Failures log — they never break the refresh loop. */
 async function dispatchWatchEvents(service: ExiliumService): Promise<void> {
   try {
+    const league = config.league ?? repo.leaguesSeen().find((l) => l.game === config.game)?.league;
+    if (league !== undefined) service.logOpportunities(config.game, league);
     const fired = service.runWatchEvaluation();
     for (const e of fired) {
       if (e.webhookUrl === null) continue;
@@ -295,17 +299,20 @@ async function cmdJournal(): Promise<void> {
     if (oppId === undefined || outcome === undefined || !(OUTCOMES as readonly string[]).includes(outcome)) {
       throw new Error('Usage: exilium journal add <opportunity_id> <filled|partial|no-fill|skipped> [note]');
     }
-    const { opportunities } = makeService().opportunities(config.game, storedLeague(), true, 0);
-    const opp = opportunities.find((o) => o.id === oppId);
-    makeService().recordOutcome({
+    const service = makeService();
+    const opp = service.resolveOpportunity(config.game, storedLeague(), oppId);
+    if (opp === null) {
+      console.error(`Warning: "${oppId}" is not a known signal (live or logged) — recording with unverified edge 0. Prefer ids straight from opps/find_opportunities.`);
+    }
+    service.recordOutcome({
       opportunityId: oppId,
       outcome: outcome as Outcome,
       itemName: opp?.itemName ?? oppId.split(':').pop() ?? oppId,
-      expectedEdgePct: opp === undefined ? 0 : opp.edge * 100,
-      note: noteParts.length === 0 ? null : noteParts.join(' '),
+      expectedEdgePct: opp === null ? 0 : opp.edge * 100,
+      note: [opp === null ? '(edge unverified)' : null, noteParts.length === 0 ? null : noteParts.join(' ')].filter((s) => s !== null).join(' ') || null,
       recordedAt: new Date().toISOString(),
     });
-    console.log('Recorded.');
+    console.log(opp === null ? 'Recorded (edge unverified).' : `Recorded against ${opp.itemName} (expected edge ${(opp.edge * 100).toFixed(1)}%).`);
     return;
   }
   const { entries, summary } = makeService().journalEntries(Number(flagValue('--limit') ?? 50));

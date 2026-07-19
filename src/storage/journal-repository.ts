@@ -5,6 +5,8 @@ export type Outcome = (typeof OUTCOMES)[number];
 
 export interface JournalEntryInput {
   readonly opportunityId: string;
+  /** Optional client-supplied key; re-records with the same key are ignored. */
+  readonly idempotencyKey?: string | null;
   readonly itemName: string;
   readonly outcome: Outcome;
   readonly expectedEdgePct: number;
@@ -45,15 +47,17 @@ interface Row {
 export class JournalRepository {
   constructor(private readonly db: Db) {}
 
-  record(entry: JournalEntryInput): void {
+  /** Returns false when an identical idempotency key was already recorded. */
+  record(entry: JournalEntryInput): boolean {
     if (!OUTCOMES.includes(entry.outcome)) {
       throw new Error(`Unknown outcome "${entry.outcome}" — expected one of: ${OUTCOMES.join(', ')}`);
     }
-    this.db
+    const result = this.db
       .prepare(
-        'INSERT INTO journal (opportunity_id, item_name, outcome, expected_edge_pct, note, recorded_at) VALUES (?, ?, ?, ?, ?, ?)',
+        'INSERT OR IGNORE INTO journal (opportunity_id, item_name, outcome, expected_edge_pct, note, recorded_at, idempotency_key) VALUES (?, ?, ?, ?, ?, ?, ?)',
       )
-      .run(entry.opportunityId, entry.itemName, entry.outcome, entry.expectedEdgePct, entry.note, entry.recordedAt);
+      .run(entry.opportunityId, entry.itemName, entry.outcome, entry.expectedEdgePct, entry.note, entry.recordedAt, entry.idempotencyKey ?? null);
+    return result.changes > 0;
   }
 
   list(limit: number): readonly JournalEntry[] {

@@ -7,6 +7,10 @@ import { evaluateWatches } from '../signals/watch-eval.js';
 import type { PricePoint, SnapshotRepository } from '../storage/snapshot-repository.js';
 import type { Watch, WatchEvent, WatchRepository } from '../storage/watch-repository.js';
 import type { JournalEntry, JournalEntryInput, JournalRepository, JournalSummary } from '../storage/journal-repository.js';
+import { assessFreshness } from '../domain/freshness.js';
+import { runBacktest } from '../backtest/backtest.js';
+import type { BacktestReport } from '../backtest/backtest.js';
+import type { OpportunityLogRepository } from '../storage/opportunity-log-repository.js';
 
 export interface DetectorConfig {
   readonly minVolume: number;
@@ -91,7 +95,106 @@ export class ExiliumService {
     private readonly detectors: DetectorConfig = DEFAULT_DETECTORS,
     private readonly watches?: WatchRepository,
     private readonly journal?: JournalRepository,
+    private readonly oppLog?: OpportunityLogRepository,
   ) {}
+
+  /** Persist the current signals durably (idempotent per id+asOf). Called by
+   * refresh loops so ids referenced by plans/journal/watches stay resolvable. */
+  logOpportunities(game: Game, league: string): void {
+    if (this.oppLog === undefined) return;
+    this.oppLog.record(this.opportunities(game, league, true).opportunities);
+  }
+
+  /** Resolve an opportunity id: live signals first, then the durable log. */
+  resolveOpportunity(game: Game, league: string, id: string): Opportunity | null {
+    const live = this.opportunities(game, league, true).opportunities.find((o) => o.id === id);
+    if (live !== undefined) return live;
+    return this.oppLog?.resolve(id) ?? null;
+  }
+
+  /** Per-detector track record: journal fill reality + cached backtest. */
+  trackRecord(game: Game, league: string): Record<string, { journalFillRate: number | null; journalCount: number; backtest: { hitRate: number; baselineHitRate: number; signals: number } | null }> {
+    const journal = this.journal?.summary();
+    const backtest = this.cachedBacktest(game, league, 6);
+    const detectors = new Set<string>(['mean-reversion', 'cross-rate-divergence']);
+    for (const d of Object.keys(journal?.perDetector ?? {})) detectors.add(d);
+    return Object.fromEntries(
+      [...detectors].map((d) => {
+        const j = journal?.perDetector[d];
+        const b = backtest?.perDetector[d];
+        return [
+          d,
+          {
+            journalFillRate: j?.fillRate ?? null,
+            journalCount: j?.total ?? 0,
+            backtest: b === undefined ? null : { hitRate: b.hitRate, baselineHitRate: b.baselineHitRate, signals: b.signals },
+          },
+        ];
+      }),
+    );
+  }
+
+  private backtestCache = new Map<string, { maxAsOf: string | null; report: BacktestReport }>();
+
+  /** Backtest over stored history, cached until new snapshots arrive. */
+  cachedBacktest(game: Game, league: string, horizonHours: number): BacktestReport {
+    const latest = this.repo.latestAll(game, league);
+    const maxAsOf = latest[0]?.fetchedAt ?? null;
+    const key = `${game}:${league}:${horizonHours}`;
+    const cached = this.backtestCache.get(key);
+    if (cached !== undefined && cached.maxAsOf === maxAsOf) return cached.report;
+    const merged: Record<string, { signals: number; wins: number; moveSum: number; baseSum: number }> = {};
+    let ticks = 0;
+    let skipped = 0;
+    let from: string | null = null;
+    let to: string | null = null;
+    for (const s of latest) {
+      const report = runBacktest(this.repo.snapshotTimeline(game, league, s.category), {
+        horizonHours,
+        detectors: this.detectors,
+      });
+      ticks = Math.max(ticks, report.ticks);
+      skipped += report.skippedNoHorizon;
+      if (report.from !== null && (from === null || report.from < from)) from = report.from;
+      if (report.to !== null && (to === null || report.to > to)) to = report.to;
+      for (const [kind, d] of Object.entries(report.perDetector)) {
+        const e = merged[kind] ?? { signals: 0, wins: 0, moveSum: 0, baseSum: 0 };
+        merged[kind] = {
+          signals: e.signals + d.signals,
+          wins: e.wins + d.wins,
+          moveSum: e.moveSum + d.avgForwardMovePct * d.signals,
+          baseSum: e.baseSum + d.baselineHitRate * d.signals,
+        };
+      }
+    }
+    const report: BacktestReport = {
+      ticks,
+      from,
+      to,
+      skippedNoHorizon: skipped,
+      perDetector: Object.fromEntries(
+        Object.entries(merged).map(([kind, e]) => [
+          kind,
+          {
+            signals: e.signals,
+            wins: e.wins,
+            hitRate: e.signals === 0 ? 0 : e.wins / e.signals,
+            avgForwardMovePct: e.signals === 0 ? 0 : e.moveSum / e.signals,
+            baselineHitRate: e.signals === 0 ? 0 : e.baseSum / e.signals,
+          },
+        ]),
+      ),
+    };
+    this.backtestCache.set(key, { maxAsOf, report });
+    return report;
+  }
+
+  /** Freshness envelope for MCP responses. */
+  freshness(game: Game, league: string): { asOf: string | null; ageSec: number | null; level: string | null } {
+    const asOf = this.repo.latestAll(game, league)[0]?.fetchedAt ?? null;
+    const f = assessFreshness(asOf, Date.now());
+    return { asOf, ageSec: f?.ageSec ?? null, level: f?.level ?? null };
+  }
 
   private requireJournal(): JournalRepository {
     if (this.journal === undefined) throw new Error('Journal is not enabled for this service instance.');
@@ -102,6 +205,12 @@ export class ExiliumService {
     const journal = this.requireJournal();
     journal.record(entry);
     return journal.summary();
+  }
+
+  recordOutcomeIdempotent(entry: JournalEntryInput): { recorded: boolean; summary: JournalSummary } {
+    const journal = this.requireJournal();
+    const recorded = journal.record(entry);
+    return { recorded, summary: journal.summary() };
   }
 
   journalEntries(limit = 50): { entries: readonly JournalEntry[]; summary: JournalSummary } {
@@ -308,10 +417,9 @@ export class ExiliumService {
   }
 
   plan(game: Game, league: string, opportunityId: string): TradePlan {
-    const { opportunities } = this.opportunities(game, league, true);
-    const opp = opportunities.find((o) => o.id === opportunityId);
-    if (opp === undefined) {
-      throw new Error(`Unknown opportunity id "${opportunityId}" — call find_opportunities first; ids are recomputed from the latest snapshot.`);
+    const opp = this.resolveOpportunity(game, league, opportunityId);
+    if (opp === null) {
+      throw new Error(`Unknown opportunity id "${opportunityId}" — not in current signals or the opportunity log. Call find_opportunities first.`);
     }
     return draftTradePlan(opp);
   }

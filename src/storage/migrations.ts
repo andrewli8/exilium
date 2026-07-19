@@ -6,7 +6,7 @@ import type { Db } from './db.js';
  * either a fresh database or a legacy DB created before versioning existed;
  * the v1 baseline uses IF NOT EXISTS so both cases converge safely. */
 
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 const V1_BASELINE = `
 CREATE TABLE IF NOT EXISTS snapshots (
@@ -111,6 +111,17 @@ const MIGRATIONS: readonly Migration[] = [
           cooldown_until TEXT
         );
       `);
+    },
+  },
+  {
+    version: 3,
+    up: (db) => {
+      for (const col of ['category TEXT', 'rationale TEXT', 'experimental INTEGER']) {
+        const name = col.split(' ')[0]!;
+        if (!tableHasColumn(db, 'opportunity_log', name)) {
+          db.exec(`ALTER TABLE opportunity_log ADD COLUMN ${col}`);
+        }
+      }
     },
   },
 ];

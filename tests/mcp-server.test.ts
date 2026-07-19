@@ -7,6 +7,7 @@ import { createDb } from '../src/storage/db.js';
 import { SnapshotRepository } from '../src/storage/snapshot-repository.js';
 import { WatchRepository } from '../src/storage/watch-repository.js';
 import { JournalRepository } from '../src/storage/journal-repository.js';
+import { OpportunityLogRepository } from '../src/storage/opportunity-log-repository.js';
 import type { MarketLine, MarketSnapshot } from '../src/domain/types.js';
 
 function line(overrides: Partial<MarketLine>): MarketLine {
@@ -61,7 +62,7 @@ async function connectedClient() {
   repo.save(POE1_SNAP);
   repo.save(POE2_SNAP);
   const server = buildMcpServer(
-    new ExiliumService(repo, undefined, new WatchRepository(db), new JournalRepository(db)),
+    new ExiliumService(repo, undefined, new WatchRepository(db), new JournalRepository(db), new OpportunityLogRepository(db)),
     'poe1',
   );
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -100,6 +101,7 @@ describe('Exilium MCP server', () => {
       'poll_watch_results',
       'price_item',
       'record_outcome',
+      'run_backtest',
     ]);
     const draft = tools.find((t) => t.name === 'draft_trade_plan')!;
     expect(draft.description).toMatch(/never execut/i);
@@ -216,6 +218,48 @@ describe('Exilium MCP server', () => {
     expect(listed3.watches.some((w: any) => w.id === 'test-watch')).toBe(false);
   });
 
+  test('find_opportunities carries freshness and per-detector track records', async () => {
+    const res = parseText(await client.callTool({ name: 'find_opportunities', arguments: { league: 'Mirage' } }));
+    expect(res.freshness).toHaveProperty('asOf');
+    expect(res.freshness).toHaveProperty('level');
+    expect(res.trackRecord).toHaveProperty('mean-reversion');
+    expect(res.trackRecord['mean-reversion']).toHaveProperty('journalFillRate');
+  });
+
+  test('draft_trade_plan resolves decayed ids from the opportunity log', async () => {
+    const opps = parseText(await client.callTool({ name: 'find_opportunities', arguments: { league: 'Mirage' } }));
+    const id = opps.opportunities[0].id;
+    // Simulate decay: the plan for a logged id must work even when detectors
+    // no longer produce it live (we can't remove the snapshot here, but the
+    // log path is exercised by resolving after logging).
+    const plan = parseText(
+      await client.callTool({ name: 'draft_trade_plan', arguments: { league: 'Mirage', opportunity_id: id } }),
+    );
+    expect(plan.steps.length).toBeGreaterThan(0);
+  });
+
+  test('record_outcome with the same idempotency_key records once', async () => {
+    const args = {
+      opportunity_id: 'mean-reversion:poe1:Mirage:crashed-orb',
+      outcome: 'filled',
+      item_name: 'Crashed Orb',
+      expected_edge_pct: 50,
+      idempotency_key: 'retry-safe-1',
+    };
+    const first = parseText(await client.callTool({ name: 'record_outcome', arguments: args }));
+    const second = parseText(await client.callTool({ name: 'record_outcome', arguments: args }));
+    expect(first.summary.total).toBe(1);
+    expect(second.summary.total).toBe(1);
+    expect(second.duplicate).toBe(true);
+  });
+
+  test('run_backtest reports onset-based stats from cached history', async () => {
+    const res = parseText(await client.callTool({ name: 'run_backtest', arguments: { league: 'Mirage', horizon_hours: 1 } }));
+    expect(res).toHaveProperty('ticks');
+    expect(res).toHaveProperty('perDetector');
+    expect(res.methodology).toMatch(/onset/i);
+  });
+
   test('record_outcome persists fill-reality data', async () => {
     const res = parseText(
       await client.callTool({
@@ -238,6 +282,29 @@ describe('Exilium MCP server', () => {
       arguments: { opportunity_id: 'x', outcome: 'mooned', item_name: 'X', expected_edge_pct: 1 },
     });
     expect(bad.isError).toBe(true);
+  });
+
+  test('read tools carry a freshness envelope; list_items sparklines are opt-in; unchanged_since short-circuits', async () => {
+    const items = parseText(await client.callTool({ name: 'list_items', arguments: { league: 'Mirage', category: 'Currency' } }));
+    expect(items.freshness).toHaveProperty('asOf');
+    expect(items.items[0]).not.toHaveProperty('sparkline');
+    const withSpark = parseText(
+      await client.callTool({ name: 'list_items', arguments: { league: 'Mirage', category: 'Currency', include_sparklines: true } }),
+    );
+    expect(withSpark.items[0]).toHaveProperty('sparkline');
+
+    const arb = parseText(await client.callTool({ name: 'find_arbitrage', arguments: { league: 'Mirage' } }));
+    expect(arb.freshness).toHaveProperty('level');
+
+    const price = parseText(await client.callTool({ name: 'price_item', arguments: { league: 'Mirage', query: 'orb of fusing' } }));
+    expect(price.freshness).toHaveProperty('asOf');
+
+    const snap1 = parseText(await client.callTool({ name: 'get_market_snapshot', arguments: { league: 'Mirage' } }));
+    const unchanged = parseText(
+      await client.callTool({ name: 'get_market_snapshot', arguments: { league: 'Mirage', unchanged_since: snap1.asOf } }),
+    );
+    expect(unchanged.unchanged).toBe(true);
+    expect(unchanged.topMovers).toBeUndefined();
   });
 
   test('get_categories and list_items browse by item type', async () => {

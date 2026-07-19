@@ -19,6 +19,22 @@ const RAW_OK = {
 };
 
 describe('ingestLeague', () => {
+  test('skips refetch when another process fetched within the shared min interval', async () => {
+    const db = createDb(':memory:');
+    const repo = new SnapshotRepository(db);
+    const client = { getExchangeOverview: vi.fn().mockResolvedValue(RAW_OK) };
+    const opts = { game: 'poe2' as const, league: 'L', categories: ['Currency'], now: () => '2026-07-19T10:00:00Z', minIntervalSec: 240 };
+    const first = await ingestLeague(client, repo, opts);
+    expect(first.saved).toEqual(['Currency']);
+    // Second call 60s later (another process): shared state must gate it.
+    const second = await ingestLeague(client, repo, { ...opts, now: () => '2026-07-19T10:01:00Z' });
+    expect(second.skipped).toBe(true);
+    expect(client.getExchangeOverview).toHaveBeenCalledTimes(1);
+    // After the interval passes, fetching resumes.
+    const third = await ingestLeague(client, repo, { ...opts, now: () => '2026-07-19T10:05:01Z' });
+    expect(third.saved).toEqual(['Currency']);
+  });
+
   test('fetches, normalizes, and stores each category; reports per-category errors without aborting', async () => {
     const repo = new SnapshotRepository(createDb(':memory:'));
     const client = {

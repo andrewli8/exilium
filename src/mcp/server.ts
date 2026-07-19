@@ -32,10 +32,21 @@ export function buildMcpServer(service: ExiliumService, defaultGame: Game = 'poe
     'get_market_snapshot',
     {
       description: `Compact market overview for a league: top movers and top-volume Currency Exchange markets, priced in the game's primary currency (PoE1: chaos, PoE2: divine). Read-only cached data. ${HUMAN_RULE}`,
-      inputSchema: { game: gameSchema, league: z.string().min(1) },
+      inputSchema: {
+        game: gameSchema,
+        league: z.string().min(1),
+        unchanged_since: z.string().optional(),
+      },
       annotations: { readOnlyHint: true },
     },
-    async ({ game, league }) => json(service.marketSnapshot(resolveGame(game), league)),
+    async ({ game, league, unchanged_since }) => {
+      const g = resolveGame(game);
+      const snapshot = service.marketSnapshot(g, league);
+      if (unchanged_since !== undefined && snapshot.asOf !== null && snapshot.asOf <= unchanged_since) {
+        return json({ unchanged: true, asOf: snapshot.asOf });
+      }
+      return json(snapshot);
+    },
   );
 
   server.registerTool(
@@ -58,11 +69,16 @@ export function buildMcpServer(service: ExiliumService, defaultGame: Game = 'poe
         category: z.string().min(1),
         sort: z.enum(['value', 'volume', 'change']).optional(),
         limit: z.number().int().positive().max(500).optional(),
+        include_sparklines: z.boolean().optional(),
       },
       annotations: { readOnlyHint: true },
     },
-    async ({ game, league, category, sort, limit }) =>
-      json({ league, category, items: service.listItems(resolveGame(game), league, category, sort ?? 'value').slice(0, limit ?? 100) }),
+    async ({ game, league, category, sort, limit, include_sparklines }) => {
+      const g = resolveGame(game);
+      const items = service.listItems(g, league, category, sort ?? 'value').slice(0, limit ?? 100);
+      const trimmed = include_sparklines === true ? items : items.map(({ sparkline: _drop, ...rest }) => rest);
+      return json({ league, category, items: trimmed, freshness: service.freshness(g, league) });
+    },
   );
 
   server.registerTool(
@@ -83,8 +99,10 @@ export function buildMcpServer(service: ExiliumService, defaultGame: Game = 'poe
       annotations: { readOnlyHint: true },
     },
     async ({ game, query, league }) => {
-      const quote = service.price(query, resolveGame(game), league);
-      return quote === null ? json({ found: false, query }) : json(quote);
+      const g = resolveGame(game);
+      const quote = service.price(query, g, league);
+      const freshness = service.freshness(g, league);
+      return json(quote === null ? { found: false, query, freshness } : { ...quote, freshness });
     },
   );
 
@@ -101,8 +119,15 @@ export function buildMcpServer(service: ExiliumService, defaultGame: Game = 'poe
       },
       annotations: { readOnlyHint: true },
     },
-    async ({ game, league, include_experimental, min_edge_pct, category }) =>
-      json(service.opportunities(resolveGame(game), league, include_experimental ?? false, (min_edge_pct ?? 0) / 100, category)),
+    async ({ game, league, include_experimental, min_edge_pct, category }) => {
+      const g = resolveGame(game);
+      const result = service.opportunities(g, league, include_experimental ?? false, (min_edge_pct ?? 0) / 100, category);
+      return json({
+        ...result,
+        freshness: service.freshness(g, league),
+        trackRecord: service.trackRecord(g, league),
+      });
+    },
   );
 
   server.registerTool(
@@ -118,8 +143,14 @@ export function buildMcpServer(service: ExiliumService, defaultGame: Game = 'poe
       },
       annotations: { readOnlyHint: true },
     },
-    async ({ game, league, min_divergence_pct, limit, category }) =>
-      json({ league, rows: service.arbitrage(resolveGame(game), league, min_divergence_pct ?? 0, category).slice(0, limit ?? 50) }),
+    async ({ game, league, min_divergence_pct, limit, category }) => {
+      const g = resolveGame(game);
+      return json({
+        league,
+        rows: service.arbitrage(g, league, min_divergence_pct ?? 0, category).slice(0, limit ?? 50),
+        freshness: service.freshness(g, league),
+      });
+    },
   );
 
   server.registerTool(
@@ -198,18 +229,40 @@ export function buildMcpServer(service: ExiliumService, defaultGame: Game = 'poe
         item_name: z.string().min(1),
         expected_edge_pct: z.number(),
         note: z.string().max(500).optional(),
+        idempotency_key: z.string().max(128).optional(),
       },
     },
-    async ({ opportunity_id, outcome, item_name, expected_edge_pct, note }) => {
-      const summary = service.recordOutcome({
+    async ({ opportunity_id, outcome, item_name, expected_edge_pct, note, idempotency_key }) => {
+      const { recorded, summary } = service.recordOutcomeIdempotent({
         opportunityId: opportunity_id,
         outcome,
         itemName: item_name,
         expectedEdgePct: expected_edge_pct,
         note: note ?? null,
         recordedAt: new Date().toISOString(),
+        idempotencyKey: idempotency_key ?? null,
       });
-      return json({ recorded: true, summary });
+      return json({ recorded, duplicate: !recorded, summary });
+    },
+  );
+
+  server.registerTool(
+    'run_backtest',
+    {
+      description: `Backtest the detectors over stored snapshot history: signal ONSETS only (consecutive-tick episodes count once), wall-clock horizon, and a same-window all-items baseline each hit rate must beat. Cached data only — never touches upstream. Use this to weigh how much to trust find_opportunities signals. ${HUMAN_RULE}`,
+      inputSchema: {
+        game: gameSchema,
+        league: z.string().min(1),
+        horizon_hours: z.number().positive().max(168).optional(),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ game, league, horizon_hours }) => {
+      const report = service.cachedBacktest(resolveGame(game), league, horizon_hours ?? 6);
+      return json({
+        ...report,
+        methodology: 'Signal onsets only; wall-clock horizons; baselineHitRate is the fraction of ALL items that moved in the predicted direction over the same windows — a detector only has edge above that number.',
+      });
     },
   );
 

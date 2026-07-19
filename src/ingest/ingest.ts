@@ -13,6 +13,9 @@ export interface IngestOptions {
   readonly categories: readonly string[];
   /** Injected clock (ISO-8601) — keeps ingestion deterministic in tests. */
   readonly now: () => string;
+  /** Shared minimum seconds between sweeps across ALL processes (TUI +
+   * dashboard + watch each have their own timer; the DB is the referee). */
+  readonly minIntervalSec?: number;
 }
 
 export interface IngestError {
@@ -23,6 +26,8 @@ export interface IngestError {
 export interface IngestResult {
   readonly saved: readonly string[];
   readonly errors: readonly IngestError[];
+  /** True when another process fetched recently and this sweep was skipped. */
+  readonly skipped?: boolean;
 }
 
 /** Fetch, normalize, and store every category for a league. A failing
@@ -32,6 +37,14 @@ export async function ingestLeague(
   repo: SnapshotRepository,
   opts: IngestOptions,
 ): Promise<IngestResult> {
+  const scope = `${opts.game}:${opts.league}`;
+  const minInterval = opts.minIntervalSec ?? 0;
+  if (minInterval > 0) {
+    const last = repo.lastFetchAt(scope);
+    if (last !== null && Date.parse(opts.now()) - Date.parse(last) < minInterval * 1000) {
+      return { saved: [], errors: [], skipped: true };
+    }
+  }
   const saved: string[] = [];
   const errors: IngestError[] = [];
   for (const category of opts.categories) {
@@ -49,6 +62,7 @@ export async function ingestLeague(
       errors.push({ category, message: err instanceof Error ? err.message : String(err) });
     }
   }
+  if (saved.length > 0) repo.setLastFetchAt(scope, opts.now());
   // Retention: history older than 48h downsamples to hourly. Without this a
   // 24/7 companion writes ~170K rows/day forever.
   repo.prune(opts.now(), 48);

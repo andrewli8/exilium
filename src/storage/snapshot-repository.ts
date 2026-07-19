@@ -140,6 +140,19 @@ export class SnapshotRepository {
       .reverse();
   }
 
+  lastFetchAt(scope: string): string | null {
+    const row = this.db.prepare('SELECT last_fetch_at FROM ingest_state WHERE scope = ?').get(scope) as
+      | { last_fetch_at: string | null }
+      | undefined;
+    return row?.last_fetch_at ?? null;
+  }
+
+  setLastFetchAt(scope: string, at: string): void {
+    this.db
+      .prepare('INSERT INTO ingest_state (scope, last_fetch_at) VALUES (?, ?) ON CONFLICT(scope) DO UPDATE SET last_fetch_at = excluded.last_fetch_at')
+      .run(scope, at);
+  }
+
   leaguesSeen(): readonly { game: Game; league: string }[] {
     const rows = this.db
       .prepare('SELECT DISTINCT game, league FROM snapshots')
