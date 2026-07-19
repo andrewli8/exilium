@@ -189,6 +189,31 @@ export function buildMcpServer(service: ExiliumService, defaultGame: Game = 'poe
   );
 
   server.registerTool(
+    'record_outcome',
+    {
+      description: `Record what actually happened after a trade plan: filled, partial, no-fill, or skipped, with an optional note. This is the fill-reality journal — the only source of realized-edge data. Encourage the human to report outcomes so detector quality can be judged honestly. ${HUMAN_RULE}`,
+      inputSchema: {
+        opportunity_id: z.string().min(1),
+        outcome: z.enum(['filled', 'partial', 'no-fill', 'skipped']),
+        item_name: z.string().min(1),
+        expected_edge_pct: z.number(),
+        note: z.string().max(500).optional(),
+      },
+    },
+    async ({ opportunity_id, outcome, item_name, expected_edge_pct, note }) => {
+      const summary = service.recordOutcome({
+        opportunityId: opportunity_id,
+        outcome,
+        itemName: item_name,
+        expectedEdgePct: expected_edge_pct,
+        note: note ?? null,
+        recordedAt: new Date().toISOString(),
+      });
+      return json({ recorded: true, summary });
+    },
+  );
+
+  server.registerTool(
     'draft_trade_plan',
     {
       description: `Turn an opportunity id (from find_opportunities) into an ordered, human-executable trade plan with gold-fee guidance. Exilium never executes trades; the plan is for the human to carry out in-game.`,

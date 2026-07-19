@@ -7,11 +7,14 @@ import { renderDashboard } from './dashboard/render.js';
 import { ingestLeague } from './ingest/ingest.js';
 import { buildMcpServer } from './mcp/server.js';
 import { ExiliumService } from './mcp/service.js';
-import { formatArbTable, formatCategoryTable, formatItemTable, formatOpportunityTable, formatPriceQuote, formatSnapshotTable } from './cli/format.js';
+import { formatArbTable, formatCategoryTable, formatItemTable, formatJournal, formatOpportunityTable, formatPriceQuote, formatSnapshotTable } from './cli/format.js';
 import { NinjaClient } from './sources/ninja/client.js';
 import { createDb } from './storage/db.js';
 import { SnapshotRepository } from './storage/snapshot-repository.js';
 import { WatchRepository } from './storage/watch-repository.js';
+import { JournalRepository } from './storage/journal-repository.js';
+import { OUTCOMES } from './storage/journal-repository.js';
+import type { Outcome } from './storage/journal-repository.js';
 import { createNotifier } from './watch/notify.js';
 import { initialWatchState, watchTick } from './watch/watch.js';
 
@@ -19,9 +22,10 @@ const config = loadConfig(process.env);
 const db = createDb(config.dbPath);
 const repo = new SnapshotRepository(db);
 const watchRepo = new WatchRepository(db);
+const journalRepo = new JournalRepository(db);
 
 function makeService(): ExiliumService {
-  return new ExiliumService(repo, undefined, watchRepo);
+  return new ExiliumService(repo, undefined, watchRepo, journalRepo);
 }
 
 /** Evaluate agent watches after a data refresh; deliver webhook payloads.
@@ -275,6 +279,30 @@ async function cmdTui(): Promise<void> {
   );
 }
 
+async function cmdJournal(): Promise<void> {
+  const sub = process.argv[3];
+  if (sub === 'add') {
+    const [oppId, outcome, ...noteParts] = process.argv.slice(4).filter((a) => !a.startsWith('--'));
+    if (oppId === undefined || outcome === undefined || !(OUTCOMES as readonly string[]).includes(outcome)) {
+      throw new Error('Usage: exilium journal add <opportunity_id> <filled|partial|no-fill|skipped> [note]');
+    }
+    const { opportunities } = makeService().opportunities(config.game, storedLeague(), true, 0);
+    const opp = opportunities.find((o) => o.id === oppId);
+    makeService().recordOutcome({
+      opportunityId: oppId,
+      outcome: outcome as Outcome,
+      itemName: opp?.itemName ?? oppId.split(':').pop() ?? oppId,
+      expectedEdgePct: opp === undefined ? 0 : opp.edge * 100,
+      note: noteParts.length === 0 ? null : noteParts.join(' '),
+      recordedAt: new Date().toISOString(),
+    });
+    console.log('Recorded.');
+    return;
+  }
+  const { entries, summary } = makeService().journalEntries(Number(flagValue('--limit') ?? 50));
+  console.log(formatJournal(entries, summary));
+}
+
 const commands: Record<string, () => Promise<void>> = {
   tui: cmdTui,
   ingest: cmdIngest,
@@ -285,6 +313,7 @@ const commands: Record<string, () => Promise<void>> = {
   categories: cmdCategories,
   list: cmdList,
   opps: cmdOpps,
+  journal: cmdJournal,
   snapshot: cmdSnapshot,
   arb: cmdArb,
 };
@@ -292,7 +321,7 @@ const commands: Record<string, () => Promise<void>> = {
 const cmd = process.argv[2] ?? 'tui';
 const run = commands[cmd];
 if (run === undefined) {
-  console.error('Usage: exilium [tui]|ingest|watch|snapshot|categories|list|opps|arb|price|dashboard|mcp');
+  console.error('Usage: exilium [tui]|ingest|watch|snapshot|categories|list|opps|arb|price|journal|dashboard|mcp');
   process.exit(2);
 }
 run().catch((err) => {

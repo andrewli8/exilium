@@ -6,6 +6,7 @@ import { ExiliumService } from '../src/mcp/service.js';
 import { createDb } from '../src/storage/db.js';
 import { SnapshotRepository } from '../src/storage/snapshot-repository.js';
 import { WatchRepository } from '../src/storage/watch-repository.js';
+import { JournalRepository } from '../src/storage/journal-repository.js';
 import type { MarketLine, MarketSnapshot } from '../src/domain/types.js';
 
 function line(overrides: Partial<MarketLine>): MarketLine {
@@ -59,7 +60,10 @@ async function connectedClient() {
   const repo = new SnapshotRepository(db);
   repo.save(POE1_SNAP);
   repo.save(POE2_SNAP);
-  const server = buildMcpServer(new ExiliumService(repo, undefined, new WatchRepository(db)), 'poe1');
+  const server = buildMcpServer(
+    new ExiliumService(repo, undefined, new WatchRepository(db), new JournalRepository(db)),
+    'poe1',
+  );
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'test', version: '0.0.1' });
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -95,6 +99,7 @@ describe('Exilium MCP server', () => {
       'list_watches',
       'poll_watch_results',
       'price_item',
+      'record_outcome',
     ]);
     const draft = tools.find((t) => t.name === 'draft_trade_plan')!;
     expect(draft.description).toMatch(/never execut/i);
@@ -209,6 +214,30 @@ describe('Exilium MCP server', () => {
     expect(deleted.deleted).toBe(true);
     const listed3 = parseText(await client.callTool({ name: 'list_watches', arguments: {} }));
     expect(listed3.watches.some((w: any) => w.id === 'test-watch')).toBe(false);
+  });
+
+  test('record_outcome persists fill-reality data', async () => {
+    const res = parseText(
+      await client.callTool({
+        name: 'record_outcome',
+        arguments: {
+          opportunity_id: 'mean-reversion:poe1:Mirage:crashed-orb',
+          outcome: 'filled',
+          item_name: 'Crashed Orb',
+          expected_edge_pct: 50,
+          note: 'flipped 20 units',
+        },
+      }),
+    );
+    expect(res.recorded).toBe(true);
+    expect(res.summary.total).toBe(1);
+    expect(res.summary.fillRate).toBe(1);
+
+    const bad = await client.callTool({
+      name: 'record_outcome',
+      arguments: { opportunity_id: 'x', outcome: 'mooned', item_name: 'X', expected_edge_pct: 1 },
+    });
+    expect(bad.isError).toBe(true);
   });
 
   test('get_categories and list_items browse by item type', async () => {

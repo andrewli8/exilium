@@ -6,6 +6,7 @@ import { priceItem } from '../pricing/price-item.js';
 import { evaluateWatches } from '../signals/watch-eval.js';
 import type { PricePoint, SnapshotRepository } from '../storage/snapshot-repository.js';
 import type { Watch, WatchEvent, WatchRepository } from '../storage/watch-repository.js';
+import type { JournalEntry, JournalEntryInput, JournalRepository, JournalSummary } from '../storage/journal-repository.js';
 
 export interface DetectorConfig {
   readonly minVolume: number;
@@ -89,7 +90,24 @@ export class ExiliumService {
     private readonly repo: SnapshotRepository,
     private readonly detectors: DetectorConfig = DEFAULT_DETECTORS,
     private readonly watches?: WatchRepository,
+    private readonly journal?: JournalRepository,
   ) {}
+
+  private requireJournal(): JournalRepository {
+    if (this.journal === undefined) throw new Error('Journal is not enabled for this service instance.');
+    return this.journal;
+  }
+
+  recordOutcome(entry: JournalEntryInput): JournalSummary {
+    const journal = this.requireJournal();
+    journal.record(entry);
+    return journal.summary();
+  }
+
+  journalEntries(limit = 50): { entries: readonly JournalEntry[]; summary: JournalSummary } {
+    const journal = this.requireJournal();
+    return { entries: journal.list(limit), summary: journal.summary() };
+  }
 
   private requireWatches(): WatchRepository {
     if (this.watches === undefined) throw new Error('Watches are not enabled for this service instance.');

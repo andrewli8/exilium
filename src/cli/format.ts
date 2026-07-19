@@ -1,5 +1,6 @@
 import type { Opportunity, PriceQuote } from '../domain/types.js';
 import type { ArbRow, CategorySummary, DetailedMover, MarketSummary } from '../mcp/service.js';
+import type { JournalEntry, JournalSummary } from '../storage/journal-repository.js';
 
 function table(headers: readonly string[], rows: readonly (readonly string[])[]): string {
   const widths = headers.map((h, i) => Math.max(h.length, ...rows.map((r) => (r[i] ?? '').length)));
@@ -79,4 +80,16 @@ export function formatArbTable(rows: readonly ArbRow[], primaryCurrency: string)
       Math.round(r.volumePrimaryValue).toLocaleString('en-US'),
     ]),
   );
+}
+
+export function formatJournal(entries: readonly JournalEntry[], summary: JournalSummary): string {
+  if (entries.length === 0) {
+    return 'No outcomes recorded yet. After acting on a trade plan, run:\n  exilium journal add <opportunity_id> <filled|partial|no-fill|skipped> [note]';
+  }
+  const rows = table(
+    ['When', 'Item', 'Outcome', 'Expected edge', 'Note'],
+    entries.map((e) => [e.recordedAt, e.itemName, e.outcome, `${e.expectedEdgePct.toFixed(1)}%`, e.note ?? '']),
+  );
+  const c = summary.counts;
+  return `${rows}\n\n${summary.total} recorded · fill rate ${(summary.fillRate * 100).toFixed(0)}% (filled ${c.filled}, partial ${c.partial}, no-fill ${c['no-fill']}, skipped ${c.skipped})`;
 }
