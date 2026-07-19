@@ -12,7 +12,8 @@
     "mcp": "tsx src/cli.ts mcp",
     "dashboard": "tsx src/cli.ts dashboard",
     "watch": "tsx src/cli.ts watch",
-    "tui": "tsx src/cli.ts tui"
+    "tui": "tsx src/cli.ts tui",
+    "eval": "tsx evals/run-evals.ts"
   },
   "repository": {
     "type": "git",

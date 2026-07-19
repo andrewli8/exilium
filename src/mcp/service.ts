@@ -10,10 +10,11 @@ import type { Watch, WatchEvent, WatchRepository } from '../storage/watch-reposi
 export interface DetectorConfig {
   readonly minVolume: number;
   readonly zThreshold: number;
+  readonly minDeviationPct: number;
   readonly minDivergence: number;
 }
 
-const DEFAULT_DETECTORS: DetectorConfig = { minVolume: 100, zThreshold: 1.5, minDivergence: 0.03 };
+const DEFAULT_DETECTORS: DetectorConfig = { minVolume: 100, zThreshold: 1.5, minDeviationPct: 10, minDivergence: 0.03 };
 
 export interface MoverSummary {
   readonly itemId: string;

@@ -181,9 +181,21 @@ Every tool takes an optional `game` (`poe1`/`poe2`) defaulting to the server's c
 | OAuth stash valuation | 🕐 P1 — needs GGG application approval |
 | Rare-item valuation | ⛔ out of scope by design (multi-month subsystem) |
 
+## Examples and walkthroughs
+
+The [examples/](examples/) folder has step-by-step walkthroughs with real output: [checking prices](examples/01-checking-prices.md), [a tour of every CLI command](examples/02-cli-tour.md), [common workflows](examples/03-common-workflows.md) (flipping sessions, standing alerts, driving Exilium through Claude), and [arbitrage events](examples/04-arbitrage.md).
+
+## Detector evals
+
+```bash
+npm run eval
+```
+
+Known-answer evals for the signal engine, separate from the unit tests: synthetic markets with planted divergences and spikes where the detectors must score perfect precision and recall (with edge values matching the planted ground truth), plus an independent recomputation of every implied price in your real database. Deterministic, seeded, exits nonzero on failure. These already caught one real bug: the mean-reversion detector used to flag statistically unusual but economically tiny moves; it now requires a minimum absolute deviation on top of the z-score.
+
 ## What the signals are (and aren't)
 
-- **mean-reversion** — flags items whose latest daily move is a statistical outlier vs their trailing week (z-score), suggesting a pullback or recovery. A heuristic on minutes-to-hours-old data, not financial advice for your exalts.
+- **mean-reversion** — flags items whose latest daily move is a statistical outlier vs their trailing week (z-score) *and* at least 10 percentage points off trend, suggesting a pullback or recovery. A heuristic on minutes-to-hours-old data, not financial advice for your exalts.
 - **cross-rate-divergence** *(experimental, opt-in)* — checks whether an item's price disagrees with the price implied by its highest-volume quote pair. In practice the in-game exchange keeps these tight (<0.5%), so flags are rare; it's a research signal.
 - Every trade plan reminds you about **gold fees** (the in-game exchange charges gold per order) and tells you to re-verify the live ratio before confirming — data freshness is minutes at best.
 - **Pricing covers currency/stackables only** — rare-item (mod-based) valuation is explicitly out of scope; see [PRD.md](./PRD.md).

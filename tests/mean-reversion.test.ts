@@ -28,7 +28,7 @@ function snap(lines: readonly MarketLine[]): MarketSnapshot {
   };
 }
 
-const OPTS = { minVolume: 100, zThreshold: 1.5 };
+const OPTS = { minVolume: 100, zThreshold: 1.5, minDeviationPct: 10 };
 
 describe('detectMeanReversion', () => {
   test('flags an item whose latest change sits far below its window mean as a buy', () => {
@@ -60,6 +60,13 @@ describe('detectMeanReversion', () => {
     const short = line({ itemId: 'short', sparkline: [1, 2] });
     const flat = line({ itemId: 'flat', sparkline: [5, 5, 5, 5, 5, 5, 5] });
     expect(detectMeanReversion(snap([short, flat]), OPTS)).toHaveLength(0);
+  });
+
+  test('does not flag statistically unusual but economically tiny moves', () => {
+    // Whisper-quiet window (±0.5%) then a 3% day: z is huge, but a 3-point
+    // move is not tradeable after fees. The absolute floor must reject it.
+    const quiet = line({ itemId: 'quiet', sparkline: [0.2, -0.3, 0.4, -0.2, 0.3, -0.4, 3] });
+    expect(detectMeanReversion(snap([quiet]), OPTS)).toHaveLength(0);
   });
 
   test('does not flag deviations inside the threshold', () => {
