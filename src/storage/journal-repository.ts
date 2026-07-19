@@ -30,18 +30,6 @@ export interface JournalSummary {
   readonly perDetector: Readonly<Record<string, DetectorFillRate>>;
 }
 
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS journal (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  opportunity_id TEXT NOT NULL,
-  item_name TEXT NOT NULL,
-  outcome TEXT NOT NULL,
-  expected_edge_pct REAL NOT NULL,
-  note TEXT,
-  recorded_at TEXT NOT NULL
-);
-`;
-
 interface Row {
   readonly id: number;
   readonly opportunity_id: string;
@@ -55,9 +43,7 @@ interface Row {
 /** Stores what actually happened after a trade plan: the fill-reality data
  * the PRD wants and no API can provide. */
 export class JournalRepository {
-  constructor(private readonly db: Db) {
-    db.exec(SCHEMA);
-  }
+  constructor(private readonly db: Db) {}
 
   record(entry: JournalEntryInput): void {
     if (!OUTCOMES.includes(entry.outcome)) {

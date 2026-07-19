@@ -31,30 +31,6 @@ export interface WatchEvent extends WatchEventInput {
   readonly seq: number;
 }
 
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS watches (
-  id TEXT PRIMARY KEY,
-  game TEXT NOT NULL,
-  league TEXT NOT NULL,
-  kind TEXT NOT NULL,
-  item_id TEXT,
-  category TEXT,
-  threshold REAL NOT NULL,
-  mode TEXT NOT NULL DEFAULT 'once',
-  webhook_url TEXT,
-  created_at TEXT NOT NULL,
-  active INTEGER NOT NULL DEFAULT 1
-);
-CREATE TABLE IF NOT EXISTS watch_events (
-  seq INTEGER PRIMARY KEY AUTOINCREMENT,
-  watch_id TEXT NOT NULL,
-  fired_at TEXT NOT NULL,
-  payload_json TEXT NOT NULL,
-  dedupe_key TEXT NOT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_watch_events_dedupe ON watch_events (watch_id, dedupe_key);
-`;
-
 interface WatchRow {
   readonly id: string;
   readonly game: Game;
@@ -70,9 +46,7 @@ interface WatchRow {
 }
 
 export class WatchRepository {
-  constructor(private readonly db: Db) {
-    db.exec(SCHEMA);
-  }
+  constructor(private readonly db: Db) {}
 
   upsert(watch: Watch): void {
     this.db
