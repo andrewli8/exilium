@@ -12,9 +12,8 @@ Working backlog for the looptight loop. Each task carries evidence from the repo
 - Trade plans name the exact journal command in their final step.
 - Journal summary breaks fill rate down per detector (parsed from opportunity-id prefixes); `exilium journal` prints the breakdown.
 - TUI opportunities pane shows the full trade plan for the selected row, including the journal command.
+- Dashboard renders a Watch Events section fed by the same store as the TUI pane.
 
 ## Next
 
-1. Dashboard should show fired watch events like the TUI does.
-   Evidence: src/dashboard/render.ts has no watch-events section although the dashboard's refresh loop records them (src/cli.ts dispatchWatchEvents), and the TUI gained a WATCHES pane; dashboard users cannot see what their watches fired.
-   Acceptance: renderDashboard accepts recent watch events and renders a Watch Events section when non-empty; cmdDashboard passes them; failing-then-passing test in tests/dashboard.test.ts; npm test green.
+(queue empty — regenerate when new evidence-backed work appears)

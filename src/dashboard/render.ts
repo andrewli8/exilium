@@ -1,6 +1,7 @@
 import { assessFreshness } from '../domain/freshness.js';
 import { renderPriceChart } from './chart.js';
 import type { PricePoint } from '../storage/snapshot-repository.js';
+import type { WatchEvent } from '../storage/watch-repository.js';
 import type { MarketSummary, MoverSummary, OpportunitiesResult } from '../mcp/service.js';
 import type { Opportunity } from '../domain/types.js';
 
@@ -44,11 +45,28 @@ export interface RenderOptions {
 const FRESH_COLORS = { live: '#4cc38a', stale: '#e0a63f', old: '#e5534b' } as const;
 
 /** Pure HTML renderer for the lean live dashboard (PRD: UI stays minimal). */
+function watchEventRows(events: readonly WatchEvent[]): string {
+  return [...events]
+    .sort((a, b) => b.seq - a.seq)
+    .map((e) => {
+      const p = e.payload as { itemName?: string; value?: number; edge?: number; totalChange?: number };
+      const bits = [
+        p.itemName === undefined ? '' : esc(p.itemName),
+        p.value === undefined ? '' : `value ${p.value}`,
+        p.edge === undefined ? '' : `edge ${(p.edge * 100).toFixed(1)}%`,
+        p.totalChange === undefined ? '' : `change ${p.totalChange.toFixed(1)}%`,
+      ].filter((b) => b !== '');
+      return `<tr><td>${esc(e.firedAt)}</td><td>${esc(e.watchId)}</td><td>${bits.join(' · ')}</td></tr>`;
+    })
+    .join('');
+}
+
 export function renderDashboard(
   summary: MarketSummary,
   opps: OpportunitiesResult,
   opts: RenderOptions = { nowMs: Date.now(), reloadSec: 30 },
   charts: readonly PairChartData[] = [],
+  watchEvents: readonly WatchEvent[] = [],
 ): string {
   if (summary.asOf === null) {
     return `<html><head><style>${STYLE}</style></head><body><h1>Exilium</h1><p>No data ingested yet — run <code>npm run ingest</code> first.</p></body></html>`;
@@ -58,6 +76,8 @@ export function renderDashboard(
   return `<html><head><title>Exilium — ${esc(summary.league)}</title><style>${STYLE}</style>
 <script>setTimeout(function () { location.reload(); }, ${opts.reloadSec * 1000});</script></head><body>
 <h1>Exilium <small>· ${esc(summary.game)} · ${esc(summary.league)} · ${badge} · prices in ${esc(summary.primaryCurrency)} · reloads every ${opts.reloadSec}s · humans execute all trades</small></h1>
+${watchEvents.length === 0 ? '' : `<h2>Watch Events</h2>
+<table><tr><th>Fired at</th><th>Watch</th><th>Event</th></tr>${watchEventRows(watchEvents)}</table>`}
 <h2>Opportunities</h2>
 <table><tr><th>Detector</th><th>Item</th><th>Edge</th><th>Confidence</th><th>Rationale</th></tr>${oppRows(opps.opportunities)}</table>
 ${charts.length === 0 ? '' : `<h2>Price History <small>(local snapshots, in ${esc(summary.primaryCurrency)})</small></h2>

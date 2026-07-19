@@ -110,11 +110,18 @@ async function cmdDashboard(): Promise<void> {
         name: m.name,
         points: service.pairHistory(config.game, league, m.itemId, 200).points,
       }));
+      let recentEvents: ReturnType<typeof service.recentWatchEvents> = [];
+      try {
+        recentEvents = service.recentWatchEvents(10);
+      } catch {
+        // watches not enabled — section simply doesn't render
+      }
       const html = renderDashboard(
         summary,
         service.opportunities(config.game, league, config.experimental, config.minEdgePct / 100),
         { nowMs: Date.now(), reloadSec: 30 },
         charts,
+        recentEvents,
       );
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(html);
     } catch (err) {

@@ -74,6 +74,22 @@ describe('renderDashboard', () => {
     expect(html).toContain('polyline');
   });
 
+  test('renders a watch-events section when events are provided', () => {
+    const html = renderDashboard(SUMMARY, OPPS, { nowMs: Date.parse('2026-07-18T18:04:00Z'), reloadSec: 30 }, [], [
+      {
+        seq: 1,
+        watchId: 'divine-alert',
+        firedAt: '2026-07-18T17:30:00Z',
+        dedupeKey: 'k',
+        payload: { itemName: 'Divine <Orb>', value: 755 },
+      },
+    ]);
+    expect(html).toContain('Watch Events');
+    expect(html).toContain('divine-alert');
+    expect(html).toContain('755');
+    expect(html).toContain('Divine &lt;Orb&gt;');
+  });
+
   test('shows an empty-state message when there is no data', () => {
     const html = renderDashboard(
       { game: 'poe1', primaryCurrency: 'chaos', league: 'X', asOf: null, categories: 0, topMovers: [], topVolume: [] },

@@ -131,11 +131,11 @@ Outcomes are filled, partial, no-fill, or skipped. The fill rate is the honest n
 
 ## exilium dashboard
 
-A local web page on port 4321. It ingests on boot, refetches every five minutes, and reloads itself every 30 seconds. Price history charts for the top-volume markets appear once you have two or more snapshots stored.
+A local web page on port 4321. It ingests on boot, refetches every five minutes, and reloads itself every 30 seconds. Price history charts for the top-volume markets appear once you have two or more snapshots stored, and fired watch events show in their own section.
 
 ## exilium tui
 
-The default. Four views (movers, opportunities, arbitrage, fired watch events), switched with 1, 2, 3, 4. Arrow keys select rows and cycle category filters. Press r to refetch immediately; it also refetches every five minutes on its own. The dot in the top right tells you data age: green under ten minutes, yellow under thirty, red past that.
+The default. Four views (movers, opportunities, arbitrage, fired watch events), switched with 1, 2, 3, 4. Selecting a row in the opportunities view shows its full trade plan, journal command included. Arrow keys select rows and cycle category filters. Press r to refetch immediately; it also refetches every five minutes on its own. The dot in the top right tells you data age: green under ten minutes, yellow under thirty, red past that.
 
 ## exilium mcp
 
