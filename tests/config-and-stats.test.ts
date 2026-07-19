@@ -60,6 +60,28 @@ describe('loadConfig', () => {
   });
 });
 
+describe('config file support', () => {
+  test('file values apply when env is empty', () => {
+    const c = loadConfig({}, { game: 'poe2', minEdgePct: 40, account: 'MyAcct', poesessid: 'abc123' });
+    expect(c.game).toBe('poe2');
+    expect(c.minEdgePct).toBe(40);
+    expect(c.account).toBe('MyAcct');
+    expect(c.poesessid).toBe('abc123');
+  });
+
+  test('environment variables override file values', () => {
+    const c = loadConfig({ EXILIUM_GAME: 'poe1', EXILIUM_POESESSID: 'env-wins' }, { game: 'poe2', poesessid: 'file-loses' });
+    expect(c.game).toBe('poe1');
+    expect(c.poesessid).toBe('env-wins');
+  });
+
+  test('secrets default to undefined with no file and no env', () => {
+    const c = loadConfig({});
+    expect(c.poesessid).toBeUndefined();
+    expect(c.account).toBeUndefined();
+  });
+});
+
 describe('stats edge cases', () => {
   test('mean of empty series is 0', () => {
     expect(mean([])).toBe(0);

@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
 import { promisify } from 'node:util';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { loadConfig } from './config.js';
+import { configFilePath, loadConfig, readFileConfig } from './config.js';
 import { renderDashboard } from './dashboard/render.js';
 import { ingestLeague } from './ingest/ingest.js';
 import { buildMcpServer } from './mcp/server.js';
@@ -25,7 +25,8 @@ import { StashRepository } from './storage/stash-repository.js';
 import { createNotifier } from './watch/notify.js';
 import { initialWatchState, watchTick } from './watch/watch.js';
 
-const config = loadConfig(process.env);
+import { readFileSync as readFileSyncForConfig, writeFileSync, chmodSync } from 'node:fs';
+const config = loadConfig(process.env, readFileConfig(configFilePath(process.env), (p) => readFileSyncForConfig(p, 'utf8')));
 const db = createDb(config.dbPath);
 const repo = new SnapshotRepository(db);
 const watchRepo = new WatchRepository(db);
@@ -273,8 +274,15 @@ async function cmdTui(): Promise<void> {
     import('react'),
     import('./tui/app.js'),
   ]);
-  const league = storedLeague();
   const client = new NinjaClient({ userAgent: config.userAgent });
+  // Fresh install: no stored league yet — resolve live so the first boot
+  // can ingest instead of telling the user to run another command.
+  let league: string;
+  try {
+    league = storedLeague();
+  } catch {
+    league = await resolveLeague(client);
+  }
   const tuiService = makeService();
   const onIngest = async (): Promise<void> => {
     await ingestLeague(client, repo, {
@@ -285,6 +293,10 @@ async function cmdTui(): Promise<void> {
     });
     await dispatchWatchEvents(tuiService);
   };
+  if (repo.latestAll(config.game, league).length === 0) {
+    console.log('First run for this league — pulling market data before opening the UI…');
+    await onIngest().catch((err) => console.error(err instanceof Error ? err.message : err));
+  }
   render(
     React.default.createElement(ExiliumTui, {
       service: tuiService,
@@ -374,10 +386,10 @@ async function cmdLive(): Promise<void> {
   if (urls.length === 0) {
     throw new Error('Usage: exilium live <trade search URL> [more URLs] — copy the URL from pathofexile.com/trade after setting up your search.');
   }
-  const sessionId = process.env['EXILIUM_POESESSID'];
+  const sessionId = config.poesessid;
   if (sessionId === undefined || sessionId === '') {
     throw new Error(
-      'EXILIUM_POESESSID is not set. Log into pathofexile.com in a browser, copy the POESESSID cookie value (devtools > Application > Cookies), and run:\n  EXILIUM_POESESSID=<value> exilium live <url>\nThe cookie stays on this machine and is sent only to pathofexile.com.',
+      'No session cookie configured. Run `exilium setup` (stores it in ~/.exilium/config.json, chmod 600), or set EXILIUM_POESESSID for this run. The cookie stays on this machine and is sent only to pathofexile.com.',
     );
   }
   const searches = urls.map(parseTradeUrl);
@@ -510,11 +522,11 @@ async function cmdBacktest(): Promise<void> {
 }
 
 async function cmdStash(): Promise<void> {
-  const account = flagValue('--account') ?? process.env['EXILIUM_ACCOUNT'];
-  const sessionId = process.env['EXILIUM_POESESSID'];
+  const account = flagValue('--account') ?? config.account;
+  const sessionId = config.poesessid;
   if (account === undefined || sessionId === undefined || sessionId === '') {
     throw new Error(
-      'Stash reading needs your own session and account name:\n  EXILIUM_POESESSID=<cookie> exilium stash --account "Your Account Name"\n(or set EXILIUM_ACCOUNT). The cookie stays on this machine and goes only to pathofexile.com — same trust model as `exilium live`.',
+      'Stash reading needs your account name and session cookie. Easiest: run `exilium setup` once. Or per-run:\n  EXILIUM_POESESSID=<cookie> exilium stash --account "Your Account Name"\nThe cookie stays on this machine and goes only to pathofexile.com — same trust model as `exilium live`.',
     );
   }
   const league = storedLeague();
@@ -607,7 +619,104 @@ async function cmdRising(): Promise<void> {
   console.log(formatItemTable(scored.map(({ l }) => ({ itemId: l.itemId, name: l.name, category: l.category, primaryValue: l.primaryValue, totalChange: l.totalChange, volumePrimaryValue: l.volumePrimaryValue, sparkline: l.sparkline })), primary));
 }
 
+const HELP = `exilium — Path of Exile trading terminal
+
+Getting started
+  exilium setup                 One-time interactive setup (game, first data pull, optional account/cookie)
+  exilium                       Open the terminal UI (auto-refreshes every 5 min)
+
+Market
+  exilium snapshot              Top movers and volume
+  exilium categories            Item categories with counts and volume
+  exilium list <category>       Browse a category   [--sort value|volume|change]
+  exilium rising                Volume-weighted gainers (league-start lens)
+  exilium price <name>          Price any currency/stackable
+
+Trading
+  exilium opps                  Detector signals    [--min-edge N] [--category C] [--experimental]
+  exilium arb                   Cross-rate arbitrage table [--min-gap N] [--limit N]
+  exilium live <trade-url>      Live-search monitor; whisper copied to clipboard
+  exilium stash                 Value your stash, net worth, trade-check delta [--account NAME]
+  exilium sellsheet --file F    Price a dump tab into a bulk WTS message [--discount N]
+  exilium journal [add ...]     Record and review trade outcomes
+  exilium backtest              Score detectors against stored history [--horizon H]
+
+Automation
+  exilium watch                 Foreground alert loop (desktop/Discord)
+  exilium watches [add|rm|events]  Persistent watches (shared with agents)
+  exilium ingest                Force a data refresh now
+  exilium dashboard             Self-refreshing web dashboard on :4321
+  exilium mcp                   MCP server for AI agents (14+ tools)
+
+Config: ~/.exilium/config.json (written by setup) — env vars override.
+Docs and walkthroughs: https://github.com/andrewli8/exilium/tree/main/examples`;
+
+async function cmdHelp(): Promise<void> {
+  console.log(HELP);
+}
+
+async function cmdSetup(): Promise<void> {
+  // Interactive on a TTY; scriptable when answers are piped (one per line:
+  // game, account, poesessid) — which is also how the integration test runs.
+  let ask: (q: string, fallback: string) => Promise<string>;
+  let cleanup = (): void => undefined;
+  if (process.stdin.isTTY === true) {
+    const { createInterface } = await import('node:readline/promises');
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    ask = async (q, fallback) => {
+      const a = (await rl.question(q)).trim();
+      return a === '' ? fallback : a;
+    };
+    cleanup = () => rl.close();
+  } else {
+    const piped: string[] = [];
+    let buffer = '';
+    for await (const chunk of process.stdin) buffer += String(chunk);
+    piped.push(...buffer.split('\n'));
+    let cursor = 0;
+    ask = async (q, fallback) => {
+      const a = (piped[cursor++] ?? '').trim();
+      console.log(`${q}${a}`);
+      return a === '' ? fallback : a;
+    };
+  }
+  console.log('Exilium setup — three questions, then a first data pull.\n');
+  const game = (await ask('Game — poe1 or poe2? [poe1] ', 'poe1')) === 'poe2' ? 'poe2' : 'poe1';
+  const account = await ask('PoE account name for stash valuation (Enter to skip): ', '');
+  let poesessid = '';
+  if (account !== '') {
+    console.log('\nFor stash and live-search, Exilium can store your POESESSID cookie in ~/.exilium/config.json (chmod 600).');
+    console.log('It stays on this machine and is sent only to pathofexile.com. Treat it like a password.');
+    poesessid = await ask('POESESSID (Enter to skip and use env vars instead): ', '');
+  }
+  cleanup();
+
+  const fileConfig: Record<string, unknown> = { game };
+  if (account !== '') fileConfig['account'] = account;
+  if (poesessid !== '') fileConfig['poesessid'] = poesessid;
+  const path = configFilePath(process.env);
+  writeFileSync(path, `${JSON.stringify(fileConfig, null, 2)}\n`, { mode: 0o600 });
+  chmodSync(path, 0o600);
+  console.log(`\nSaved ${path} (permissions 600).`);
+
+  console.log('Pulling first market data…');
+  const client = new NinjaClient({ userAgent: config.userAgent });
+  const leagues = await client.getLeagues(game as 'poe1' | 'poe2');
+  const league = leagues.find((l) => !/standard|hardcore|^hc /i.test(l.id))?.id ?? leagues[0]?.id ?? 'Standard';
+  const result = await ingestLeague(client, repo, {
+    game: game as 'poe1' | 'poe2',
+    league,
+    categories: game === 'poe2' ? ['Currency', 'Runes', 'Essences', 'Delirium', 'Ritual', 'Expedition', 'Breach'] : config.categories,
+    now: () => new Date().toISOString(),
+    minIntervalSec: 0,
+  });
+  console.log(`Ingested ${league}: ${result.saved.length} categories.\n`);
+  console.log('You are set. Try:\n  exilium              (terminal UI)\n  exilium snapshot\n  exilium help         (everything else)');
+}
+
 const commands: Record<string, () => Promise<void>> = {
+  setup: cmdSetup,
+  help: cmdHelp,
   tui: cmdTui,
   ingest: cmdIngest,
   mcp: cmdMcp,
@@ -631,7 +740,7 @@ const commands: Record<string, () => Promise<void>> = {
 const cmd = process.argv[2] ?? 'tui';
 const run = commands[cmd];
 if (run === undefined) {
-  console.error('Usage: exilium [tui]|ingest|watch|watches|live|stash|snapshot|categories|list|rising|sellsheet|opps|arb|price|journal|backtest|dashboard|mcp');
+  console.error('Unknown command. Run `exilium help` for the full list, or `exilium setup` if this is your first time.');
   process.exit(2);
 }
 run().catch((err) => {

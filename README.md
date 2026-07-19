@@ -26,12 +26,12 @@ npm link        # makes `exilium` a global command (sudo npm link if /usr/local/
 Then from anywhere:
 
 ```bash
-exilium              # launches the terminal UI — ingests and stays live on its own
-exilium ingest       # or pull data explicitly
-EXILIUM_GAME=poe2 exilium ingest   # optional: PoE2 into the same database
+exilium setup        # one-time: pick your game, first data pull, optional account/cookie
+exilium              # the terminal UI — ingests on first boot and stays live on its own
+exilium help         # every command
 ```
 
-Data lives in `~/.exilium/exilium.db` regardless of where you run it. The TUI and dashboard keep it fresh automatically; `exilium ingest` and watch mode also work if you prefer explicit control.
+`setup` writes `~/.exilium/config.json` (secrets stored with 600 permissions; env vars always override), so `stash` and `live` work without retyping cookies. Data lives in `~/.exilium/exilium.db` regardless of where you run commands.
 
 *(Not yet on the npm registry — `npm install -g exilium` will work once published; until then `npm link` gives the identical experience.)*
 
@@ -57,7 +57,9 @@ After `npm install`, run via `npx exilium <command>` (or `npm run <command>` for
 
 | Command | What it does |
 |---|---|
-| `exilium` / `exilium tui` | Full-screen terminal UI (default) |
+| `exilium setup` | One-time interactive setup (scriptable: pipe answers) |
+| `exilium help` | Full command reference |
+| `exilium` / `exilium tui` | Full-screen terminal UI (default; auto-ingests on first boot) |
 | `exilium ingest` | Pull the latest market snapshots (PoE1: 13 categories, ~600 markets) |
 | `exilium snapshot` | Top movers and top-volume markets in your terminal |
 | `exilium categories` | Item categories with market counts and volume |

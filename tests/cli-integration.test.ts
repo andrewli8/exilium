@@ -96,6 +96,28 @@ describe('CLI integration', () => {
     expect(removed).toContain('Deleted');
   }, 120_000);
 
+  test('help lists every command including setup', async () => {
+    const { stdout } = await run('help');
+    for (const cmd of ['setup', 'stash', 'live', 'sellsheet', 'journal', 'backtest', 'watches', 'mcp']) {
+      expect(stdout).toContain(`exilium ${cmd}`);
+    }
+  }, 40_000);
+
+  test('setup writes a 600-permission config file from piped answers', async () => {
+    const cfgPath = join(dir, 'config.json');
+    const child = exec('npx', ['tsx', 'src/cli.ts', 'setup'], {
+      env: { ...env, EXILIUM_CONFIG: cfgPath },
+      timeout: 60_000,
+    });
+    child.child.stdin!.end('poe1\nTestAccount\nsecret-cookie\n');
+    const { stdout } = await child;
+    expect(stdout).toMatch(/Saved .*config\.json/);
+    const { readFileSync, statSync } = await import('node:fs');
+    const written = JSON.parse(readFileSync(cfgPath, 'utf8'));
+    expect(written).toMatchObject({ game: 'poe1', account: 'TestAccount', poesessid: 'secret-cookie' });
+    expect(statSync(cfgPath).mode & 0o777).toBe(0o600);
+  }, 90_000);
+
   test('unknown commands exit nonzero with usage', async () => {
     await expect(run('frobnicate')).rejects.toMatchObject({ code: 2 });
   }, 40_000);

@@ -25,6 +25,8 @@ Working backlog for the looptight loop. Each task carries evidence from the repo
 
 - `exilium stash`: own-account stash valuation over the session cookie (client-side, same trust model as live), net-worth history (migration v4), and a gained/lost/value-delta trade check between snapshots. Landed with tests/stash.test.ts + tests/stash-repository.test.ts.
 
+- Onboarding round: `exilium setup` wizard (TTY + scriptable piped mode, 600-perm config file), config-file support with env-var precedence, `exilium help`, TUI auto-ingests on fresh boot, unknown-command message points to help/setup.
+
 Small follow-ups from approval conditions: TUI `r` within the 240s shared gate silently no-ops — surface "fetched Xs ago, skipped" in the TUI header.
 
 ## Review-response round (2026-07-19), completed

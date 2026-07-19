@@ -2,6 +2,19 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { Game } from './domain/types.js';
 
+/** Values readable from ~/.exilium/config.json — written by `exilium setup`.
+ * Environment variables always win over the file. */
+export interface FileConfig {
+  readonly game?: string;
+  readonly league?: string;
+  readonly refreshSec?: number;
+  readonly minEdgePct?: number;
+  readonly webhookUrl?: string;
+  readonly experimental?: boolean;
+  readonly account?: string;
+  readonly poesessid?: string;
+}
+
 export interface ExiliumConfig {
   readonly game: Game;
   readonly dbPath: string;
@@ -20,6 +33,11 @@ export interface ExiliumConfig {
   readonly webhookUrl: string | undefined;
   /** Include experimental signals (cross-rate divergence) in default views. */
   readonly experimental: boolean;
+  /** PoE account name for stash reading (env EXILIUM_ACCOUNT or config file). */
+  readonly account: string | undefined;
+  /** Session cookie for live/stash (env EXILIUM_POESESSID or config file,
+   * which `exilium setup` writes with 0600 permissions). */
+  readonly poesessid: string | undefined;
 }
 
 /** Exchange category type names per game, as poe.ninja's API expects them
@@ -41,21 +59,37 @@ function parseGame(raw: string | undefined): Game {
   throw new Error(`EXILIUM_GAME must be "poe1" or "poe2", got "${raw}"`);
 }
 
-/** Read configuration from the environment with sane defaults (game: poe1). */
-export function loadConfig(env: NodeJS.ProcessEnv): ExiliumConfig {
+/** Read configuration: defaults ← config file ← environment (env wins). */
+export function loadConfig(env: NodeJS.ProcessEnv, file: FileConfig = {}): ExiliumConfig {
   const contact = env['EXILIUM_CONTACT'];
-  const game = parseGame(env['EXILIUM_GAME']);
+  const game = parseGame(env['EXILIUM_GAME'] ?? file.game);
   return {
     game,
     dbPath: env['EXILIUM_DB'] ?? join(homedir(), '.exilium', 'exilium.db'),
     userAgent: contact === undefined ? BASE_USER_AGENT : `${BASE_USER_AGENT} (contact: ${contact})`,
-    league: env['EXILIUM_LEAGUE'] ?? null,
+    league: env['EXILIUM_LEAGUE'] ?? file.league ?? null,
     categories: CATEGORIES_BY_GAME[game],
     dashboardPort: Number(env['EXILIUM_PORT'] ?? 4321),
-    refreshSec: Math.max(MIN_WATCH_INTERVAL_SEC, Number(env['EXILIUM_REFRESH'] ?? 300)),
+    refreshSec: Math.max(MIN_WATCH_INTERVAL_SEC, Number(env['EXILIUM_REFRESH'] ?? file.refreshSec ?? 300)),
     watchIntervalSec: Math.max(MIN_WATCH_INTERVAL_SEC, Number(env['EXILIUM_WATCH_INTERVAL'] ?? 600)),
-    minEdgePct: Number(env['EXILIUM_MIN_EDGE'] ?? 25),
-    webhookUrl: env['EXILIUM_WEBHOOK'],
-    experimental: env['EXILIUM_EXPERIMENTAL'] === '1',
+    minEdgePct: Number(env['EXILIUM_MIN_EDGE'] ?? file.minEdgePct ?? 25),
+    webhookUrl: env['EXILIUM_WEBHOOK'] ?? file.webhookUrl,
+    experimental: env['EXILIUM_EXPERIMENTAL'] === '1' || (env['EXILIUM_EXPERIMENTAL'] === undefined && file.experimental === true),
+    account: env['EXILIUM_ACCOUNT'] ?? file.account,
+    poesessid: env['EXILIUM_POESESSID'] ?? file.poesessid,
   };
+}
+
+/** Where `exilium setup` writes its file. */
+export function configFilePath(env: NodeJS.ProcessEnv): string {
+  return env['EXILIUM_CONFIG'] ?? join(homedir(), '.exilium', 'config.json');
+}
+
+export function readFileConfig(path: string, readFile: (p: string) => string): FileConfig {
+  try {
+    const parsed: unknown = JSON.parse(readFile(path));
+    return typeof parsed === 'object' && parsed !== null ? (parsed as FileConfig) : {};
+  } catch {
+    return {};
+  }
 }
