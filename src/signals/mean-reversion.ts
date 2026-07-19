@@ -41,6 +41,7 @@ export function detectMeanReversion(snapshot: MarketSnapshot, opts: MeanReversio
         category: l.category,
         edge: Math.abs(latest - m) / 100,
         confidence: volumeConfidence(l.volumePrimaryValue),
+        direction: latest < m ? 'buy' : 'sell',
         rationale: `Latest daily change ${latest.toFixed(1)}% is ${Math.abs(z).toFixed(1)} standard deviations ${direction} its window mean of ${m.toFixed(1)}% — ${action}.`,
         dataFreshness: snapshot.fetchedAt,
         experimental: false,

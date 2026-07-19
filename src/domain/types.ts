@@ -58,6 +58,9 @@ export interface Opportunity {
   readonly edge: number;
   /** 0..1 heuristic confidence (volume- and freshness-driven). */
   readonly confidence: number;
+  /** Trade direction the signal implies; null when the signal has no
+   * single direction (e.g. cross-rate divergence has two legs). */
+  readonly direction: 'buy' | 'sell' | null;
   readonly rationale: string;
   readonly dataFreshness: string; // ISO-8601 of underlying snapshot
   readonly experimental: boolean;

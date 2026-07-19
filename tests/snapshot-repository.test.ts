@@ -91,6 +91,15 @@ describe('SnapshotRepository', () => {
     ]);
   });
 
+  test('snapshotTimeline returns chronological snapshots for one category', () => {
+    repo.save(snap({ fetchedAt: '2026-07-18T18:00:00Z' }));
+    repo.save(snap({ fetchedAt: '2026-07-18T17:00:00Z' }));
+    repo.save(snap({ category: 'Runes', fetchedAt: '2026-07-18T16:00:00Z' }));
+    const timeline = repo.snapshotTimeline('poe2', 'Runes of Aldur', 'Currency');
+    expect(timeline.map((s) => s.fetchedAt)).toEqual(['2026-07-18T17:00:00Z', '2026-07-18T18:00:00Z']);
+    expect(timeline.every((s) => s.category === 'Currency')).toBe(true);
+  });
+
   test('leaguesSeen reports game/league pairs', () => {
     repo.save(snap({}));
     repo.save(snap({ game: 'poe1', league: 'Mirage' }));

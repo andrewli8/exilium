@@ -82,6 +82,14 @@ export class SnapshotRepository {
     });
   }
 
+  /** All snapshots for one category, oldest first — the backtest input. */
+  snapshotTimeline(game: Game, league: string, category: string): readonly MarketSnapshot[] {
+    const rows = this.db
+      .prepare('SELECT * FROM snapshots WHERE game = ? AND league = ? AND category = ? ORDER BY fetched_at, id')
+      .all(game, league, category) as readonly SnapshotRow[];
+    return rows.map((r) => this.hydrate(r));
+  }
+
   history(game: Game, league: string, itemId: string, limit: number): readonly PricePoint[] {
     const rows = this.db
       .prepare(

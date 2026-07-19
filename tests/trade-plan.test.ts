@@ -11,6 +11,7 @@ const OPP: Opportunity = {
   category: 'Currency',
   edge: 0.12,
   confidence: 0.8,
+  direction: 'sell',
   rationale: 'Latest daily change -25.0% is 3.2 standard deviations below its window mean — buy (expect recovery toward trend).',
   dataFreshness: '2026-07-18T18:00:00Z',
   experimental: false,

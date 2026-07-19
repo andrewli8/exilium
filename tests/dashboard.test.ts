@@ -28,6 +28,7 @@ const OPPS: OpportunitiesResult = {
       category: 'Currency',
       edge: 0.5,
       confidence: 0.8,
+      direction: 'buy',
       rationale: 'way below trend',
       dataFreshness: '2026-07-18T18:00:00Z',
       experimental: false,

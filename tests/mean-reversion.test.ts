@@ -40,6 +40,7 @@ describe('detectMeanReversion', () => {
     expect(o.itemId).toBe('crashed');
     expect(o.edge).toBeGreaterThan(0);
     expect(o.rationale).toMatch(/below/i);
+    expect(o.direction).toBe('buy');
     expect(o.experimental).toBe(false);
     expect(o.dataFreshness).toBe('2026-07-18T18:00:00Z');
   });
@@ -49,6 +50,7 @@ describe('detectMeanReversion', () => {
     const opps = detectMeanReversion(snap([spiked]), OPTS);
     expect(opps).toHaveLength(1);
     expect(opps[0]!.rationale).toMatch(/above/i);
+    expect(opps[0]!.direction).toBe('sell');
   });
 
   test('ignores items below the volume floor', () => {

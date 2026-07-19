@@ -34,6 +34,7 @@ export function detectCrossRateDivergence(snapshot: MarketSnapshot, opts: CrossR
         category: l.category,
         edge: divergence,
         confidence: volumeConfidence(l.volumePrimaryValue) * 0.5, // experimental haircut
+        direction: null,
         rationale: `Priced at ${l.primaryValue.toPrecision(4)} divine but the ${l.maxVolumeCurrency} pair implies ${impliedPrimaryValue.toPrecision(4)} divine (${(divergence * 100).toFixed(1)}% gap) — the ${cheapLeg} leg is the cheaper route.`,
         dataFreshness: snapshot.fetchedAt,
         experimental: true,

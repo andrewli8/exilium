@@ -15,6 +15,7 @@ import { WatchRepository } from './storage/watch-repository.js';
 import { JournalRepository } from './storage/journal-repository.js';
 import { OUTCOMES } from './storage/journal-repository.js';
 import type { Outcome } from './storage/journal-repository.js';
+import { runBacktest } from './backtest/backtest.js';
 import { buildLiveWsUrl, handleNewListings, parseTradeUrl } from './trade/live-search.js';
 import { createNotifier } from './watch/notify.js';
 import { initialWatchState, watchTick } from './watch/watch.js';
@@ -441,6 +442,49 @@ async function cmdLive(): Promise<void> {
   }
 }
 
+async function cmdBacktest(): Promise<void> {
+  const horizon = Number(flagValue('--horizon') ?? 6);
+  if (Number.isNaN(horizon) || horizon < 1) throw new Error('--horizon must be a positive number of snapshots');
+  const league = storedLeague();
+  const categories = repo.latestAll(config.game, league).map((s) => s.category);
+  const detectors = { minVolume: 100, zThreshold: 1.5, minDeviationPct: 10, minDivergence: 0.03 };
+  const merged = new Map<string, { signals: number; wins: number; moveSum: number }>();
+  let ticks = 0;
+  let skipped = 0;
+  let from: string | null = null;
+  let to: string | null = null;
+  for (const category of categories) {
+    const timeline = repo.snapshotTimeline(config.game, league, category);
+    const report = runBacktest(timeline, { horizon, detectors });
+    ticks = Math.max(ticks, report.ticks);
+    skipped += report.skippedNoHorizon;
+    if (report.from !== null && (from === null || report.from < from)) from = report.from;
+    if (report.to !== null && (to === null || report.to > to)) to = report.to;
+    for (const [kind, d] of Object.entries(report.perDetector)) {
+      const e = merged.get(kind) ?? { signals: 0, wins: 0, moveSum: 0 };
+      merged.set(kind, {
+        signals: e.signals + d.signals,
+        wins: e.wins + d.wins,
+        moveSum: e.moveSum + d.avgForwardMovePct * d.signals,
+      });
+    }
+  }
+  console.log(`Backtest · ${config.game}/${league} · ${categories.length} categories · ${ticks} snapshots deep · horizon ${horizon} snapshots`);
+  console.log(`Window: ${from ?? '—'} → ${to ?? '—'}\n`);
+  if (merged.size === 0) {
+    console.log(`No scoreable signals yet${skipped > 0 ? ` (${skipped} fired too close to the end of history)` : ''}.`);
+    console.log('History deepens every refresh — keep the TUI, dashboard, or a cron ingest running and re-run this in a day or two.');
+    return;
+  }
+  for (const [kind, e] of merged.entries()) {
+    const hit = e.signals === 0 ? 0 : (e.wins / e.signals) * 100;
+    const avg = e.signals === 0 ? 0 : e.moveSum / e.signals;
+    console.log(`${kind}: ${e.signals} signals · ${hit.toFixed(0)}% moved in the predicted direction · avg forward move ${avg.toFixed(2)}%`);
+  }
+  if (skipped > 0) console.log(`(${skipped} signals fired too close to the end of history to score)`);
+  console.log('\nCaveat: hit rate measures direction over the horizon, not realized profit — gold fees and fills are what the journal measures.');
+}
+
 const commands: Record<string, () => Promise<void>> = {
   tui: cmdTui,
   ingest: cmdIngest,
@@ -454,6 +498,7 @@ const commands: Record<string, () => Promise<void>> = {
   journal: cmdJournal,
   watches: cmdWatches,
   live: cmdLive,
+  backtest: cmdBacktest,
   snapshot: cmdSnapshot,
   arb: cmdArb,
 };
@@ -461,7 +506,7 @@ const commands: Record<string, () => Promise<void>> = {
 const cmd = process.argv[2] ?? 'tui';
 const run = commands[cmd];
 if (run === undefined) {
-  console.error('Usage: exilium [tui]|ingest|watch|watches|live|snapshot|categories|list|opps|arb|price|journal|dashboard|mcp');
+  console.error('Usage: exilium [tui]|ingest|watch|watches|live|snapshot|categories|list|opps|arb|price|journal|backtest|dashboard|mcp');
   process.exit(2);
 }
 run().catch((err) => {

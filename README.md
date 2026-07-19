@@ -69,6 +69,7 @@ After `npm install`, run via `npx exilium <command>` (or `npm run <command>` for
 | `exilium watches [add\|rm\|events]` | Manage persistent watches (the same ones agents create via MCP) |
 | `exilium live <trade-url>` | Monitor pathofexile.com live searches; whispers auto-copied to clipboard ([walkthrough](examples/05-live-search.md)) |
 | `exilium journal [add]` | Record and review trade outcomes; prints your fill rate |
+| `exilium backtest [--horizon N]` | Replay stored history and score detector signals against what prices actually did |
 | `exilium dashboard` | Local web dashboard |
 | `exilium mcp` | MCP server on stdio for AI agents |
 
@@ -182,7 +183,7 @@ Every tool takes an optional `game` (`poe1`/`poe2`) defaulting to the server's c
 | Dashboard | ✅ lean web + full terminal UI (Ink) |
 | Price history accumulation | ✅ grows with each ingest |
 | Bulk↔single spread detector | ⛔ blocked: poe.ninja retired listing-based price APIs (everything is exchange-based now); needs a listing data source |
-| Backtesting, fill-likelihood | 🕐 deferred until a full league of history is accumulated |
+| Backtesting | ✅ `exilium backtest` — sharpens as history accumulates |
 | OAuth stash valuation | 🕐 P1 — needs GGG application approval |
 | Rare-item valuation | ⛔ out of scope by design (multi-month subsystem) |
 
