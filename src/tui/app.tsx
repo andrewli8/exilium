@@ -5,6 +5,7 @@ import { assessFreshness } from '../domain/freshness.js';
 import type { ArbRow, DetailedMover, ExiliumService } from '../mcp/service.js';
 import type { WatchEvent } from '../storage/watch-repository.js';
 import { renderSparkline } from './sparkline.js';
+import { draftTradePlan } from '../signals/trade-plan.js';
 
 type View = 'movers' | 'opps' | 'arb' | 'watches';
 
@@ -91,6 +92,8 @@ function MoversPane({ movers, selected, primary }: {
 
 function OppsPane({ opps, selected }: { readonly opps: readonly Opportunity[]; readonly selected: number }): React.JSX.Element {
   if (opps.length === 0) return <Text color={DIM}>No opportunities at current thresholds.</Text>;
+  const sel = opps[selected];
+  const plan = sel === undefined ? null : draftTradePlan(sel);
   return (
     <Box flexDirection="column">
       <Row cells={['DETECTOR', 'ITEM', 'EDGE', 'CONF', 'RATIONALE']} widths={OPP_WIDTHS} selected={false} />
@@ -98,6 +101,15 @@ function OppsPane({ opps, selected }: { readonly opps: readonly Opportunity[]; r
         <Row key={o.id} selected={i === selected} widths={OPP_WIDTHS}
           cells={[`${o.kind}${o.experimental ? ' ⚠' : ''}`, o.itemName, `${(o.edge * 100).toFixed(1)}%`, `${(o.confidence * 100).toFixed(0)}%`, o.rationale]} />
       ))}
+      {plan !== null && (
+        <Box marginTop={1} flexDirection="column">
+          <Text color={GOLD} bold>{plan.summary}</Text>
+          {plan.steps.map((s) => (
+            <Text key={s.order} wrap="truncate-end">{`  ${s.order}. ${s.instruction}`}</Text>
+          ))}
+          <Text color={DIM} wrap="truncate-end">{plan.humanExecutionNote}</Text>
+        </Box>
+      )}
     </Box>
   );
 }

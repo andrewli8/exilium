@@ -110,6 +110,16 @@ describe('ExiliumTui', () => {
     expect(before).not.toEqual(after);
   });
 
+  test('opportunities pane shows the trade plan for the selected row', async () => {
+    const { lastFrame, stdin } = render(<ExiliumTui service={makeService()} {...PROPS} />);
+    await flush();
+    stdin.write('2');
+    await flush();
+    const frame = lastFrame()!;
+    expect(frame).toContain('exilium journal add');
+    expect(frame).toMatch(/never executes|expected edge/i);
+  });
+
   test('pressing 4 shows the watch-events pane', async () => {
     const { lastFrame, stdin } = render(<ExiliumTui service={makeService()} {...PROPS} />);
     await flush();
