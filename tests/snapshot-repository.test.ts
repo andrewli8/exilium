@@ -100,6 +100,28 @@ describe('SnapshotRepository', () => {
     expect(timeline.every((s) => s.category === 'Currency')).toBe(true);
   });
 
+  test('prune keeps recent snapshots, downsamples old ones to hourly, and reports deletions', () => {
+    // Two old snapshots in the same hour, one in another hour, one recent.
+    repo.save(snap({ fetchedAt: '2026-07-10T10:05:00Z' }));
+    repo.save(snap({ fetchedAt: '2026-07-10T10:45:00Z' }));
+    repo.save(snap({ fetchedAt: '2026-07-10T11:05:00Z' }));
+    repo.save(snap({ fetchedAt: '2026-07-18T17:00:00Z' }));
+    const removed = repo.prune('2026-07-18T18:00:00Z', 48);
+    expect(removed).toBe(1); // one duplicate within the 10:00 hour goes
+    const remaining = repo.snapshotTimeline('poe2', 'Runes of Aldur', 'Currency').map((s) => s.fetchedAt);
+    expect(remaining).toEqual(['2026-07-10T10:45:00Z', '2026-07-10T11:05:00Z', '2026-07-18T17:00:00Z']);
+  });
+
+  test('latestAll serves cached results until a new snapshot is saved', () => {
+    repo.save(snap({}));
+    const first = repo.latestAll('poe2', 'Runes of Aldur');
+    expect(repo.latestAll('poe2', 'Runes of Aldur')).toBe(first); // same reference: cache hit
+    repo.save(snap({ fetchedAt: '2026-07-18T19:00:00Z' }));
+    const second = repo.latestAll('poe2', 'Runes of Aldur');
+    expect(second).not.toBe(first);
+    expect(second[0]!.fetchedAt).toBe('2026-07-18T19:00:00Z');
+  });
+
   test('leaguesSeen reports game/league pairs', () => {
     repo.save(snap({}));
     repo.save(snap({ game: 'poe1', league: 'Mirage' }));

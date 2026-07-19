@@ -28,7 +28,34 @@ export interface PricePoint {
 }
 
 export class SnapshotRepository {
+  private latestAllCache = new Map<string, { maxId: number; snapshots: readonly MarketSnapshot[] }>();
+
   constructor(private readonly db: Db) {}
+
+  /** Delete redundant history: snapshots older than `keepFullHours` are
+   * downsampled to one per (category, hour) — the newest in each hour wins.
+   * Returns the number of snapshots removed. */
+  prune(nowIso: string, keepFullHours: number): number {
+    const cutoff = new Date(Date.parse(nowIso) - keepFullHours * 3600_000).toISOString();
+    const doomed = this.db
+      .prepare(
+        `SELECT id FROM snapshots s WHERE fetched_at < ?
+         AND id NOT IN (
+           SELECT MAX(id) FROM snapshots
+           WHERE fetched_at < ?
+           GROUP BY game, league, category, substr(fetched_at, 1, 13)
+         )`,
+      )
+      .all(cutoff, cutoff) as readonly { id: number }[];
+    this.db.transaction(() => {
+      for (const d of doomed) {
+        this.db.prepare('DELETE FROM market_lines WHERE snapshot_id = ?').run(d.id);
+        this.db.prepare('DELETE FROM snapshots WHERE id = ?').run(d.id);
+      }
+    })();
+    if (doomed.length > 0) this.latestAllCache.clear();
+    return doomed.length;
+  }
 
   save(snapshot: MarketSnapshot): void {
     const insertSnapshot = this.db.prepare(
@@ -73,13 +100,22 @@ export class SnapshotRepository {
   }
 
   latestAll(game: Game, league: string): readonly MarketSnapshot[] {
+    const key = `${game}:${league}`;
+    const maxId =
+      ((this.db.prepare('SELECT MAX(id) AS m FROM snapshots WHERE game = ? AND league = ?').get(game, league) as
+        | { m: number | null }
+        | undefined)?.m) ?? 0;
+    const cached = this.latestAllCache.get(key);
+    if (cached !== undefined && cached.maxId === maxId) return cached.snapshots;
     const categories = this.db
       .prepare('SELECT DISTINCT category FROM snapshots WHERE game = ? AND league = ?')
       .all(game, league) as readonly { category: string }[];
-    return categories.flatMap((c) => {
+    const snapshots = categories.flatMap((c) => {
       const s = this.latest(game, league, c.category);
       return s === null ? [] : [s];
     });
+    this.latestAllCache.set(key, { maxId, snapshots });
+    return snapshots;
   }
 
   /** All snapshots for one category, oldest first — the backtest input. */

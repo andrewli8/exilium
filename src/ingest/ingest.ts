@@ -49,5 +49,8 @@ export async function ingestLeague(
       errors.push({ category, message: err instanceof Error ? err.message : String(err) });
     }
   }
+  // Retention: history older than 48h downsamples to hourly. Without this a
+  // 24/7 companion writes ~170K rows/day forever.
+  repo.prune(opts.now(), 48);
   return { saved, errors };
 }
