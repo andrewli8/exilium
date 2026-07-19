@@ -1,0 +1,20 @@
+# looptight config — the one concept that matters is `verify`.
+# `verify` is the command that decides pass/fail. No verify, no loop.
+# Exit code 0 means pass; anything else means keep going.
+verify = "npx tsc --noEmit && npm test && npm run eval"
+
+# Optional grounded task files and unattended primary-worktree permission.
+tasks = []
+direct_main = false
+
+# Generate grounded tasks when the queue empties (set false, or pass --no-ideas).
+idea_generation = true
+
+# Let the Stop hook keep the session going while grounded tasks remain (honest stop when
+# none do). Opt-in; the hook otherwise just runs verify-until-green.
+continue_through_backlog = false
+
+# Optional policy controls. Empty values are disabled.
+protected_paths = []
+no_direct_push = false
+allowed_verify_commands = []
