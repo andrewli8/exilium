@@ -3,9 +3,10 @@ import { Box, Text, useApp, useInput, useStdin } from 'ink';
 import type { Game, Opportunity } from '../domain/types.js';
 import { assessFreshness } from '../domain/freshness.js';
 import type { ArbRow, DetailedMover, ExiliumService } from '../mcp/service.js';
+import type { WatchEvent } from '../storage/watch-repository.js';
 import { renderSparkline } from './sparkline.js';
 
-type View = 'movers' | 'opps' | 'arb';
+type View = 'movers' | 'opps' | 'arb' | 'watches';
 
 export interface TuiProps {
   readonly service: ExiliumService;
@@ -49,6 +50,7 @@ function Tabs({ view, category }: { readonly view: View; readonly category: stri
       {tab('1', 'MOVERS', view === 'movers')}
       {tab('2', 'OPPORTUNITIES', view === 'opps')}
       {tab('3', 'ARBITRAGE', view === 'arb')}
+      {tab('4', 'WATCHES', view === 'watches')}
       <Text color={GOLD}>{` [${category}]`}</Text>
       <Text color={DIM}>  ↑↓ select · ←→ category · r ingest · q quit</Text>
     </Box>
@@ -115,6 +117,29 @@ function ArbPane({ rows, selected, primary }: {
   );
 }
 
+const WATCH_WIDTHS = [22, 20, 60] as const;
+
+function WatchesPane({ events, selected }: {
+  readonly events: readonly WatchEvent[]; readonly selected: number;
+}): React.JSX.Element {
+  if (events.length === 0) return <Text color={DIM}>No watch events fired yet. Create watches with `exilium watches add` or via MCP.</Text>;
+  return (
+    <Box flexDirection="column">
+      <Row cells={['FIRED AT', 'WATCH', 'EVENT']} widths={WATCH_WIDTHS} selected={false} />
+      {events.map((e, i) => {
+        const p = e.payload as { itemName?: string; value?: number; edge?: number; totalChange?: number };
+        const bits = [
+          p.itemName ?? '',
+          p.value !== undefined ? `value ${p.value}` : '',
+          p.edge !== undefined ? `edge ${(p.edge * 100).toFixed(1)}%` : '',
+          p.totalChange !== undefined ? `change ${p.totalChange.toFixed(1)}%` : '',
+        ].filter((b) => b !== '');
+        return <Row key={e.seq} selected={i === selected} widths={WATCH_WIDTHS} cells={[e.firedAt, e.watchId, bits.join(' · ')]} />;
+      })}
+    </Box>
+  );
+}
+
 const PAGE = 15;
 
 /** Bloomberg-style terminal UI over the local snapshot store. Reads cached
@@ -152,16 +177,24 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
     const movers = service.moversDetailed(game, league, PAGE, filter);
     const opps = service.opportunities(game, league, true, 0, filter).opportunities.slice(0, PAGE);
     const arb = service.arbitrage(game, league, 0, filter).slice(0, PAGE);
-    return { summary, categories, category, movers, opps, arb };
+    let watchEvents: readonly WatchEvent[] = [];
+    try {
+      watchEvents = service.recentWatchEvents(PAGE);
+    } catch {
+      // watches not enabled for this service instance — pane shows empty state
+    }
+    return { summary, categories, category, movers, opps, arb, watchEvents };
   }, [service, game, league, tick, ingesting, categoryIdx]);
 
-  const rowCount = view === 'movers' ? data.movers.length : view === 'opps' ? data.opps.length : data.arb.length;
+  const rowCount =
+    view === 'movers' ? data.movers.length : view === 'opps' ? data.opps.length : view === 'arb' ? data.arb.length : data.watchEvents.length;
 
   useInput((input, key) => {
     if (input === 'q' || (key.ctrl && input === 'c')) exit();
     if (input === '1') { setView('movers'); setSelected(0); }
     if (input === '2') { setView('opps'); setSelected(0); }
     if (input === '3') { setView('arb'); setSelected(0); }
+    if (input === '4') { setView('watches'); setSelected(0); }
     if (key.downArrow) setSelected((s) => Math.min(rowCount - 1, s + 1));
     if (key.upArrow) setSelected((s) => Math.max(0, s - 1));
     if (key.rightArrow) { setCategoryIdx((c) => c + 1); setSelected(0); }
@@ -191,6 +224,7 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
         {view === 'movers' && <MoversPane movers={data.movers} selected={selected} primary={data.summary.primaryCurrency} />}
         {view === 'opps' && <OppsPane opps={data.opps} selected={selected} />}
         {view === 'arb' && <ArbPane rows={data.arb} selected={selected} primary={data.summary.primaryCurrency} />}
+        {view === 'watches' && <WatchesPane events={data.watchEvents} selected={selected} />}
       </Box>
       <Box marginTop={1}>
         <Text color={DIM}>humans execute all trades · data via poe.ninja · {data.summary.categories} categories</Text>

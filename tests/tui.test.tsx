@@ -5,6 +5,7 @@ import { ExiliumTui } from '../src/tui/app.js';
 import { ExiliumService } from '../src/mcp/service.js';
 import { createDb } from '../src/storage/db.js';
 import { SnapshotRepository } from '../src/storage/snapshot-repository.js';
+import { WatchRepository } from '../src/storage/watch-repository.js';
 import type { MarketSnapshot } from '../src/domain/types.js';
 
 const SNAP: MarketSnapshot = {
@@ -40,9 +41,32 @@ const SNAP: MarketSnapshot = {
 };
 
 function makeService(): ExiliumService {
-  const repo = new SnapshotRepository(createDb(':memory:'));
+  const db = createDb(':memory:');
+  const repo = new SnapshotRepository(db);
   repo.save(SNAP);
-  return new ExiliumService(repo);
+  const watches = new WatchRepository(db);
+  watches.upsert({
+    id: 'divine-alert',
+    game: 'poe1',
+    league: 'Mirage',
+    kind: 'price_above',
+    itemId: 'divine',
+    category: null,
+    threshold: 700,
+    mode: 'repeat',
+    webhookUrl: null,
+    createdAt: '2026-07-18T17:00:00Z',
+    active: true,
+  });
+  watches.recordEvents([
+    {
+      watchId: 'divine-alert',
+      firedAt: '2026-07-18T17:30:00Z',
+      payload: { itemName: 'Divine Orb', value: 715, kind: 'price_above' },
+      dedupeKey: 'seed',
+    },
+  ]);
+  return new ExiliumService(repo, undefined, watches);
 }
 
 const PROPS = { game: 'poe1' as const, league: 'Mirage', refreshSec: 9999 };
@@ -84,6 +108,17 @@ describe('ExiliumTui', () => {
     await flush();
     const after = lastFrame()!;
     expect(before).not.toEqual(after);
+  });
+
+  test('pressing 4 shows the watch-events pane', async () => {
+    const { lastFrame, stdin } = render(<ExiliumTui service={makeService()} {...PROPS} />);
+    await flush();
+    stdin.write('4');
+    await flush();
+    const frame = lastFrame()!;
+    expect(frame).toContain('divine-alert');
+    expect(frame).toContain('Divine Orb');
+    expect(frame).toContain('715');
   });
 
   test('calls onIngest automatically on the autoIngestSec cadence', async () => {
