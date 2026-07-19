@@ -23,6 +23,8 @@ Working backlog for the looptight loop. Each task carries evidence from the repo
 
 (queue empty — regenerate when new evidence-backed work appears)
 
+Small follow-ups from approval conditions: TUI `r` within the 240s shared gate silently no-ops — surface "fetched Xs ago, skipped" in the TUI header.
+
 ## Review-response round (2026-07-19), completed
 - Versioned migrations (C1); retention + latestAll cache (C2); onset/wall-clock/baseline backtest (C3); journal decayed-id warning + resolution (C4)
 - Opportunity log (H1); track records + run_backtest in MCP (H2); idempotent record_outcome (H6)
