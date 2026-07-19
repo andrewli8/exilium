@@ -22,6 +22,10 @@ export interface MoverSummary {
   readonly volumePrimaryValue: number;
 }
 
+export interface DetailedMover extends MoverSummary {
+  readonly sparkline: readonly number[];
+}
+
 export interface MarketSummary {
   readonly game: Game;
   readonly primaryCurrency: string;
@@ -93,6 +97,24 @@ export class ExiliumService {
       topMovers: [...lines].sort((a, b) => Math.abs(b.totalChange) - Math.abs(a.totalChange)).slice(0, TOP_N).map(toSummary),
       topVolume: [...lines].sort((a, b) => b.volumePrimaryValue - a.volumePrimaryValue).slice(0, TOP_N).map(toSummary),
     };
+  }
+
+  /** Top movers including their sparkline series (for the TUI detail pane). */
+  moversDetailed(game: Game, league: string, limit: number): readonly DetailedMover[] {
+    return this.repo
+      .latestAll(game, league)
+      .flatMap((s) => s.lines)
+      .sort((a, b) => Math.abs(b.totalChange) - Math.abs(a.totalChange))
+      .slice(0, limit)
+      .map((l) => ({
+        itemId: l.itemId,
+        name: l.name,
+        category: l.category,
+        primaryValue: l.primaryValue,
+        totalChange: l.totalChange,
+        volumePrimaryValue: l.volumePrimaryValue,
+        sparkline: l.sparkline,
+      }));
   }
 
   pairHistory(game: Game, league: string, itemId: string, limit = 100): PairHistory {

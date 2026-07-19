@@ -31,12 +31,26 @@ Data is a snapshot at ingest time. Re-run `npm run ingest` whenever you want fre
 
 ## Using it
 
+### Terminal UI — the Bloomberg-style front door
+
+```bash
+npx exilium        # `tui` is the default command
+```
+
+A full-screen terminal UI (built with Ink, the React-for-CLIs library) over the local market store:
+
+- **1 · MOVERS** — biggest price moves with a 7-day unicode sparkline detail pane for the selected row
+- **2 · OPPORTUNITIES** — live detector signals with edge, confidence, and rationale
+- **3 · ARBITRAGE** — listed vs implied cross-rate table per market
+- `↑/↓` select · `r` re-ingest fresh data in place · `q` quit · auto-rereads the store every 30s
+
 ### CLI commands
 
 After `npm install`, run via `npx exilium <command>` (or `npm run <command>` for the long-running ones):
 
 | Command | What it does |
 |---|---|
+| `exilium` / `exilium tui` | Full-screen terminal UI (default) |
 | `exilium ingest` | Pull the latest market snapshots (PoE1: 13 categories, ~600 markets) |
 | `exilium snapshot` | Top movers and top-volume markets in your terminal |
 | `exilium opps [--min-edge N] [--experimental]` | Current detector signals |
@@ -140,7 +154,7 @@ Every tool takes an optional `game` (`poe1`/`poe2`) defaulting to the server's c
 | Cross-rate arbitrage (`arb`, `find_arbitrage`) | ✅ (two-leg; markets are usually efficient) |
 | MCP server (7 tools) | ✅ |
 | Watch/alerts (desktop, terminal, Discord webhook) | ✅ |
-| Dashboard | ✅ lean |
+| Dashboard | ✅ lean web + full terminal UI (Ink) |
 | Price history accumulation | ✅ grows with each ingest |
 | Bulk↔single spread detector | ⛔ blocked: poe.ninja retired listing-based price APIs (everything is exchange-based now); needs a listing data source |
 | Backtesting, fill-likelihood | 🕐 deferred until a full league of history is accumulated |

@@ -161,7 +161,35 @@ async function cmdArb(): Promise<void> {
   console.log('\nGaps are usually <0.5% — the exchange is efficient. Wide gaps on low volume are stale-data suspects; re-verify in-game before acting.');
 }
 
+async function cmdTui(): Promise<void> {
+  const [{ render }, React, { ExiliumTui }] = await Promise.all([
+    import('ink'),
+    import('react'),
+    import('./tui/app.js'),
+  ]);
+  const league = storedLeague();
+  const client = new NinjaClient({ userAgent: config.userAgent });
+  const onIngest = async (): Promise<void> => {
+    await ingestLeague(client, repo, {
+      game: config.game,
+      league,
+      categories: config.categories,
+      now: () => new Date().toISOString(),
+    });
+  };
+  render(
+    React.default.createElement(ExiliumTui, {
+      service: new ExiliumService(repo),
+      game: config.game,
+      league,
+      refreshSec: 30,
+      onIngest,
+    }),
+  );
+}
+
 const commands: Record<string, () => Promise<void>> = {
+  tui: cmdTui,
   ingest: cmdIngest,
   mcp: cmdMcp,
   dashboard: cmdDashboard,
@@ -172,10 +200,10 @@ const commands: Record<string, () => Promise<void>> = {
   arb: cmdArb,
 };
 
-const cmd = process.argv[2] ?? '';
+const cmd = process.argv[2] ?? 'tui';
 const run = commands[cmd];
 if (run === undefined) {
-  console.error('Usage: exilium <ingest|watch|snapshot|opps|arb|price|dashboard|mcp>');
+  console.error('Usage: exilium [tui]|ingest|watch|snapshot|opps|arb|price|dashboard|mcp');
   process.exit(2);
 }
 run().catch((err) => {
