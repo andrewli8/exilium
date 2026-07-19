@@ -112,7 +112,7 @@ async function cmdDashboard(): Promise<void> {
       }));
       const html = renderDashboard(
         summary,
-        service.opportunities(config.game, league, true),
+        service.opportunities(config.game, league, config.experimental, config.minEdgePct / 100),
         { nowMs: Date.now(), reloadSec: 30 },
         charts,
       );

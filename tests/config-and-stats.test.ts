@@ -20,6 +20,12 @@ describe('loadConfig', () => {
     expect(c.watchIntervalSec).toBe(600);
     expect(c.minEdgePct).toBe(25);
     expect(c.webhookUrl).toBeUndefined();
+    expect(c.experimental).toBe(false);
+  });
+
+  test('EXILIUM_EXPERIMENTAL=1 opts into experimental signals', () => {
+    expect(loadConfig({ EXILIUM_EXPERIMENTAL: '1' }).experimental).toBe(true);
+    expect(loadConfig({ EXILIUM_EXPERIMENTAL: '0' }).experimental).toBe(false);
   });
 
   test('EXILIUM_REFRESH sets the auto-refresh cadence with a 300s floor', () => {

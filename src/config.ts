@@ -18,6 +18,8 @@ export interface ExiliumConfig {
   readonly minEdgePct: number;
   /** Optional Discord-compatible webhook for watch notifications. */
   readonly webhookUrl: string | undefined;
+  /** Include experimental signals (cross-rate divergence) in default views. */
+  readonly experimental: boolean;
 }
 
 /** Exchange category type names per game, as poe.ninja's API expects them
@@ -54,5 +56,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): ExiliumConfig {
     watchIntervalSec: Math.max(MIN_WATCH_INTERVAL_SEC, Number(env['EXILIUM_WATCH_INTERVAL'] ?? 600)),
     minEdgePct: Number(env['EXILIUM_MIN_EDGE'] ?? 25),
     webhookUrl: env['EXILIUM_WEBHOOK'],
+    experimental: env['EXILIUM_EXPERIMENTAL'] === '1',
   };
 }
