@@ -150,6 +150,10 @@ export class ExiliumService {
     }));
   }
 
+  recentWatchEvents(limit = 20): readonly WatchEvent[] {
+    return this.requireWatches().latestEvents(limit);
+  }
+
   pollWatchResults(cursor: number, limit: number): { events: readonly WatchEvent[]; nextCursor: number } {
     this.runWatchEvaluation();
     const events = this.requireWatches().eventsSince(cursor, limit);

@@ -93,6 +93,17 @@ describe('WatchRepository', () => {
     expect((page2[0]!.payload as { value: number }).value).toBe(730);
   });
 
+  test('latestEvents returns newest events first', () => {
+    repo.upsert(watch({}));
+    repo.recordEvents([
+      { watchId: 'w1', firedAt: '2026-07-18T18:00:00Z', payload: { v: 1 }, dedupeKey: 'a' },
+      { watchId: 'w1', firedAt: '2026-07-18T19:00:00Z', payload: { v: 2 }, dedupeKey: 'b' },
+    ]);
+    const latest = repo.latestEvents(1);
+    expect(latest).toHaveLength(1);
+    expect((latest[0]!.payload as { v: number }).v).toBe(2);
+  });
+
   test('hasEvent dedupes by watch and key', () => {
     repo.upsert(watch({}));
     repo.recordEvents([{ watchId: 'w1', firedAt: 't', payload: {}, dedupeKey: 'k1' }]);

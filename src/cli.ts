@@ -7,7 +7,7 @@ import { renderDashboard } from './dashboard/render.js';
 import { ingestLeague } from './ingest/ingest.js';
 import { buildMcpServer } from './mcp/server.js';
 import { ExiliumService } from './mcp/service.js';
-import { formatArbTable, formatCategoryTable, formatItemTable, formatJournal, formatOpportunityTable, formatPriceQuote, formatSnapshotTable } from './cli/format.js';
+import { formatArbTable, formatCategoryTable, formatItemTable, formatJournal, formatOpportunityTable, formatPriceQuote, formatSnapshotTable, formatWatchEvents, formatWatchTable } from './cli/format.js';
 import { NinjaClient } from './sources/ninja/client.js';
 import { createDb } from './storage/db.js';
 import { SnapshotRepository } from './storage/snapshot-repository.js';
@@ -303,6 +303,51 @@ async function cmdJournal(): Promise<void> {
   console.log(formatJournal(entries, summary));
 }
 
+async function cmdWatches(): Promise<void> {
+  const sub = process.argv[3];
+  const service = makeService();
+  if (sub === 'add') {
+    const kind = flagValue('--kind');
+    const validKinds = ['price_above', 'price_below', 'change_abs', 'opportunity'];
+    if (kind === undefined || !validKinds.includes(kind)) {
+      throw new Error(`Usage: exilium watches add --kind <${validKinds.join('|')}> [--item ID] [--cat CATEGORY] --threshold N [--mode once|repeat] [--id NAME] [--webhook URL]`);
+    }
+    const threshold = Number(flagValue('--threshold'));
+    if (Number.isNaN(threshold)) throw new Error('--threshold must be a number');
+    const itemId = flagValue('--item') ?? null;
+    if ((kind === 'price_above' || kind === 'price_below') && itemId === null) {
+      throw new Error(`${kind} watches need --item`);
+    }
+    const league = storedLeague();
+    const watch = service.createWatch({
+      id: flagValue('--id') ?? `${kind}:${config.game}:${league}:${itemId ?? flagValue('--cat') ?? 'any'}:${threshold}`,
+      game: config.game,
+      league,
+      kind: kind as 'price_above' | 'price_below' | 'change_abs' | 'opportunity',
+      itemId,
+      category: flagValue('--cat') ?? null,
+      threshold,
+      mode: (flagValue('--mode') as 'once' | 'repeat' | undefined) ?? 'once',
+      webhookUrl: flagValue('--webhook') ?? null,
+      createdAt: new Date().toISOString(),
+      active: true,
+    });
+    console.log(`Created watch ${watch.id}. Any running Exilium surface will evaluate it after each refresh.`);
+    return;
+  }
+  if (sub === 'rm') {
+    const id = process.argv[4];
+    if (id === undefined) throw new Error('Usage: exilium watches rm <id>');
+    console.log(service.deleteWatch(id) ? `Deleted ${id}.` : `No watch named ${id}.`);
+    return;
+  }
+  if (sub === 'events') {
+    console.log(formatWatchEvents(service.recentWatchEvents(Number(flagValue('--limit') ?? 20))));
+    return;
+  }
+  console.log(formatWatchTable(service.listWatches()));
+}
+
 const commands: Record<string, () => Promise<void>> = {
   tui: cmdTui,
   ingest: cmdIngest,
@@ -314,6 +359,7 @@ const commands: Record<string, () => Promise<void>> = {
   list: cmdList,
   opps: cmdOpps,
   journal: cmdJournal,
+  watches: cmdWatches,
   snapshot: cmdSnapshot,
   arb: cmdArb,
 };
@@ -321,7 +367,7 @@ const commands: Record<string, () => Promise<void>> = {
 const cmd = process.argv[2] ?? 'tui';
 const run = commands[cmd];
 if (run === undefined) {
-  console.error('Usage: exilium [tui]|ingest|watch|snapshot|categories|list|opps|arb|price|journal|dashboard|mcp');
+  console.error('Usage: exilium [tui]|ingest|watch|watches|snapshot|categories|list|opps|arb|price|journal|dashboard|mcp');
   process.exit(2);
 }
 run().catch((err) => {

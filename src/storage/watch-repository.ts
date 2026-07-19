@@ -146,6 +146,19 @@ export class WatchRepository {
     );
   }
 
+  latestEvents(limit: number): readonly WatchEvent[] {
+    const rows = this.db
+      .prepare('SELECT * FROM watch_events ORDER BY seq DESC LIMIT ?')
+      .all(limit) as readonly { seq: number; watch_id: string; fired_at: string; payload_json: string; dedupe_key: string }[];
+    return rows.map((r) => ({
+      seq: r.seq,
+      watchId: r.watch_id,
+      firedAt: r.fired_at,
+      payload: JSON.parse(r.payload_json) as Record<string, unknown>,
+      dedupeKey: r.dedupe_key,
+    }));
+  }
+
   eventsSince(cursorSeq: number, limit: number): readonly WatchEvent[] {
     const rows = this.db
       .prepare('SELECT * FROM watch_events WHERE seq > ? ORDER BY seq LIMIT ?')

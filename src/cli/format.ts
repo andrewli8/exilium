@@ -1,6 +1,7 @@
 import type { Opportunity, PriceQuote } from '../domain/types.js';
 import type { ArbRow, CategorySummary, DetailedMover, MarketSummary } from '../mcp/service.js';
 import type { JournalEntry, JournalSummary } from '../storage/journal-repository.js';
+import type { Watch, WatchEvent } from '../storage/watch-repository.js';
 
 function table(headers: readonly string[], rows: readonly (readonly string[])[]): string {
   const widths = headers.map((h, i) => Math.max(h.length, ...rows.map((r) => (r[i] ?? '').length)));
@@ -92,4 +93,35 @@ export function formatJournal(entries: readonly JournalEntry[], summary: Journal
   );
   const c = summary.counts;
   return `${rows}\n\n${summary.total} recorded · fill rate ${(summary.fillRate * 100).toFixed(0)}% (filled ${c.filled}, partial ${c.partial}, no-fill ${c['no-fill']}, skipped ${c.skipped})`;
+}
+
+export function formatWatchTable(watches: readonly Watch[]): string {
+  if (watches.length === 0) {
+    return 'No watches yet. Create one with:\n  exilium watches add --kind price_above --item divine --threshold 750';
+  }
+  return table(
+    ['Id', 'Game/League', 'Kind', 'Target', 'Threshold', 'Mode', 'Webhook'],
+    watches.map((w) => [
+      w.id,
+      `${w.game}/${w.league}`,
+      w.kind,
+      w.itemId ?? w.category ?? 'any',
+      String(w.threshold),
+      w.mode,
+      w.webhookUrl === null ? '' : 'yes',
+    ]),
+  );
+}
+
+export function formatWatchEvents(events: readonly WatchEvent[]): string {
+  if (events.length === 0) return 'No watch events fired yet.';
+  const sorted = [...events].sort((a, b) => b.seq - a.seq);
+  return table(
+    ['When', 'Watch', 'Event'],
+    sorted.map((e) => {
+      const p = e.payload as { itemName?: string; value?: number; edge?: number; totalChange?: number };
+      const bits = [p.itemName ?? '', p.value !== undefined ? `value ${p.value}` : '', p.edge !== undefined ? `edge ${(p.edge * 100).toFixed(1)}%` : '', p.totalChange !== undefined ? `change ${p.totalChange.toFixed(1)}%` : ''];
+      return [e.firedAt, e.watchId, bits.filter((b) => b !== '').join(' · ')];
+    }),
+  );
 }
