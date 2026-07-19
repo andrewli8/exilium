@@ -22,3 +22,10 @@ Working backlog for the looptight loop. Each task carries evidence from the repo
 ## Next
 
 (queue empty — regenerate when new evidence-backed work appears)
+
+## Review-response round (2026-07-19), completed
+- Versioned migrations (C1); retention + latestAll cache (C2); onset/wall-clock/baseline backtest (C3); journal decayed-id warning + resolution (C4)
+- Opportunity log (H1); track records + run_backtest in MCP (H2); shared ingest cadence gate (H3); live-search backoff ceiling (H5); idempotent record_outcome (H6)
+- Freshness envelopes, sparkline opt-in, unchanged_since (M2/M3/M4)
+- PM round: sellsheet, rising, release workflow + install.sh + docs/INSTALL.md (delegated track)
+- Not done: cli.ts decomposition (H4, deferred — mechanical refactor), delta cursors beyond unchanged_since, npm publish (needs owner npm login), GGG OAuth (owner-deferred)

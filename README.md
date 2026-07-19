@@ -69,7 +69,9 @@ After `npm install`, run via `npx exilium <command>` (or `npm run <command>` for
 | `exilium watches [add\|rm\|events]` | Manage persistent watches (the same ones agents create via MCP) |
 | `exilium live <trade-url>` | Monitor pathofexile.com live searches; whispers auto-copied to clipboard ([walkthrough](examples/05-live-search.md)) |
 | `exilium journal [add]` | Record and review trade outcomes; prints your fill rate |
-| `exilium backtest [--horizon N]` | Replay stored history and score detector signals against what prices actually did |
+| `exilium backtest [--horizon N]` | Replay stored history: signal-onset hit rate vs an all-items baseline, wall-clock horizons |
+| `exilium sellsheet --file counts.txt [--discount N]` | Price your dump tab and get a paste-ready bulk WTS message |
+| `exilium rising [--limit N]` | Volume-weighted top gainers — the league-start lens |
 | `exilium dashboard` | Local web dashboard |
 | `exilium mcp` | MCP server on stdio for AI agents |
 
@@ -144,7 +146,8 @@ Then just talk to Claude in any session:
 | `create_watch` | Persistent server-side watch: price_above/below, change_abs, or opportunity; once/repeat modes; optional webhook; idempotent by id |
 | `list_watches` / `delete_watch` | Manage watches |
 | `poll_watch_results` | Evaluate due watches and page fired events by cursor — agents without webhooks poll this |
-| `record_outcome` | Log what actually happened after a trade plan (filled/partial/no-fill/skipped) — builds the fill-reality journal |
+| `record_outcome` | Log outcomes (idempotent via `idempotency_key`) — builds the fill-reality journal |
+| `run_backtest` | Onset-based backtest over stored history with an all-items baseline — how much to trust each detector |
 | `price_item` | Price a currency/stackable by name, with conversions and confidence |
 | `find_opportunities` | Current detector signals, filterable by edge; experimental signals are opt-in |
 | `draft_trade_plan` | Turn an opportunity into an ordered, human-executable plan (gold fees flagged) |
