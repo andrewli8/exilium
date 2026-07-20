@@ -137,6 +137,19 @@ Your pathofexile.com live searches, in the terminal, with the whisper copied to 
 EXILIUM_POESESSID=<cookie> exilium live "https://www.pathofexile.com/trade/search/Mirage/AbC123xyz"
 ```
 
+## exilium simulate
+
+The league is between updates and nothing is trading, but you want to know your watches and live-search setup actually work. `simulate` runs synthetic market movement through the real pipelines, entirely in memory — your database and pathofexile.com are never touched.
+
+```bash
+exilium simulate --moves "divine orb:+12, ambush scarab:-30" --rounds 3
+exilium simulate                      # seeded random moves against your real watches
+exilium simulate --live --count 5     # fake listings through the real snipe pipeline
+exilium simulate --notify             # also fire a real desktop notification
+```
+
+Watch simulation clones your current snapshots and active watches (or two demo watches aimed at the item your first move touches, if you have none), applies the moves round by round, and reports exactly which watches fired with the same evaluation, dedupe, and once-mode logic production uses. Live simulation fabricates listings and pushes them through the identical whisper path — clipboard copy and notifications are real, so you can verify the whole chain ends at your paste buffer. Whispers are tagged (SIMULATED) so nobody pastes one at a real seller.
+
 ## exilium dashboard
 
 A local web page on port 4321. It ingests on boot, refetches every five minutes, and reloads itself every 30 seconds. Price history charts for the top-volume markets appear once you have two or more snapshots stored, and fired watch events show in their own section.

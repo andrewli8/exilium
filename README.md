@@ -68,6 +68,7 @@ After `npm install`, run via `npx exilium <command>` (or `npm run <command>` for
 | `exilium arb [--min-gap N] [--limit N] [--category C]` | Cross-rate arbitrage table: listed vs implied price per market |
 | `exilium price <item name>` | Price any currency/stackable |
 | `exilium watch` | Notification loop (below) |
+| `exilium simulate [--live]` | Test watches and the snipe pipeline on synthetic market moves — built for league downtime |
 | `exilium watches [add\|rm\|events]` | Manage persistent watches (the same ones agents create via MCP) |
 | `exilium live <trade-url>` | Monitor pathofexile.com live searches; whispers auto-copied to clipboard ([walkthrough](examples/05-live-search.md)) |
 | `exilium stash --account "Name#1234"` | Value your own stash, track net worth, and see the trade-check delta since last snapshot |

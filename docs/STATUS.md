@@ -29,6 +29,9 @@ Working backlog for the looptight loop. Each task carries evidence from the repo
 
 - TUI table overhaul: search (s), column sort (f + arrows), full-list scrolling with position indicator, Enter opens trade-site search, 24H% change column (stored history first, sparkline fallback).
 
+- TUI keybinding rework (arrows always navigate; c cycles categories; sort direction applies-and-exits) + trader price units (chaos ≥ 1 div renders in divines; dashboard shows real orb images from the PoE CDN).
+- `exilium simulate`: in-memory watch + snipe simulation on synthetic moves (scripted or seeded-random), real pipelines end to end, for league-downtime testing.
+
 Small follow-ups from approval conditions: TUI `r` within the 240s shared gate silently no-ops — surface "fetched Xs ago, skipped" in the TUI header.
 
 ## Review-response round (2026-07-19), completed

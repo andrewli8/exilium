@@ -21,6 +21,7 @@ import { runBacktest } from './backtest/backtest.js';
 import { buildSellSheet, parseCounts } from './trade/sellsheet.js';
 import { buildLiveWsUrl, handleNewListings, parseTradeUrl } from './trade/live-search.js';
 import { diffStash, fetchAllStashItems, valueStash } from './trade/stash.js';
+import { makeFakeListingFetch, parseMoves, randomMoves, rng, runWatchSimulation } from './simulate/simulate.js';
 import { StashRepository } from './storage/stash-repository.js';
 import { createNotifier } from './watch/notify.js';
 import { initialWatchState, watchTick } from './watch/watch.js';
@@ -665,6 +666,7 @@ Trading
 
 Automation
   exilium watch                 Foreground alert loop (desktop/Discord)
+  exilium simulate              Test watches/snipes on synthetic moves [--moves "divine:+10"] [--rounds N] [--live] [--notify]
   exilium watches [add|rm|events]  Persistent watches (shared with agents)
   exilium ingest                Force a data refresh now
   exilium dashboard             Self-refreshing web dashboard on :4321
@@ -746,8 +748,116 @@ async function cmdSetup(): Promise<void> {
   console.log('You are set. Try:\n  exilium              (terminal UI)\n  exilium snapshot\n  exilium help         (everything else)');
 }
 
+async function cmdSimulate(): Promise<void> {
+  const league = storedLeague();
+  const snapshots = repo.latestAll(config.game, league);
+  if (snapshots.length === 0) throw new Error('No data to simulate against — run `exilium ingest` first.');
+  console.log('SIMULATION — synthetic data only. Your real database and pathofexile.com are not touched.\n');
+
+  if (process.argv.includes('--live')) {
+    const count = Number(flagValue('--count') ?? 5);
+    const names = ['Mageblood', 'Headhunter', 'Original Sin', 'Mirror of Kalandra', 'Progenesis'];
+    const random = rng(Number(flagValue('--seed') ?? 42));
+    const listings = Array.from({ length: count }, (_, i) => ({
+      id: `sim-${i}`,
+      itemName: names[Math.floor(random() * names.length)]!,
+      amount: Math.round(1 + random() * 60),
+      currency: 'divine',
+      seller: `SimSeller${i}`,
+    }));
+    const fetchFn = makeFakeListingFetch(listings);
+    const { execFile } = await import('node:child_process');
+    const { promisify } = await import('node:util');
+    const exec = promisify(execFile);
+    const notifier = createNotifier({
+      platform: process.platform,
+      execFn: async (cmd, args) => exec(cmd, [...args]),
+      fetchFn: (url, init) => fetch(url, init),
+      webhookUrl: config.webhookUrl,
+      log: (m) => console.error(m),
+    });
+    console.log(`Simulated live search: ${count} fake listings, one every 2s — clipboard and notifications are REAL so you can verify the whole path.\n`);
+    for (const l of listings) {
+      const results = await handleNewListings([l.id], { realm: 'trade', league, searchId: 'simulated' }, 'SIMULATED', {
+        fetchFn,
+        clipboard: async (text) => {
+          const { spawn } = await import('node:child_process');
+          if (process.platform === 'darwin' || process.platform === 'linux') {
+            const child = process.platform === 'darwin' ? spawn('pbcopy') : spawn('xclip', ['-selection', 'clipboard']);
+            child.stdin.end(text);
+            await new Promise<void>((resolve, reject) => { child.on('close', () => resolve()); child.on('error', reject); });
+          }
+        },
+        notify: (title, message) => notifier.notify(title, message),
+        log: (m) => console.error(m),
+      });
+      for (const r of results) {
+        console.log(`[SIM] ${r.itemName} · ${r.priceText} · seller ${r.seller}`);
+        console.log(`  whisper (copied): ${r.whisper}`);
+      }
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    console.log('\nSimulated live search complete.');
+    return;
+  }
+
+  const roundsCount = Number(flagValue('--rounds') ?? 3);
+  const movesArg = flagValue('--moves');
+  const random = rng(Number(flagValue('--seed') ?? 42));
+  const watches = makeService().listWatches().filter((w) => w.game === config.game && w.league === league);
+  const allLines = snapshots.flatMap((s) => s.lines);
+  // Demo watches aim at the item the FIRST move touches, so a scripted
+  // simulation demonstrably fires instead of watching an unrelated item.
+  const firstQuery = movesArg === undefined ? undefined : parseMoves(movesArg)[0]?.query.toLowerCase();
+  const targetLine =
+    (firstQuery === undefined
+      ? undefined
+      : allLines.find((l) => l.itemId.toLowerCase() === firstQuery || l.name.toLowerCase().includes(firstQuery))) ??
+    allLines[0]!;
+  if (watches.length === 0) {
+    console.log(`No active watches for this league — simulating against 2 demo watches on ${targetLine.name} (±5%).\n`);
+  }
+  const simWatches = watches.length > 0 ? watches : [
+    { id: 'demo-rise', game: config.game, league, kind: 'price_above' as const, itemId: targetLine.itemId, category: null, threshold: targetLine.primaryValue * 1.05, mode: 'repeat' as const, webhookUrl: null, createdAt: new Date().toISOString(), active: true },
+    { id: 'demo-drop', game: config.game, league, kind: 'price_below' as const, itemId: targetLine.itemId, category: null, threshold: targetLine.primaryValue * 0.95, mode: 'repeat' as const, webhookUrl: null, createdAt: new Date().toISOString(), active: true },
+  ];
+  const rounds = Array.from({ length: roundsCount }, () =>
+    movesArg !== undefined ? parseMoves(movesArg) : randomMoves(snapshots[0]!, 8, random),
+  );
+  const result = runWatchSimulation({ snapshots, watches: simWatches, rounds, startIso: new Date().toISOString() });
+
+  const notify = process.argv.includes('--notify');
+  for (const round of result.rounds) {
+    console.log(`Round ${round.round}: ${round.applied.length === 0 ? 'no moves matched' : round.applied.join(', ')}`);
+    if (round.unmatched.length > 0) console.log(`  unmatched: ${round.unmatched.join(', ')}`);
+    if (round.fired.length === 0) {
+      console.log('  no watches fired');
+    } else {
+      for (const f of round.fired) {
+        console.log(`  🔔 ${f.watchId}: ${JSON.stringify(f.payload)}`);
+      }
+    }
+  }
+  const totalFired = result.rounds.reduce((a, r) => a + r.fired.length, 0);
+  console.log(`\n${totalFired} watch event(s) fired across ${roundsCount} round(s) — same pipeline as production, in-memory only.`);
+  if (notify && totalFired > 0) {
+    const { execFile } = await import('node:child_process');
+    const { promisify } = await import('node:util');
+    const exec = promisify(execFile);
+    const notifier = createNotifier({
+      platform: process.platform,
+      execFn: async (cmd, args) => exec(cmd, [...args]),
+      fetchFn: (url, init) => fetch(url, init),
+      webhookUrl: config.webhookUrl,
+      log: (m) => console.error(m),
+    });
+    await notifier.notify(`Exilium SIMULATION: ${totalFired} watch events`, 'Desktop notification path verified.');
+  }
+}
+
 const commands: Record<string, () => Promise<void>> = {
   setup: cmdSetup,
+  simulate: cmdSimulate,
   help: cmdHelp,
   tui: cmdTui,
   ingest: cmdIngest,
