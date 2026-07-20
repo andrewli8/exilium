@@ -6,7 +6,7 @@ Exilium ingests live Currency Exchange market data (via poe.ninja), stores it lo
 
 **Exilium never executes trades.** It's decision support — every trade is performed by you, in-game. No automation, no session cookies, no game-file access.
 
-Supports **PoE1 (default: 14 exchange categories)** and **PoE2 (12 categories)** via `EXILIUM_GAME=poe2`. Prices are in each game's primary currency: **chaos** for PoE1, **divine** for PoE2.
+Supports **PoE1 (default: 39 categories, ~35,000 markets — exchange currency plus listing-priced uniques, gems, maps, jewels, beasts, and base types)** and **PoE2 (12 categories)** via `EXILIUM_GAME=poe2`. Prices are in each game's primary currency: **chaos** for PoE1, **divine** for PoE2. Exchange categories refresh every 5 minutes; heavy listing categories (SkillGem alone is 5,000+ markets) refresh hourly.
 
 ## Requirements
 
@@ -192,7 +192,8 @@ Every tool takes an optional `game` (`poe1`/`poe2`) defaulting to the server's c
 | Bulk↔single spread detector | ⛔ blocked: poe.ninja retired listing-based price APIs (everything is exchange-based now); needs a listing data source |
 | Backtesting | ✅ `exilium backtest` — sharpens as history accumulates |
 | Stash valuation + net-worth tracking | ✅ `exilium stash` (session-based; OAuth transport can swap in later) |
-| Rare-item valuation | ⛔ out of scope by design (multi-month subsystem) |
+| Uniques/gems/maps by name (listing-priced) | ✅ 23 listing categories |
+| Mod-based rare valuation | ⛔ out of scope by design (multi-month subsystem) |
 
 ## Examples and walkthroughs
 

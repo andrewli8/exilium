@@ -34,6 +34,8 @@ Working backlog for the looptight loop. Each task carries evidence from the repo
 
 - Category coverage expanded via API probing: PoE1 +Runegraft (14 total), PoE2 +Fragments/SoulCores/Abyss/Idols/UncutGems (12 total, ~147 new markets). TUI `c` is now a type-ahead category picker instead of a blind cycle.
 
+- Full poe.ninja coverage: discovered the stash/item-overview API via site traffic; PoE1 now ingests 39 categories (~35K markets): 16 exchange (incl. previously missing DjinnCoin, Astrolabe) + 23 listing types with hourly cadence for heavy sweeps. Unresolved: Memory/Temple sidebar pages match no probed type name; PoE2 exposes no item-overview endpoint.
+
 Small follow-ups from approval conditions: TUI `r` within the 240s shared gate silently no-ops — surface "fetched Xs ago, skipped" in the TUI header.
 
 ## Review-response round (2026-07-19), completed
