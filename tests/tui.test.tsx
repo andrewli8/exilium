@@ -180,12 +180,12 @@ describe('ExiliumTui', () => {
     await flush();
     let frame = lastFrame()!;
     expect(frame).toMatch(/category:/i); // picker open, listing choices
-    expect(frame).toContain('All');
+    expect(frame).toContain('▶ All'); // selection is unmistakably marked
     stdin.write('sca'); // type-ahead narrows the list
     await flush();
     frame = lastFrame()!;
-    expect(frame).toContain('Scarab');
-    expect(frame).not.toContain('› Currency');
+    expect(frame).toContain('▶ Scarab');
+    expect(frame).not.toContain('▶ Currency');
     stdin.write('\r'); // apply
     await flush();
     frame = lastFrame()!;

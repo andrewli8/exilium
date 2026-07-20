@@ -416,15 +416,16 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
       <Header game={game} league={league} primary={data.summary.primaryCurrency} asOf={data.summary.asOf} ingesting={ingesting} />
       <Tabs view={view} category={data.category} hint={hint} />
       {inputMode === 'category' && (
-        <Box flexDirection="column">
+        <Box flexDirection="column" borderStyle="round" borderColor={GOLD} paddingX={1}>
           <Text color={GOLD}>{`category: ${catQuery}▌`}<Text color={DIM}>  (type to filter · ↑↓ pick · ↵ apply · esc cancel)</Text></Text>
-          <Text wrap="truncate">
-            {data.categories
-              .filter((c) => c.toLowerCase().includes(catQuery.toLowerCase()))
-              .slice(0, 12)
-              .map((c, i) => (i === catPick ? `› ${c} ‹` : c))
-              .join('   ')}
-          </Text>
+          {data.categories
+            .filter((c) => c.toLowerCase().includes(catQuery.toLowerCase()))
+            .slice(0, 10)
+            .map((c, i) => (
+              <Text key={c} inverse={i === catPick} color={i === catPick ? GOLD : DIM} bold={i === catPick}>
+                {i === catPick ? `▶ ${c}` : `  ${c}`}
+              </Text>
+            ))}
         </Box>
       )}
       {(inputMode === 'search' || search !== '') && (
