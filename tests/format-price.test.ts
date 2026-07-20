@@ -10,11 +10,11 @@ describe('formatPriceUnits', () => {
 
   test('prices worth a divine or more convert to divines', () => {
     expect(formatPriceUnits(1838, 'chaos', divPerChaos)).toEqual({ text: '2.55', unit: 'div' });
-    expect(formatPriceUnits(1070320, 'chaos', divPerChaos)).toEqual({ text: '1487', unit: 'div' });
+    expect(formatPriceUnits(1070320, 'chaos', divPerChaos)).toEqual({ text: '1,487', unit: 'div' });
   });
 
   test('divine-primary values (poe2) keep the div unit untouched', () => {
-    expect(formatPriceUnits(0.13, 'divine', null)).toEqual({ text: '0.130', unit: 'div' });
+    expect(formatPriceUnits(0.13, 'divine', null)).toEqual({ text: '0.13', unit: 'div' });
   });
 
   test('no divine rate means no conversion', () => {

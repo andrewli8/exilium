@@ -1,4 +1,5 @@
 import type { DetailedMover } from '../mcp/service.js';
+import { formatNumber } from '../domain/format-price.js';
 
 /** Dump-tab sell sheet: turn "12 Ambush Scarab of Containment" lines into a
  * priced sheet and a paste-ready bulk WTS message. Pricing comes from the
@@ -78,5 +79,5 @@ export function buildSellSheet(
 }
 
 function round(v: number): string {
-  return v >= 100 ? String(Math.round(v)) : v.toPrecision(3);
+  return formatNumber(v);
 }

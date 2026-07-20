@@ -1,4 +1,5 @@
 import type { PricePoint } from '../storage/snapshot-repository.js';
+import { formatNumber } from '../domain/format-price.js';
 
 export interface ChartOptions {
   readonly width: number;
@@ -24,7 +25,7 @@ export function renderPriceChart(points: readonly PricePoint[], opts: ChartOptio
   const y = (v: number): number => PAD + (1 - (v - min) / range) * (height - 2 * PAD);
   const coords = values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
   const last = values[values.length - 1]!;
-  const fmt = (v: number): string => v.toPrecision(4);
+  const fmt = (v: number): string => formatNumber(v);
   return `<svg viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" role="img">
 <line x1="${PAD}" y1="${(height / 2).toFixed(1)}" x2="${width - PAD}" y2="${(height / 2).toFixed(1)}" stroke="${GRID}" stroke-dasharray="2,4" stroke-width="1"/>
 <polyline fill="none" stroke="${GOLD}" stroke-width="1.5" points="${coords}"/>

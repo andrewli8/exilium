@@ -1,6 +1,7 @@
 import type { Opportunity, PriceQuote } from '../domain/types.js';
 import type { ArbRow, CategorySummary, DetailedMover, MarketSummary } from '../mcp/service.js';
 import type { JournalEntry, JournalSummary } from '../storage/journal-repository.js';
+import { formatNumber } from '../domain/format-price.js';
 import type { Watch, WatchEvent } from '../storage/watch-repository.js';
 
 function table(headers: readonly string[], rows: readonly (readonly string[])[]): string {
@@ -11,11 +12,11 @@ function table(headers: readonly string[], rows: readonly (readonly string[])[])
 
 export function formatPriceQuote(q: PriceQuote): string {
   const conversions = Object.entries(q.conversions)
-    .map(([currency, value]) => `${value.toPrecision(4)} ${currency}`)
+    .map(([currency, value]) => `${formatNumber(value)} ${currency}`)
     .join(', ');
   return [
     `${q.name} (${q.game}/${q.league})`,
-    `  ${q.primaryValue.toPrecision(6)} ${q.primaryCurrency}${conversions === '' ? '' : `  (= ${conversions})`}`,
+    `  ${formatNumber(q.primaryValue)} ${q.primaryCurrency}${conversions === '' ? '' : `  (= ${conversions})`}`,
     `  confidence ${(q.confidence * 100).toFixed(0)}% · as of ${q.asOf}`,
   ].join('\n');
 }
@@ -37,7 +38,7 @@ export function formatOpportunityTable(opps: readonly Opportunity[]): string {
 export function formatSnapshotTable(s: MarketSummary): string {
   if (s.asOf === null) return 'No data ingested yet — run `exilium ingest` first.';
   const rows = (ms: typeof s.topMovers) =>
-    ms.map((m) => [m.name, m.category, m.primaryValue.toPrecision(4), `${m.totalChange.toFixed(1)}%`, Math.round(m.volumePrimaryValue).toLocaleString('en-US')]);
+    ms.map((m) => [m.name, m.category, formatNumber(m.primaryValue), `${m.totalChange.toFixed(1)}%`, Math.round(m.volumePrimaryValue).toLocaleString('en-US')]);
   const headers = ['Item', 'Category', `Price (${s.primaryCurrency})`, 'Change', `Volume (${s.primaryCurrency})`];
   return [
     `${s.game}/${s.league} · ${s.categories} categories · as of ${s.asOf}`,
@@ -62,7 +63,7 @@ export function formatItemTable(items: readonly DetailedMover[], primaryCurrency
   if (items.length === 0) return 'No markets in this category.';
   return table(
     ['Item', `Price (${primaryCurrency})`, '7d change', `Volume (${primaryCurrency})`],
-    items.map((i) => [i.name, i.primaryValue.toPrecision(4), `${i.totalChange.toFixed(1)}%`, Math.round(i.volumePrimaryValue).toLocaleString('en-US')]),
+    items.map((i) => [i.name, formatNumber(i.primaryValue), `${i.totalChange.toFixed(1)}%`, Math.round(i.volumePrimaryValue).toLocaleString('en-US')]),
   );
 }
 
@@ -74,8 +75,8 @@ export function formatArbTable(rows: readonly ArbRow[], primaryCurrency: string)
     sorted.map((r) => [
       r.itemName,
       r.category,
-      r.listed.toPrecision(4),
-      r.implied.toPrecision(4),
+      formatNumber(r.listed),
+      formatNumber(r.implied),
       r.quoteCurrency,
       `${r.divergencePct.toFixed(1)}%`,
       Math.round(r.volumePrimaryValue).toLocaleString('en-US'),

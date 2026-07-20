@@ -1,5 +1,6 @@
 import type { MarketSnapshot, Opportunity } from '../domain/types.js';
 import { volumeConfidence } from './stats.js';
+import { formatNumber } from '../domain/format-price.js';
 
 export interface CrossRateOptions {
   /** Minimum |implied/listed - 1| divergence to flag (0.03 = 3%). */
@@ -35,7 +36,7 @@ export function detectCrossRateDivergence(snapshot: MarketSnapshot, opts: CrossR
         edge: divergence,
         confidence: volumeConfidence(l.volumePrimaryValue) * 0.5, // experimental haircut
         direction: null,
-        rationale: `Priced at ${l.primaryValue.toPrecision(4)} divine but the ${l.maxVolumeCurrency} pair implies ${impliedPrimaryValue.toPrecision(4)} divine (${(divergence * 100).toFixed(1)}% gap) — the ${cheapLeg} leg is the cheaper route.`,
+        rationale: `Priced at ${formatNumber(l.primaryValue)} divine but the ${l.maxVolumeCurrency} pair implies ${formatNumber(impliedPrimaryValue)} divine (${(divergence * 100).toFixed(1)}% gap) — the ${cheapLeg} leg is the cheaper route.`,
         dataFreshness: snapshot.fetchedAt,
         experimental: true,
       },

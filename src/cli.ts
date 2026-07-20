@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import { promisify } from 'node:util';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CATEGORIES_BY_GAME, configFilePath, loadConfig, readFileConfig } from './config.js';
+import { formatNumber } from './domain/format-price.js';
 import { renderDashboard } from './dashboard/render.js';
 import { ingestLeague } from './ingest/ingest.js';
 import { buildMcpServer } from './mcp/server.js';
@@ -577,7 +578,7 @@ async function cmdStash(): Promise<void> {
   });
 
   for (const l of valuation.lines.slice(0, 15)) {
-    console.log(`${String(l.count).padStart(6)}x ${l.name.padEnd(40)} ${l.each.toPrecision(4).padStart(10)} ${primary}  = ${Math.round(l.total).toLocaleString('en-US')}`);
+    console.log(`${String(l.count).padStart(6)}x ${l.name.padEnd(40)} ${formatNumber(l.each).padStart(12)} ${primary}  = ${Math.round(l.total).toLocaleString('en-US')}`);
   }
   if (valuation.lines.length > 15) console.log(`  … and ${valuation.lines.length - 15} more priced lines`);
   console.log(`\nStash value (currency/stackables): ${Math.round(valuation.total).toLocaleString('en-US')} ${primary}`);
@@ -617,7 +618,7 @@ async function cmdSellsheet(): Promise<void> {
   const primary = service.marketSnapshot(config.game, league).primaryCurrency;
   const sheet = buildSellSheet(parseCounts(readFileSync(file, 'utf8')), market, primary, discount);
   for (const l of sheet.lines) {
-    console.log(`${String(l.count).padStart(4)}x ${l.name.padEnd(40)} ${l.askEach.toPrecision(4).padStart(10)} ${primary} each  = ${Math.round(l.total).toLocaleString('en-US')}`);
+    console.log(`${String(l.count).padStart(4)}x ${l.name.padEnd(40)} ${formatNumber(l.askEach).padStart(12)} ${primary} each  = ${Math.round(l.total).toLocaleString('en-US')}`);
   }
   console.log(`\nTotal: ${Math.round(sheet.total).toLocaleString('en-US')} ${primary}`);
   if (sheet.unmatched.length > 0) console.log(`Unmatched (price these yourself): ${sheet.unmatched.join(', ')}`);

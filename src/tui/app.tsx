@@ -6,7 +6,7 @@ import type { ArbRow, DetailedMover, ExiliumService } from '../mcp/service.js';
 import type { WatchEvent } from '../storage/watch-repository.js';
 import { draftTradePlan } from '../signals/trade-plan.js';
 import { buildTradeSearchUrl } from '../trade/trade-url.js';
-import { formatPriceUnits } from '../domain/format-price.js';
+import { formatNumber, formatPriceUnits } from '../domain/format-price.js';
 import { renderSparkline } from './sparkline.js';
 
 type View = 'movers' | 'opps' | 'arb' | 'watches';
@@ -522,13 +522,13 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
             ? null
             : watchUnit === 'divine'
               ? `≈ ${Math.round((Number(watchInput) || 0) / dpp).toLocaleString('en-US')} ${data.summary.primaryCurrency}`
-              : `≈ ${((Number(watchInput) || 0) * dpp).toPrecision(3)} div`;
+              : `≈ ${formatNumber((Number(watchInput) || 0) * dpp)} div`;
         return (
           <Box flexDirection="column" borderStyle="round" borderColor={GOLD} paddingX={1}>
             <Text color={GOLD} bold>{`watch: ${watchTarget.name}`}</Text>
             {watchTarget.kind === 'price' ? (
               <Text>
-                {`current ${refInUnit.toPrecision(4)} ${unitLabel} · threshold: ${watchInput} ${unitLabel}▌ ${other ?? ''}  → `}
+                {`current ${formatNumber(refInUnit)} ${unitLabel} · threshold: ${watchInput} ${unitLabel}▌ ${other ?? ''}  → `}
                 <Text color={enteredPrimary >= watchTarget.reference ? 'green' : 'red'} bold>
                   {enteredPrimary >= watchTarget.reference ? 'alert on rise' : 'alert on drop'}
                 </Text>

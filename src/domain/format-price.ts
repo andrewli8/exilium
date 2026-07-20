@@ -25,9 +25,22 @@ export function formatPriceUnits(
   return { text: trim(valueInPrimary), unit: primaryCurrency };
 }
 
+/** Human number formatting that NEVER uses scientific notation: thousands
+ * separators for big values, a couple of significant decimals otherwise. */
+export function formatNumber(v: number): string {
+  const abs = Math.abs(v);
+  if (abs === 0) return '0';
+  if (abs >= 1000) return Math.round(v).toLocaleString('en-US');
+  if (abs >= 1) return trimZeros(v.toFixed(2));
+  // Sub-1: enough decimals to keep ~2 significant figures, decimal always.
+  const decimals = Math.min(8, 2 - Math.floor(Math.log10(abs)));
+  return trimZeros(v.toFixed(decimals));
+}
+
+function trimZeros(s: string): string {
+  return s.includes('.') ? s.replace(/\.?0+$/, '') : s;
+}
+
 function trim(v: number): string {
-  if (v >= 100) return String(Math.round(v));
-  if (v >= 10) return v.toFixed(1);
-  if (v >= 1) return v.toFixed(2);
-  return v.toPrecision(3);
+  return formatNumber(v);
 }
