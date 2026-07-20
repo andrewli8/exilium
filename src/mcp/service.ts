@@ -8,6 +8,7 @@ import type { PricePoint, SnapshotRepository } from '../storage/snapshot-reposit
 import type { Watch, WatchEvent, WatchRepository } from '../storage/watch-repository.js';
 import type { JournalEntry, JournalEntryInput, JournalRepository, JournalSummary } from '../storage/journal-repository.js';
 import { assessFreshness } from '../domain/freshness.js';
+import { change24hFromHistory, change24hFromSparkline } from '../signals/change24h.js';
 import { runBacktest } from '../backtest/backtest.js';
 import type { BacktestReport } from '../backtest/backtest.js';
 import type { OpportunityLogRepository } from '../storage/opportunity-log-repository.js';
@@ -32,6 +33,9 @@ export interface MoverSummary {
 
 export interface DetailedMover extends MoverSummary {
   readonly sparkline: readonly number[];
+  /** 24h change %: stored history first, sparkline last-day segment as
+   * fallback, null on day one. */
+  readonly change24h: number | null;
 }
 
 export interface CategorySummary {
@@ -308,6 +312,7 @@ export class ExiliumService {
         totalChange: l.totalChange,
         volumePrimaryValue: l.volumePrimaryValue,
         sparkline: l.sparkline,
+        change24h: change24hFromSparkline(l.sparkline),
       }))
       .sort(sorters[sort]);
   }
@@ -334,23 +339,40 @@ export class ExiliumService {
     };
   }
 
-  /** Top movers including their sparkline series (for the TUI detail pane). */
+  /** Top movers including sparklines and 24h change. Ranked by |24h change|
+   * when derivable, falling back to the 7d figure. */
   moversDetailed(game: Game, league: string, limit: number, category?: string): readonly DetailedMover[] {
-    return this.repo
+    const snaps = this.repo
       .latestAll(game, league)
-      .filter((s) => category === undefined || s.category.toLowerCase() === category.toLowerCase())
+      .filter((s) => category === undefined || s.category.toLowerCase() === category.toLowerCase());
+    const nowMs = Date.now();
+    const dayAgoByCategory = new Map<string, ReadonlyMap<string, number>>();
+    for (const s of snaps) {
+      dayAgoByCategory.set(
+        s.category,
+        this.repo.pricesNear(game, league, s.category, new Date(nowMs - 24 * 3600_000).toISOString(), 6),
+      );
+    }
+    return snaps
       .flatMap((s) => s.lines)
-      .sort((a, b) => Math.abs(b.totalChange) - Math.abs(a.totalChange))
-      .slice(0, limit)
-      .map((l) => ({
-        itemId: l.itemId,
-        name: l.name,
-        category: l.category,
-        primaryValue: l.primaryValue,
-        totalChange: l.totalChange,
-        volumePrimaryValue: l.volumePrimaryValue,
-        sparkline: l.sparkline,
-      }));
+      .map((l) => {
+        const dayAgo = dayAgoByCategory.get(l.category)?.get(l.itemId);
+        const fromHistory =
+          dayAgo !== undefined && dayAgo > 0 ? ((l.primaryValue - dayAgo) / dayAgo) * 100 : null;
+        const change24h = fromHistory ?? change24hFromSparkline(l.sparkline);
+        return {
+          itemId: l.itemId,
+          name: l.name,
+          category: l.category,
+          primaryValue: l.primaryValue,
+          totalChange: l.totalChange,
+          volumePrimaryValue: l.volumePrimaryValue,
+          sparkline: l.sparkline,
+          change24h,
+        };
+      })
+      .sort((a, b) => Math.abs(b.change24h ?? b.totalChange) - Math.abs(a.change24h ?? a.totalChange))
+      .slice(0, limit);
   }
 
   pairHistory(game: Game, league: string, itemId: string, limit = 100): PairHistory {

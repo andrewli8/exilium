@@ -4,10 +4,12 @@ import type { Game, Opportunity } from '../domain/types.js';
 import { assessFreshness } from '../domain/freshness.js';
 import type { ArbRow, DetailedMover, ExiliumService } from '../mcp/service.js';
 import type { WatchEvent } from '../storage/watch-repository.js';
-import { renderSparkline } from './sparkline.js';
 import { draftTradePlan } from '../signals/trade-plan.js';
+import { buildTradeSearchUrl } from '../trade/trade-url.js';
+import { renderSparkline } from './sparkline.js';
 
 type View = 'movers' | 'opps' | 'arb' | 'watches';
+type InputMode = 'normal' | 'search' | 'sort';
 
 export interface TuiProps {
   readonly service: ExiliumService;
@@ -19,10 +21,164 @@ export interface TuiProps {
   readonly onIngest?: (() => Promise<void>) | undefined;
   /** Optional: auto-run onIngest every N seconds (live-companion mode). */
   readonly autoIngestSec?: number | undefined;
+  /** Opens a URL in the browser; injectable for tests. */
+  readonly onOpenLink?: ((url: string) => void) | undefined;
 }
 
 const GOLD = '#d4a017';
 const DIM = 'gray';
+const VIEWPORT = 15;
+
+interface Column<T> {
+  readonly label: string;
+  readonly width: number;
+  readonly sortValue: (row: T) => string | number;
+}
+
+interface TableModel<T> {
+  readonly columns: readonly Column<T>[];
+  readonly cells: (row: T) => readonly string[];
+  readonly searchText: (row: T) => string;
+  /** Item name for the Enter → trade-link action; null disables it. */
+  readonly itemName: (row: T) => string | null;
+}
+
+const fmtChange24 = (m: DetailedMover): string =>
+  m.change24h === null ? `7d ${m.totalChange.toFixed(1)}%` : `${m.change24h.toFixed(1)}%`;
+
+const MOVERS_MODEL: TableModel<DetailedMover> = {
+  columns: [
+    { label: 'ITEM', width: 32, sortValue: (m) => m.name.toLowerCase() },
+    { label: 'CATEGORY', width: 14, sortValue: (m) => m.category },
+    { label: 'PRICE', width: 11, sortValue: (m) => m.primaryValue },
+    { label: '24H%', width: 10, sortValue: (m) => m.change24h ?? m.totalChange },
+    { label: '7D%', width: 9, sortValue: (m) => m.totalChange },
+    { label: 'VOLUME', width: 11, sortValue: (m) => m.volumePrimaryValue },
+  ],
+  cells: (m) => [
+    m.name,
+    m.category,
+    m.primaryValue.toPrecision(4),
+    fmtChange24(m),
+    `${m.totalChange.toFixed(1)}%`,
+    Math.round(m.volumePrimaryValue).toLocaleString('en-US'),
+  ],
+  searchText: (m) => `${m.name} ${m.category}`,
+  itemName: (m) => m.name,
+};
+
+const OPPS_MODEL: TableModel<Opportunity> = {
+  columns: [
+    { label: 'DETECTOR', width: 23, sortValue: (o) => o.kind },
+    { label: 'ITEM', width: 28, sortValue: (o) => o.itemName.toLowerCase() },
+    { label: 'EDGE', width: 7, sortValue: (o) => o.edge },
+    { label: 'CONF', width: 5, sortValue: (o) => o.confidence },
+    { label: 'RATIONALE', width: 58, sortValue: (o) => o.rationale },
+  ],
+  cells: (o) => [
+    `${o.kind}${o.experimental ? ' ⚠' : ''}`,
+    o.itemName,
+    `${(o.edge * 100).toFixed(1)}%`,
+    `${(o.confidence * 100).toFixed(0)}%`,
+    o.rationale,
+  ],
+  searchText: (o) => `${o.itemName} ${o.kind} ${o.rationale}`,
+  itemName: (o) => o.itemName,
+};
+
+const ARB_MODEL: TableModel<ArbRow> = {
+  columns: [
+    { label: 'ITEM', width: 28, sortValue: (r) => r.itemName.toLowerCase() },
+    { label: 'CATEGORY', width: 12, sortValue: (r) => r.category },
+    { label: 'LISTED', width: 10, sortValue: (r) => r.listed },
+    { label: 'IMPLIED', width: 10, sortValue: (r) => r.implied },
+    { label: 'VIA', width: 8, sortValue: (r) => r.quoteCurrency },
+    { label: 'GAP', width: 6, sortValue: (r) => r.divergencePct },
+    { label: 'VOLUME', width: 10, sortValue: (r) => r.volumePrimaryValue },
+  ],
+  cells: (r) => [
+    r.itemName,
+    r.category,
+    r.listed.toPrecision(4),
+    r.implied.toPrecision(4),
+    r.quoteCurrency,
+    `${r.divergencePct.toFixed(1)}%`,
+    Math.round(r.volumePrimaryValue).toLocaleString('en-US'),
+  ],
+  searchText: (r) => `${r.itemName} ${r.category}`,
+  itemName: (r) => r.itemName,
+};
+
+const WATCH_MODEL: TableModel<WatchEvent> = {
+  columns: [
+    { label: 'FIRED AT', width: 22, sortValue: (e) => e.firedAt },
+    { label: 'WATCH', width: 20, sortValue: (e) => e.watchId },
+    { label: 'EVENT', width: 60, sortValue: (e) => e.seq },
+  ],
+  cells: (e) => {
+    const p = e.payload as { itemName?: string; value?: number; edge?: number; totalChange?: number };
+    const bits = [
+      p.itemName ?? '',
+      p.value !== undefined ? `value ${p.value}` : '',
+      p.edge !== undefined ? `edge ${(p.edge * 100).toFixed(1)}%` : '',
+      p.totalChange !== undefined ? `change ${p.totalChange.toFixed(1)}%` : '',
+    ].filter((b) => b !== '');
+    return [e.firedAt, e.watchId, bits.join(' · ')];
+  },
+  searchText: (e) => `${e.watchId} ${JSON.stringify(e.payload)}`,
+  itemName: (e) => (e.payload as { itemName?: string }).itemName ?? null,
+};
+
+function applySearchAndSort<T>(
+  rows: readonly T[],
+  model: TableModel<T>,
+  search: string,
+  sortCol: number | null,
+  sortDir: 'asc' | 'desc',
+): readonly T[] {
+  const q = search.trim().toLowerCase();
+  const filtered = q === '' ? rows : rows.filter((r) => model.searchText(r).toLowerCase().includes(q));
+  if (sortCol === null) return filtered;
+  const col = model.columns[sortCol];
+  if (col === undefined) return filtered;
+  return [...filtered].sort((a, b) => {
+    const va = col.sortValue(a);
+    const vb = col.sortValue(b);
+    const cmp = typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va).localeCompare(String(vb));
+    return sortDir === 'asc' ? cmp : -cmp;
+  });
+}
+
+function HeaderRow<T>({ model, sortCol, sortDir, sortMode }: {
+  readonly model: TableModel<T>;
+  readonly sortCol: number | null;
+  readonly sortDir: 'asc' | 'desc';
+  readonly sortMode: boolean;
+}): React.JSX.Element {
+  return (
+    <Box>
+      {model.columns.map((c, i) => {
+        const marker = sortCol === i ? (sortDir === 'asc' ? '▲' : '▼') : '';
+        const label = `${c.label}${marker}`.slice(0, c.width).padEnd(c.width);
+        return (
+          <Text key={c.label} inverse={sortMode && sortCol === i} color={sortCol === i ? GOLD : 'white'} bold={sortCol === i}>
+            {label}{' '}
+          </Text>
+        );
+      })}
+    </Box>
+  );
+}
+
+function DataRow<T>({ model, row, selected }: {
+  readonly model: TableModel<T>;
+  readonly row: T;
+  readonly selected: boolean;
+}): React.JSX.Element {
+  const cells = model.cells(row);
+  const line = model.columns.map((c, i) => (cells[i] ?? '').slice(0, c.width).padEnd(c.width)).join(' ');
+  return <Text inverse={selected} wrap="truncate">{line}</Text>;
+}
 
 const FRESH_COLORS = { live: 'green', stale: 'yellow', old: 'red' } as const;
 
@@ -42,7 +198,9 @@ function Header({ game, league, primary, asOf, ingesting }: {
   );
 }
 
-function Tabs({ view, category }: { readonly view: View; readonly category: string }): React.JSX.Element {
+function Tabs({ view, category, hint }: {
+  readonly view: View; readonly category: string; readonly hint: string;
+}): React.JSX.Element {
   const tab = (key: string, name: string, active: boolean) => (
     <Text key={name} inverse={active} color={active ? GOLD : DIM}>{` ${key}:${name} `}</Text>
   );
@@ -53,110 +211,14 @@ function Tabs({ view, category }: { readonly view: View; readonly category: stri
       {tab('3', 'ARBITRAGE', view === 'arb')}
       {tab('4', 'WATCHES', view === 'watches')}
       <Text color={GOLD}>{` [${category}]`}</Text>
-      <Text color={DIM}>  ↑↓ select · ←→ category · r ingest · q quit</Text>
+      <Text color={DIM}>  {hint}</Text>
     </Box>
   );
 }
-
-function Row({ cells, widths, selected }: {
-  readonly cells: readonly string[]; readonly widths: readonly number[]; readonly selected: boolean;
-}): React.JSX.Element {
-  const line = cells.map((c, i) => c.slice(0, widths[i]).padEnd(widths[i] ?? 0)).join(' ');
-  return <Text inverse={selected} wrap="truncate">{line}</Text>;
-}
-
-const MOVER_WIDTHS = [34, 15, 12, 9, 12] as const;
-const OPP_WIDTHS = [24, 30, 7, 5, 60] as const;
-const ARB_WIDTHS = [30, 12, 11, 11, 8, 6, 10] as const;
-
-function MoversPane({ movers, selected, primary }: {
-  readonly movers: readonly DetailedMover[]; readonly selected: number; readonly primary: string;
-}): React.JSX.Element {
-  const sel = movers[selected];
-  return (
-    <Box flexDirection="column">
-      <Row cells={['ITEM', 'CATEGORY', `PRICE (${primary})`, 'CHANGE', 'VOLUME']} widths={MOVER_WIDTHS} selected={false} />
-      {movers.map((m, i) => (
-        <Row key={m.itemId} selected={i === selected} widths={MOVER_WIDTHS}
-          cells={[m.name, m.category, m.primaryValue.toPrecision(4), `${m.totalChange.toFixed(1)}%`, Math.round(m.volumePrimaryValue).toLocaleString('en-US')]} />
-      ))}
-      {sel !== undefined && (
-        <Box marginTop={1} flexDirection="column">
-          <Text color={GOLD} bold>{sel.name}</Text>
-          <Text>7d trend <Text color="cyan">{renderSparkline(sel.sparkline)}</Text>  latest {sel.totalChange.toFixed(1)}%</Text>
-        </Box>
-      )}
-    </Box>
-  );
-}
-
-function OppsPane({ opps, selected }: { readonly opps: readonly Opportunity[]; readonly selected: number }): React.JSX.Element {
-  if (opps.length === 0) return <Text color={DIM}>No opportunities at current thresholds.</Text>;
-  const sel = opps[selected];
-  const plan = sel === undefined ? null : draftTradePlan(sel);
-  return (
-    <Box flexDirection="column">
-      <Row cells={['DETECTOR', 'ITEM', 'EDGE', 'CONF', 'RATIONALE']} widths={OPP_WIDTHS} selected={false} />
-      {opps.map((o, i) => (
-        <Row key={o.id} selected={i === selected} widths={OPP_WIDTHS}
-          cells={[`${o.kind}${o.experimental ? ' ⚠' : ''}`, o.itemName, `${(o.edge * 100).toFixed(1)}%`, `${(o.confidence * 100).toFixed(0)}%`, o.rationale]} />
-      ))}
-      {plan !== null && (
-        <Box marginTop={1} flexDirection="column">
-          <Text color={GOLD} bold>{plan.summary}</Text>
-          {plan.steps.map((s) => (
-            <Text key={s.order} wrap="truncate-end">{`  ${s.order}. ${s.instruction}`}</Text>
-          ))}
-          <Text color={DIM} wrap="truncate-end">{plan.humanExecutionNote}</Text>
-        </Box>
-      )}
-    </Box>
-  );
-}
-
-function ArbPane({ rows, selected, primary }: {
-  readonly rows: readonly ArbRow[]; readonly selected: number; readonly primary: string;
-}): React.JSX.Element {
-  if (rows.length === 0) return <Text color={DIM}>No cross-rate data yet.</Text>;
-  return (
-    <Box flexDirection="column">
-      <Row cells={['ITEM', 'CATEGORY', `Listed ${primary}`, `Implied ${primary}`, 'VIA', 'GAP', 'VOLUME']} widths={ARB_WIDTHS} selected={false} />
-      {rows.map((r, i) => (
-        <Row key={r.itemId} selected={i === selected} widths={ARB_WIDTHS}
-          cells={[r.itemName, r.category, r.listed.toPrecision(4), r.implied.toPrecision(4), r.quoteCurrency, `${r.divergencePct.toFixed(1)}%`, Math.round(r.volumePrimaryValue).toLocaleString('en-US')]} />
-      ))}
-    </Box>
-  );
-}
-
-const WATCH_WIDTHS = [22, 20, 60] as const;
-
-function WatchesPane({ events, selected }: {
-  readonly events: readonly WatchEvent[]; readonly selected: number;
-}): React.JSX.Element {
-  if (events.length === 0) return <Text color={DIM}>No watch events fired yet. Create watches with `exilium watches add` or via MCP.</Text>;
-  return (
-    <Box flexDirection="column">
-      <Row cells={['FIRED AT', 'WATCH', 'EVENT']} widths={WATCH_WIDTHS} selected={false} />
-      {events.map((e, i) => {
-        const p = e.payload as { itemName?: string; value?: number; edge?: number; totalChange?: number };
-        const bits = [
-          p.itemName ?? '',
-          p.value !== undefined ? `value ${p.value}` : '',
-          p.edge !== undefined ? `edge ${(p.edge * 100).toFixed(1)}%` : '',
-          p.totalChange !== undefined ? `change ${p.totalChange.toFixed(1)}%` : '',
-        ].filter((b) => b !== '');
-        return <Row key={e.seq} selected={i === selected} widths={WATCH_WIDTHS} cells={[e.firedAt, e.watchId, bits.join(' · ')]} />;
-      })}
-    </Box>
-  );
-}
-
-const PAGE = 15;
 
 /** Bloomberg-style terminal UI over the local snapshot store. Reads cached
  * data only; "r" triggers a live ingest via the injected callback. */
-export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIngestSec }: TuiProps): React.JSX.Element {
+export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIngestSec, onOpenLink }: TuiProps): React.JSX.Element {
   const { exit } = useApp();
   const { isRawModeSupported } = useStdin();
   const [view, setView] = useState<View>('movers');
@@ -164,6 +226,10 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
   const [categoryIdx, setCategoryIdx] = useState(0);
   const [tick, setTick] = useState(0);
   const [ingesting, setIngesting] = useState(false);
+  const [inputMode, setInputMode] = useState<InputMode>('normal');
+  const [search, setSearch] = useState('');
+  const [sortCol, setSortCol] = useState<number | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   useEffect(() => {
     const t = setInterval(() => setTick((n) => n + 1), refreshSec * 1000);
@@ -186,31 +252,80 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
     const categories = ['All', ...service.categoryList(game, league).map((c) => c.category)];
     const category = categories[categoryIdx % categories.length] ?? 'All';
     const filter = category === 'All' ? undefined : category;
-    const movers = service.moversDetailed(game, league, PAGE, filter);
-    const opps = service.opportunities(game, league, true, 0, filter).opportunities.slice(0, PAGE);
-    const arb = service.arbitrage(game, league, 0, filter).slice(0, PAGE);
+    const movers = service.moversDetailed(game, league, 2000, filter);
+    const opps = service.opportunities(game, league, true, 0, filter).opportunities;
+    const arb = service.arbitrage(game, league, 0, filter).slice(0, 500);
     let watchEvents: readonly WatchEvent[] = [];
     try {
-      watchEvents = service.recentWatchEvents(PAGE);
+      watchEvents = service.recentWatchEvents(200);
     } catch {
-      // watches not enabled for this service instance — pane shows empty state
+      // watches not enabled — pane shows empty state
     }
     return { summary, categories, category, movers, opps, arb, watchEvents };
   }, [service, game, league, tick, ingesting, categoryIdx]);
 
-  const rowCount =
-    view === 'movers' ? data.movers.length : view === 'opps' ? data.opps.length : view === 'arb' ? data.arb.length : data.watchEvents.length;
+  const table = useMemo(() => {
+    switch (view) {
+      case 'movers':
+        return { model: MOVERS_MODEL as TableModel<unknown>, rows: applySearchAndSort(data.movers, MOVERS_MODEL, search, sortCol, sortDir) as readonly unknown[] };
+      case 'opps':
+        return { model: OPPS_MODEL as TableModel<unknown>, rows: applySearchAndSort(data.opps, OPPS_MODEL, search, sortCol, sortDir) as readonly unknown[] };
+      case 'arb':
+        return { model: ARB_MODEL as TableModel<unknown>, rows: applySearchAndSort(data.arb, ARB_MODEL, search, sortCol, sortDir) as readonly unknown[] };
+      case 'watches':
+        return { model: WATCH_MODEL as TableModel<unknown>, rows: applySearchAndSort(data.watchEvents, WATCH_MODEL, search, sortCol, sortDir) as readonly unknown[] };
+    }
+  }, [view, data, search, sortCol, sortDir]);
+
+  const rowCount = table.rows.length;
+  const clampedSelected = Math.min(selected, Math.max(0, rowCount - 1));
+  const offset = Math.max(0, Math.min(clampedSelected - VIEWPORT + 1, Math.max(0, rowCount - VIEWPORT)));
+  const visible = table.rows.slice(offset, offset + VIEWPORT);
+
+  const switchView = (v: View): void => {
+    setView(v);
+    setSelected(0);
+    setSortCol(null);
+  };
 
   useInput((input, key) => {
+    if (inputMode === 'search') {
+      if (key.escape) { setSearch(''); setInputMode('normal'); return; }
+      if (key.return) { setInputMode('normal'); return; }
+      if (key.backspace || key.delete) { setSearch((s) => s.slice(0, -1)); return; }
+      if (input !== '' && !key.ctrl && !key.meta && !key.upArrow && !key.downArrow) {
+        setSearch((s) => s + input);
+        setSelected(0);
+      }
+      return;
+    }
+    if (inputMode === 'sort') {
+      if (key.escape || key.return) { setInputMode('normal'); return; }
+      if (input === 'f' || key.rightArrow) { setSortCol((c) => ((c ?? -1) + 1) % table.model.columns.length); return; }
+      if (key.leftArrow) { setSortCol((c) => ((c ?? 0) - 1 + table.model.columns.length) % table.model.columns.length); return; }
+      if (key.upArrow) { setSortDir('asc'); setSortCol((c) => c ?? 0); return; }
+      if (key.downArrow) { setSortDir('desc'); setSortCol((c) => c ?? 0); return; }
+      return;
+    }
     if (input === 'q' || (key.ctrl && input === 'c')) exit();
-    if (input === '1') { setView('movers'); setSelected(0); }
-    if (input === '2') { setView('opps'); setSelected(0); }
-    if (input === '3') { setView('arb'); setSelected(0); }
-    if (input === '4') { setView('watches'); setSelected(0); }
+    if (input === '1') switchView('movers');
+    if (input === '2') switchView('opps');
+    if (input === '3') switchView('arb');
+    if (input === '4') switchView('watches');
+    if (input === 's') { setInputMode('search'); return; }
+    if (input === 'f') { setInputMode('sort'); setSortCol((c) => c ?? 0); return; }
     if (key.downArrow) setSelected((s) => Math.min(rowCount - 1, s + 1));
     if (key.upArrow) setSelected((s) => Math.max(0, s - 1));
+    if (key.pageDown) setSelected((s) => Math.min(rowCount - 1, s + VIEWPORT));
+    if (key.pageUp) setSelected((s) => Math.max(0, s - VIEWPORT));
     if (key.rightArrow) { setCategoryIdx((c) => c + 1); setSelected(0); }
     if (key.leftArrow) { setCategoryIdx((c) => Math.max(0, c - 1)); setSelected(0); }
+    if (key.return && rowCount > 0) {
+      const row = table.rows[clampedSelected];
+      const name = row === undefined ? null : table.model.itemName(row);
+      if (name !== null && onOpenLink !== undefined) onOpenLink(buildTradeSearchUrl(game, league, name));
+      return;
+    }
     if (input === 'r' && onIngest !== undefined && !ingesting) {
       setIngesting(true);
       onIngest()
@@ -228,16 +343,57 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
     );
   }
 
+  const hint =
+    inputMode === 'search'
+      ? 'type to filter · ↵ keep · esc clear'
+      : inputMode === 'sort'
+        ? 'sort: f/←→ column · ↑ asc ↓ desc · esc done'
+        : 's search · f sort · ↵ trade link · ↑↓ rows · ←→ category · r refresh · q quit';
+
+  const selectedMover = view === 'movers' ? (table.rows[clampedSelected] as DetailedMover | undefined) : undefined;
+  const selectedOpp = view === 'opps' ? (table.rows[clampedSelected] as Opportunity | undefined) : undefined;
+  const plan = selectedOpp === undefined ? null : draftTradePlan(selectedOpp);
+
   return (
     <Box flexDirection="column" paddingX={1}>
       <Header game={game} league={league} primary={data.summary.primaryCurrency} asOf={data.summary.asOf} ingesting={ingesting} />
-      <Tabs view={view} category={data.category} />
-      <Box marginTop={1}>
-        {view === 'movers' && <MoversPane movers={data.movers} selected={selected} primary={data.summary.primaryCurrency} />}
-        {view === 'opps' && <OppsPane opps={data.opps} selected={selected} />}
-        {view === 'arb' && <ArbPane rows={data.arb} selected={selected} primary={data.summary.primaryCurrency} />}
-        {view === 'watches' && <WatchesPane events={data.watchEvents} selected={selected} />}
+      <Tabs view={view} category={data.category} hint={hint} />
+      {(inputMode === 'search' || search !== '') && (
+        <Text color={GOLD}>
+          {`search: ${search}${inputMode === 'search' ? '▌' : ''}`}
+          <Text color={DIM}>{`  (${rowCount} match${rowCount === 1 ? '' : 'es'})`}</Text>
+        </Text>
+      )}
+      <Box marginTop={1} flexDirection="column">
+        <HeaderRow model={table.model} sortCol={sortCol} sortDir={sortDir} sortMode={inputMode === 'sort'} />
+        {visible.map((row, i) => (
+          <DataRow key={offset + i} model={table.model} row={row} selected={offset + i === clampedSelected} />
+        ))}
+        {rowCount === 0 && <Text color={DIM}>Nothing matches.</Text>}
+        {rowCount > 0 && (
+          <Text color={DIM}>{`row ${clampedSelected + 1} of ${rowCount}${rowCount > VIEWPORT ? ' · ↑↓/PgUp/PgDn to scroll' : ''}`}</Text>
+        )}
       </Box>
+      {selectedMover !== undefined && (
+        <Box marginTop={1} flexDirection="column">
+          <Text color={GOLD} bold>{selectedMover.name}</Text>
+          <Text>
+            7d trend <Text color="cyan">{renderSparkline(selectedMover.sparkline)}</Text>
+            {'  24h '}
+            {selectedMover.change24h === null ? `n/a (7d ${selectedMover.totalChange.toFixed(1)}%)` : `${selectedMover.change24h.toFixed(1)}%`}
+            {'  ↵ opens trade site'}
+          </Text>
+        </Box>
+      )}
+      {plan !== null && (
+        <Box marginTop={1} flexDirection="column">
+          <Text color={GOLD} bold>{plan.summary}</Text>
+          {plan.steps.map((s) => (
+            <Text key={s.order} wrap="truncate-end">{`  ${s.order}. ${s.instruction}`}</Text>
+          ))}
+          <Text color={DIM} wrap="truncate-end">{plan.humanExecutionNote}</Text>
+        </Box>
+      )}
       <Box marginTop={1}>
         <Text color={DIM}>humans execute all trades · data via poe.ninja · {data.summary.categories} categories</Text>
       </Box>

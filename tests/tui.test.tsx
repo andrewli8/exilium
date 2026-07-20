@@ -71,6 +71,26 @@ function makeService(): ExiliumService {
 
 const PROPS = { game: 'poe1' as const, league: 'Mirage', refreshSec: 9999 };
 
+function makeBigService(n: number): ExiliumService {
+  const db = createDb(':memory:');
+  const repo = new SnapshotRepository(db);
+  repo.save({
+    ...SNAP,
+    lines: Array.from({ length: n }, (_, i) => ({
+      itemId: `item-${i}`,
+      name: `Item Number ${i}`,
+      category: 'Currency',
+      primaryValue: 10 + i,
+      volumePrimaryValue: 1000 + i,
+      maxVolumeCurrency: null,
+      maxVolumeRate: null,
+      sparkline: [1, 2, 1, 2, 1, 2, 1],
+      totalChange: i,
+    })),
+  });
+  return new ExiliumService(repo);
+}
+
 const flush = () => new Promise((r) => setTimeout(r, 50));
 
 describe('ExiliumTui', () => {
@@ -81,7 +101,7 @@ describe('ExiliumTui', () => {
     expect(frame).toContain('poe1/Mirage');
     expect(frame).toContain('chaos');
     expect(frame).toContain('Crashed Orb');
-    expect(frame).toContain('MOVERS');
+    expect(frame).toContain('ITEM'); // movers table header — tab labels truncate in the narrow test terminal
   });
 
   test('shows a sparkline detail for the selected row', () => {
@@ -97,7 +117,7 @@ describe('ExiliumTui', () => {
     expect(lastFrame()!).toContain('mean-reversion');
     stdin.write('3');
     await flush();
-    expect(lastFrame()!).toContain('Implied');
+    expect(lastFrame()!).toMatch(/IMPLIED/i);
   });
 
   test('moves the selection with arrow keys', async () => {
@@ -142,6 +162,63 @@ describe('ExiliumTui', () => {
   test('shows a freshness indicator for old data', () => {
     const { lastFrame } = render(<ExiliumTui service={makeService()} {...PROPS} />);
     expect(lastFrame()!).toMatch(/h ago|m ago|just now/);
+  });
+
+  test('shows a 24H change column in the movers view', () => {
+    const { lastFrame } = render(<ExiliumTui service={makeService()} {...PROPS} />);
+    expect(lastFrame()!).toContain('24H');
+  });
+
+  test('s enters search mode and filters rows as you type', async () => {
+    const { lastFrame, stdin } = render(<ExiliumTui service={makeService()} {...PROPS} />);
+    await flush();
+    stdin.write('s');
+    await flush();
+    expect(lastFrame()!).toMatch(/search:/i);
+    stdin.write('crash');
+    await flush();
+    const frame = lastFrame()!;
+    expect(frame).toContain('Crashed Orb');
+    expect(frame).not.toContain('Divine Orb');
+    stdin.write('\u001B'); // esc clears the filter
+    await flush();
+    expect(lastFrame()!).toContain('Divine Orb');
+  });
+
+  test('f enters sort mode; arrows pick direction and column', async () => {
+    const { lastFrame, stdin } = render(<ExiliumTui service={makeService()} {...PROPS} />);
+    await flush();
+    stdin.write('f');
+    await flush();
+    expect(lastFrame()!).toMatch(/sort/i);
+    stdin.write('\u001B[B'); // desc on the first column
+    await flush();
+    expect(lastFrame()!).toContain('▼');
+    stdin.write('\u001B[A'); // asc
+    await flush();
+    expect(lastFrame()!).toContain('▲');
+  });
+
+  test('selection scrolls past the viewport and shows position', async () => {
+    const { lastFrame, stdin } = render(<ExiliumTui service={makeBigService(40)} {...PROPS} />);
+    await flush();
+    for (let i = 0; i < 30; i++) stdin.write('\u001B[B');
+    await flush();
+    const frame = lastFrame()!;
+    expect(frame).toMatch(/31 of 40/);
+  });
+
+  test('enter on a selected row opens its trade link', async () => {
+    const opened: string[] = [];
+    const { stdin } = render(
+      <ExiliumTui service={makeService()} {...PROPS} onOpenLink={(url) => { opened.push(url); }} />,
+    );
+    await flush();
+    stdin.write('\r');
+    await flush();
+    expect(opened).toHaveLength(1);
+    expect(opened[0]).toContain('/trade/search/Mirage?q=');
+    expect(decodeURIComponent(opened[0]!)).toContain('"type"');
   });
 
   test('shows the empty state when no data is ingested', () => {

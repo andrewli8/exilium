@@ -126,6 +126,30 @@ export class SnapshotRepository {
     return rows.map((r) => this.hydrate(r));
   }
 
+  /** Prices from the snapshot closest to `targetIso` within ±`toleranceHours`,
+   * one map per category call — the bulk source for 24h-change columns. */
+  pricesNear(game: Game, league: string, category: string, targetIso: string, toleranceHours: number): ReadonlyMap<string, number> {
+    const target = Date.parse(targetIso);
+    const rows = this.db
+      .prepare(
+        `SELECT id, fetched_at FROM snapshots WHERE game = ? AND league = ? AND category = ?
+         AND fetched_at BETWEEN ? AND ? ORDER BY ABS(julianday(fetched_at) - julianday(?)) LIMIT 1`,
+      )
+      .all(
+        game,
+        league,
+        category,
+        new Date(target - toleranceHours * 3600_000).toISOString(),
+        new Date(target + toleranceHours * 3600_000).toISOString(),
+        targetIso,
+      ) as readonly { id: number; fetched_at: string }[];
+    if (rows.length === 0) return new Map();
+    const lines = this.db
+      .prepare('SELECT item_id, primary_value FROM market_lines WHERE snapshot_id = ?')
+      .all(rows[0]!.id) as readonly { item_id: string; primary_value: number }[];
+    return new Map(lines.map((l) => [l.item_id, l.primary_value]));
+  }
+
   history(game: Game, league: string, itemId: string, limit: number): readonly PricePoint[] {
     const rows = this.db
       .prepare(

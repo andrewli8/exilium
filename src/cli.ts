@@ -321,6 +321,12 @@ async function cmdTui(): Promise<void> {
       refreshSec: 30,
       onIngest,
       autoIngestSec: config.refreshSec,
+      onOpenLink: (url: string) => {
+        const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
+        import('node:child_process').then(({ spawn }) => {
+          spawn(opener, [url], { detached: true, stdio: 'ignore' }).unref();
+        }).catch(() => undefined);
+      },
     }),
   );
 }
@@ -556,7 +562,7 @@ async function cmdStash(): Promise<void> {
   const market = repo
     .latestAll(config.game, league)
     .flatMap((s) => s.lines)
-    .map((l) => ({ itemId: l.itemId, name: l.name, category: l.category, primaryValue: l.primaryValue, totalChange: l.totalChange, volumePrimaryValue: l.volumePrimaryValue, sparkline: l.sparkline }));
+    .map((l) => ({ itemId: l.itemId, name: l.name, category: l.category, primaryValue: l.primaryValue, totalChange: l.totalChange, volumePrimaryValue: l.volumePrimaryValue, sparkline: l.sparkline, change24h: null }));
   const primary = service.marketSnapshot(config.game, league).primaryCurrency;
   const valuation = valueStash(items, market);
   const previous = stashRepo.latest(config.game, league, account);
@@ -606,7 +612,7 @@ async function cmdSellsheet(): Promise<void> {
   const market = repo
     .latestAll(config.game, league)
     .flatMap((s) => s.lines)
-    .map((l) => ({ itemId: l.itemId, name: l.name, category: l.category, primaryValue: l.primaryValue, totalChange: l.totalChange, volumePrimaryValue: l.volumePrimaryValue, sparkline: l.sparkline }));
+    .map((l) => ({ itemId: l.itemId, name: l.name, category: l.category, primaryValue: l.primaryValue, totalChange: l.totalChange, volumePrimaryValue: l.volumePrimaryValue, sparkline: l.sparkline, change24h: null }));
   const primary = service.marketSnapshot(config.game, league).primaryCurrency;
   const sheet = buildSellSheet(parseCounts(readFileSync(file, 'utf8')), market, primary, discount);
   for (const l of sheet.lines) {
@@ -632,7 +638,7 @@ async function cmdRising(): Promise<void> {
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
   console.log(`${config.game}/${league} · rising items (7d gain weighted by volume) — league-start lens\n`);
-  console.log(formatItemTable(scored.map(({ l }) => ({ itemId: l.itemId, name: l.name, category: l.category, primaryValue: l.primaryValue, totalChange: l.totalChange, volumePrimaryValue: l.volumePrimaryValue, sparkline: l.sparkline })), primary));
+  console.log(formatItemTable(scored.map(({ l }) => ({ itemId: l.itemId, name: l.name, category: l.category, primaryValue: l.primaryValue, totalChange: l.totalChange, volumePrimaryValue: l.volumePrimaryValue, sparkline: l.sparkline, change24h: null })), primary));
 }
 
 const HELP = `exilium — Path of Exile trading terminal
