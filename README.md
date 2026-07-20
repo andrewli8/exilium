@@ -229,6 +229,18 @@ Non-negotiable design anchors:
 3. MCP serves cached data only — never triggers upstream calls.
 4. No POESESSID server-side, ever.
 
+## Security of your session cookie
+
+If you opt into `stash`/`live`, your POESESSID is handled like this — and only like this:
+
+- Stored in `~/.exilium/config.json`, **outside any git repository**, with 600 permissions (only your OS user can read it). Exilium re-tightens the permissions automatically if the file ever drifts looser, and `.gitignore` defensively excludes config files even if you point `EXILIUM_CONFIG` somewhere unusual.
+- Sent to exactly one host, `www.pathofexile.com`, over HTTPS — never to any server of ours (there is none), never to poe.ninja, never anywhere else.
+- Never written to the database, never logged, never included in error messages.
+- Optional at every step: skip it in `setup` and pass `EXILIUM_POESESSID` per-run, or skip entirely — only `stash` and `live` need it.
+- Revocable instantly: logging out of pathofexile.com in your browser invalidates the cookie.
+
+The wizard prints per-browser instructions for finding the cookie (F12 → Application/Storage → Cookies → pathofexile.com → `POESESSID`).
+
 ## Compliance
 
 - Read-only market analytics from public community APIs, with a proper User-Agent.

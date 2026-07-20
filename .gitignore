@@ -27,3 +27,7 @@ exilium.db-*
 *.db-wal
 *.db-shm
 coverage/
+
+# Never commit local config even if EXILIUM_CONFIG points into the repo
+config.json
+.exilium/

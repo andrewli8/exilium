@@ -85,6 +85,12 @@ export function configFilePath(env: NodeJS.ProcessEnv): string {
   return env['EXILIUM_CONFIG'] ?? join(homedir(), '.exilium', 'config.json');
 }
 
+/** True when a file mode grants no group/other access — required for the
+ * config file once it holds a session cookie. */
+export function isPermissionSafe(mode: number): boolean {
+  return (mode & 0o077) === 0;
+}
+
 export function readFileConfig(path: string, readFile: (p: string) => string): FileConfig {
   try {
     const parsed: unknown = JSON.parse(readFile(path));

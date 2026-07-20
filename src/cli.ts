@@ -25,8 +25,24 @@ import { StashRepository } from './storage/stash-repository.js';
 import { createNotifier } from './watch/notify.js';
 import { initialWatchState, watchTick } from './watch/watch.js';
 
-import { readFileSync as readFileSyncForConfig, writeFileSync, chmodSync } from 'node:fs';
-const config = loadConfig(process.env, readFileConfig(configFilePath(process.env), (p) => readFileSyncForConfig(p, 'utf8')));
+import { readFileSync as readFileSyncForConfig, writeFileSync, chmodSync, statSync } from 'node:fs';
+import { isPermissionSafe } from './config.js';
+const configPath = configFilePath(process.env);
+const fileConfig = readFileConfig(configPath, (p) => readFileSyncForConfig(p, 'utf8'));
+// A config file holding a session cookie must never be group/other readable.
+// If it drifted (copied, restored from backup), fix it and say so.
+if (fileConfig.poesessid !== undefined) {
+  try {
+    const mode = statSync(configPath).mode & 0o777;
+    if (!isPermissionSafe(mode)) {
+      chmodSync(configPath, 0o600);
+      console.error(`Warning: ${configPath} was readable by other users (mode ${mode.toString(8)}) and holds your session cookie — permissions tightened to 600.`);
+    }
+  } catch {
+    // stat failures fall through; the file was readable enough to parse
+  }
+}
+const config = loadConfig(process.env, fileConfig);
 const db = createDb(config.dbPath);
 const repo = new SnapshotRepository(db);
 const watchRepo = new WatchRepository(db);
@@ -689,9 +705,14 @@ async function cmdSetup(): Promise<void> {
   }
   let poesessid = '';
   if (account !== '') {
-    console.log('\nOptional: your POESESSID cookie enables `stash` and `live`. Stored in ~/.exilium/config.json (chmod 600),');
-    console.log('it stays on this machine and is sent only to pathofexile.com. Treat it like a password — or skip and');
-    console.log('pass EXILIUM_POESESSID per-run only when you use those two commands.');
+    console.log('\nOptional: your POESESSID cookie enables `stash` and `live`.');
+    console.log('How to find it (you must be logged in at pathofexile.com):');
+    console.log('  Chrome/Edge:  F12 → Application tab → Cookies → https://www.pathofexile.com → copy the POESESSID value');
+    console.log('  Firefox:      F12 → Storage tab → Cookies → https://www.pathofexile.com → copy the POESESSID value');
+    console.log('  Safari:       enable Develop menu → Web Inspector → Storage → Cookies');
+    console.log('Security: it is stored ONLY in ~/.exilium/config.json on this machine (permissions 600 — only your');
+    console.log('user can read it), never enters the project folder or git, is never logged, and is sent to exactly');
+    console.log('one host: pathofexile.com, over HTTPS. Treat it like a password; log out to invalidate it any time.');
     poesessid = await ask('POESESSID (Enter to skip): ', '');
   }
   cleanup();

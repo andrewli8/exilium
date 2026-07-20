@@ -1,7 +1,7 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test, vi } from 'vitest';
-import { loadConfig } from '../src/config.js';
+import { isPermissionSafe, loadConfig } from '../src/config.js';
 import { mean, stddev, volumeConfidence } from '../src/signals/stats.js';
 import { NinjaClient } from '../src/sources/ninja/client.js';
 
@@ -79,6 +79,16 @@ describe('config file support', () => {
     const c = loadConfig({});
     expect(c.poesessid).toBeUndefined();
     expect(c.account).toBeUndefined();
+  });
+});
+
+describe('isPermissionSafe', () => {
+  test('owner-only modes are safe; group/other-readable are not', () => {
+    expect(isPermissionSafe(0o600)).toBe(true);
+    expect(isPermissionSafe(0o400)).toBe(true);
+    expect(isPermissionSafe(0o644)).toBe(false);
+    expect(isPermissionSafe(0o660)).toBe(false);
+    expect(isPermissionSafe(0o604)).toBe(false);
   });
 });
 
