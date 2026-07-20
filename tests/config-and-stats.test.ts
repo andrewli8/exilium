@@ -14,9 +14,13 @@ describe('loadConfig', () => {
     expect(c.userAgent).toContain('github.com/andrewli8/exilium');
     expect(c.userAgent).not.toContain('contact:');
     expect(c.game).toBe('poe1');
-    expect(c.categories).toContain('Currency');
-    expect(c.categories).toContain('Scarab');
-    expect(c.categories).toContain('DivinationCard');
+    const names = c.categories.map((s) => s.name);
+    expect(names).toContain('Currency');
+    expect(names).toContain('DjinnCoin');
+    expect(names).toContain('UniqueWeapon');
+    expect(names).toContain('SkillGem');
+    expect(c.categories.find((s) => s.name === 'Currency')!.source).toBe('exchange');
+    expect(c.categories.find((s) => s.name === 'UniqueWeapon')!.source).toBe('items');
     expect(c.watchIntervalSec).toBe(600);
     expect(c.minEdgePct).toBe(25);
     expect(c.webhookUrl).toBeUndefined();

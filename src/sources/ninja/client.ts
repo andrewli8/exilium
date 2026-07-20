@@ -60,6 +60,11 @@ export class NinjaClient {
     return this.getJson(`/${game}/api/economy/exchange/current/overview?${params.toString()}`);
   }
 
+  async getItemOverview(game: Game, league: string, type: string): Promise<unknown> {
+    const params = new URLSearchParams({ league, type });
+    return this.getJson(`/${game}/api/economy/stash/current/item/overview?${params.toString()}`);
+  }
+
   private async getJson(path: string): Promise<unknown> {
     const remaining = Math.ceil((this.cooldownUntilMs - this.nowMs()) / 1000);
     if (remaining > 0) {

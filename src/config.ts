@@ -15,12 +15,19 @@ export interface FileConfig {
   readonly poesessid?: string;
 }
 
+export interface CategorySpec {
+  readonly name: string;
+  /** exchange = Currency Exchange ratios (fast-moving, 5-min cadence);
+   * items = stash listing prices (slow-moving, hourly cadence). */
+  readonly source: 'exchange' | 'items';
+}
+
 export interface ExiliumConfig {
   readonly game: Game;
   readonly dbPath: string;
   readonly userAgent: string;
   readonly league: string | null;
-  readonly categories: readonly string[];
+  readonly categories: readonly CategorySpec[];
   readonly dashboardPort: number;
   /** Seconds between automatic upstream refreshes in TUI/dashboard
    * (floored at 300 for API politeness). */
@@ -40,11 +47,18 @@ export interface ExiliumConfig {
   readonly poesessid: string | undefined;
 }
 
-/** Exchange category type names per game, as poe.ninja's API expects them
- * (PoE1 uses singular names; PoE2 uses plural). */
-const CATEGORIES_BY_GAME: Readonly<Record<Game, readonly string[]>> = {
-  poe1: ['Currency', 'Fragment', 'Scarab', 'Essence', 'Oil', 'Fossil', 'Resonator', 'DeliriumOrb', 'Tattoo', 'Omen', 'DivinationCard', 'Artifact', 'AllflameEmber', 'Runegraft'],
-  poe2: ['Currency', 'Runes', 'Essences', 'Delirium', 'Ritual', 'Expedition', 'Breach', 'Fragments', 'SoulCores', 'Abyss', 'Idols', 'UncutGems'],
+const ex = (name: string): CategorySpec => ({ name, source: 'exchange' });
+const it = (name: string): CategorySpec => ({ name, source: 'items' });
+
+/** Full poe.ninja category map per game, discovered from the site's own
+ * sidebar and verified against both APIs (PoE1 exchange uses singular names;
+ * PoE2 uses plural; PoE2 has no public item-overview endpoint yet). */
+export const CATEGORIES_BY_GAME: Readonly<Record<Game, readonly CategorySpec[]>> = {
+  poe1: [
+    ...['Currency', 'Fragment', 'Scarab', 'Essence', 'Oil', 'Fossil', 'Resonator', 'DeliriumOrb', 'Tattoo', 'Omen', 'DivinationCard', 'Artifact', 'AllflameEmber', 'Runegraft', 'DjinnCoin', 'Astrolabe'].map(ex),
+    ...['UniqueWeapon', 'UniqueArmour', 'UniqueAccessory', 'UniqueFlask', 'UniqueJewel', 'UniqueTincture', 'UniqueMap', 'UniqueRelic', 'Map', 'BlightedMap', 'BlightRavagedMap', 'ValdoMap', 'SkillGem', 'ImbuedGem', 'ClusterJewel', 'ForbiddenJewel', 'BaseType', 'Beast', 'Incubator', 'Invitation', 'ShrineBelt', 'Vial', 'Wombgift'].map(it),
+  ],
+  poe2: ['Currency', 'Runes', 'Essences', 'Delirium', 'Ritual', 'Expedition', 'Breach', 'Fragments', 'SoulCores', 'Abyss', 'Idols', 'UncutGems'].map(ex),
 };
 
 /** The tool identifies itself to upstream APIs; the repo URL is the contact

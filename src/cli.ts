@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
 import { promisify } from 'node:util';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { configFilePath, loadConfig, readFileConfig } from './config.js';
+import { CATEGORIES_BY_GAME, configFilePath, loadConfig, readFileConfig } from './config.js';
 import { renderDashboard } from './dashboard/render.js';
 import { ingestLeague } from './ingest/ingest.js';
 import { buildMcpServer } from './mcp/server.js';
@@ -91,7 +91,7 @@ async function resolveLeague(client: NinjaClient): Promise<string> {
 async function cmdIngest(): Promise<void> {
   const client = new NinjaClient({ userAgent: config.userAgent });
   const league = await resolveLeague(client);
-  console.log(`Ingesting ${config.game}/${league}: ${config.categories.join(', ')}`);
+  console.log(`Ingesting ${config.game}/${league}: ${config.categories.map((c) => c.name).join(', ')}`);
   const result = await ingestLeague(client, repo, {
     game: config.game,
     league,
@@ -740,7 +740,7 @@ async function cmdSetup(): Promise<void> {
   const result = await ingestLeague(client, repo, {
     game: game as 'poe1' | 'poe2',
     league,
-    categories: game === 'poe2' ? ['Currency', 'Runes', 'Essences', 'Delirium', 'Ritual', 'Expedition', 'Breach'] : config.categories,
+    categories: CATEGORIES_BY_GAME[game as 'poe1' | 'poe2'],
     now: () => new Date().toISOString(),
     minIntervalSec: 0,
   });

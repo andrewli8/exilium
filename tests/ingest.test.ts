@@ -18,11 +18,40 @@ const RAW_OK = {
   items: [{ id: 'chaos', name: 'Chaos Orb', category: 'Currency', detailsId: 'chaos-orb' }],
 };
 
+const ITEM_RAW = {
+  lines: [
+    { id: 1, detailsId: 'headhunter-leather-belt', name: 'Headhunter', chaosValue: 90000, divineValue: 125, listingCount: 4, sparkLine: { data: [0, 1], totalChange: 1 } },
+  ],
+};
+
 describe('ingestLeague', () => {
+  test('item categories refresh hourly, not on every exchange sweep', async () => {
+    const repo = new SnapshotRepository(createDb(':memory:'));
+    const client = {
+      getExchangeOverview: vi.fn().mockResolvedValue(RAW_OK),
+      getItemOverview: vi.fn().mockResolvedValue(ITEM_RAW),
+    };
+    const categories = [
+      { name: 'Currency', source: 'exchange' as const },
+      { name: 'UniqueArmour', source: 'items' as const },
+    ];
+    const base = { game: 'poe1' as const, league: 'M', categories, minIntervalSec: 0 };
+    const first = await ingestLeague(client, repo, { ...base, itemsMinIntervalSec: 3600, now: () => '2026-07-20T10:00:00Z' });
+    expect(first.saved).toEqual(['Currency', 'UniqueArmour']);
+    // 5 minutes later: exchange refreshes, items are NOT due.
+    const second = await ingestLeague(client, repo, { ...base, itemsMinIntervalSec: 3600, now: () => '2026-07-20T10:05:00Z' });
+    expect(second.saved).toEqual(['Currency']);
+    expect(client.getItemOverview).toHaveBeenCalledTimes(1);
+    // Past the hour: items refresh again.
+    const third = await ingestLeague(client, repo, { ...base, itemsMinIntervalSec: 3600, now: () => '2026-07-20T11:05:00Z' });
+    expect(third.saved).toEqual(['Currency', 'UniqueArmour']);
+    expect(repo.latest('poe1', 'M', 'UniqueArmour')?.lines[0]?.name).toBe('Headhunter');
+  });
+
   test('the gate is ON BY DEFAULT — callers that pass nothing are still protected', async () => {
     const repo = new SnapshotRepository(createDb(':memory:'));
     const client = { getExchangeOverview: vi.fn().mockResolvedValue(RAW_OK) };
-    const base = { game: 'poe2' as const, league: 'L', categories: ['Currency'] };
+    const base = { game: 'poe2' as const, league: 'L', categories: [{ name: 'Currency', source: 'exchange' as const }] };
     await ingestLeague(client, repo, { ...base, now: () => '2026-07-19T10:00:00Z' });
     const second = await ingestLeague(client, repo, { ...base, now: () => '2026-07-19T10:02:00Z' });
     expect(second.skipped).toBe(true);
@@ -36,7 +65,7 @@ describe('ingestLeague', () => {
     const db = createDb(':memory:');
     const repo = new SnapshotRepository(db);
     const client = { getExchangeOverview: vi.fn().mockResolvedValue(RAW_OK) };
-    const opts = { game: 'poe2' as const, league: 'L', categories: ['Currency'], now: () => '2026-07-19T10:00:00Z', minIntervalSec: 240 };
+    const opts = { game: 'poe2' as const, league: 'L', categories: [{ name: 'Currency', source: 'exchange' as const }], now: () => '2026-07-19T10:00:00Z', minIntervalSec: 240 };
     const first = await ingestLeague(client, repo, opts);
     expect(first.saved).toEqual(['Currency']);
     // Second call 60s later (another process): shared state must gate it.
@@ -61,7 +90,7 @@ describe('ingestLeague', () => {
     const result = await ingestLeague(client, repo, {
       game: 'poe2',
       league: 'Runes of Aldur',
-      categories: ['Currency', 'Runes', 'Essences'],
+      categories: ['Currency', 'Runes', 'Essences'].map((name) => ({ name, source: 'exchange' as const })),
       now: () => '2026-07-18T18:00:00Z',
     });
 
