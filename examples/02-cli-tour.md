@@ -160,7 +160,8 @@ The default. Four views (movers, opportunities, arbitrage, fired watch events), 
 
 - `s` — incremental search: type to filter rows, arrows still scroll the matches while you type, Enter keeps the filter, Esc clears it.
 - `f` — sort: `f` toggles the current column between descending and ascending (only `f` changes direction), ←/→ move to another column, ↑/↓ keep scrolling rows the whole time, Esc done.
-- `c` — category picker: type a few letters ("sca" → Scarab), ↑/↓ to pick, Enter applies, Esc cancels. No more cycling past the one you wanted.
+- `c` — category picker: type a few letters ("sca" → Scarab), ↑/↓ to pick (the list scrolls when it's long), Enter applies, Esc cancels. No more cycling past the one you wanted.
+- `w` — create a watch for the selected row without leaving the terminal: type a threshold price (prefilled at +5%), and the direction infers itself — a threshold above the current price alerts on a rise, below alerts on a drop; ↑/↓ nudge ±1%. On the opportunities view `w` builds an edge watch instead. Fires once, shows up in pane 4 and `exilium watches`.
 - ↑/↓ move one row, Shift+↑/↓ jump ten, PgUp/PgDn (or ←/→) page — through the full list (a "row 12 of 604" indicator shows where you are; there is no top-15 cap).
 - Enter — opens the selected item's search on the official trade site in your browser.
 

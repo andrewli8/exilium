@@ -48,7 +48,7 @@ A full-screen terminal UI (built with Ink, the React-for-CLIs library) over the 
 - **1 · MOVERS** — biggest price moves with a 7-day unicode sparkline detail pane for the selected row
 - **2 · OPPORTUNITIES** — live detector signals with edge, confidence, and rationale
 - **3 · ARBITRAGE** — listed vs implied cross-rate table per market
-- `s` search-as-you-type · `f` column sort (↑ asc / ↓ desc) · `↵` opens the item on the trade site · full-list scrolling with a position indicator · 24H% column from stored history · `↑/↓` select · `←/→` cycle categories · `r` refresh now · `q` quit
+- `s` search-as-you-type · `f` column sort · `w` create a watch for the selected row (threshold prefilled, direction inferred) · `c` type-ahead category picker · `↵` opens the item on the trade site · full-list + picker scrolling · 24H% column · Shift+↑/↓ jump 10 · `r` refresh · `q` quit
 - **Stays live on its own**: refetches market data every 5 minutes (`EXILIUM_REFRESH`, floor 300s) and shows a freshness dot — green under 10 min, amber under 30, red beyond. Leave it on a second monitor while you map.
 
 ### CLI commands

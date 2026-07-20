@@ -199,6 +199,26 @@ describe('ExiliumTui', () => {
     expect(lastFrame()!).toContain('Ambush Scarab');
   });
 
+  test('category picker scrolls when the list exceeds the viewport', async () => {
+    const db = createDb(':memory:');
+    const repo = new SnapshotRepository(db);
+    // 20 categories so the list is longer than the 10-row picker viewport.
+    for (let i = 0; i < 20; i++) {
+      repo.save({ ...SNAP, category: `Cat${String(i).padStart(2, '0')}`, lines: [{ ...SNAP.lines[0]!, itemId: `it${i}`, name: `Item ${i}`, category: `Cat${String(i).padStart(2, '0')}` }] });
+    }
+    const { lastFrame, stdin } = render(<ExiliumTui service={new ExiliumService(repo)} {...PROPS} />);
+    await flush();
+    stdin.write('c');
+    await flush();
+    expect(lastFrame()!).toContain('▶ All'); // top of list
+    for (let i = 0; i < 15; i++) stdin.write('\u001B[B'); // down past the viewport
+    await flush();
+    const frame = lastFrame()!;
+    expect(frame).toContain('Cat14'); // a far-down entry is now visible
+    expect(frame).toContain('▶ Cat14'); // and it is the selection
+    expect(frame).not.toContain('▶ All'); // the top scrolled out of view
+  });
+
   test('arrow keys never change the category filter', async () => {
     const db = createDb(':memory:');
     const repo = new SnapshotRepository(db);
@@ -339,6 +359,75 @@ describe('ExiliumTui', () => {
     expect(opened).toHaveLength(1);
     expect(opened[0]).toContain('/trade/search/Mirage?q=');
     expect(decodeURIComponent(opened[0]!)).toContain('"type"');
+  });
+
+  test('w opens a prefilled watch builder; Enter creates a price watch', async () => {
+    const service = makeService();
+    const { lastFrame, stdin } = render(<ExiliumTui service={service} {...PROPS} />);
+    await flush();
+    // Select Divine Orb (search to pin it deterministically).
+    stdin.write('s');
+    await flush();
+    stdin.write('Divine');
+    await flush();
+    stdin.write('\r'); // keep filter, back to normal mode
+    await flush();
+    stdin.write('w');
+    await flush();
+    const frame = lastFrame()!;
+    expect(frame).toMatch(/watch.*Divine Orb/i);
+    expect(frame).toMatch(/756/); // prefilled at +5% of 720
+    stdin.write('\r'); // accept the prefill
+    await flush();
+    const watches = service.listWatches().filter((w) => w.id.startsWith('tui:'));
+    expect(watches).toHaveLength(1);
+    expect(watches[0]).toMatchObject({ itemId: 'divine', kind: 'price_above' });
+    expect(watches[0]!.threshold).toBeCloseTo(756);
+    expect(lastFrame()!).toMatch(/watch created/i);
+  });
+
+  test('typing a threshold below the current price infers a drop watch', async () => {
+    const service = makeService();
+    const { stdin } = render(<ExiliumTui service={service} {...PROPS} />);
+    await flush();
+    stdin.write('s');
+    await flush();
+    stdin.write('Divine');
+    await flush();
+    stdin.write('\r');
+    await flush();
+    stdin.write('w');
+    await flush();
+    // Clear the prefill and type a lower threshold.
+    for (let i = 0; i < 10; i++) stdin.write('\u007F');
+    await flush();
+    stdin.write('650');
+    await flush();
+    stdin.write('\r');
+    await flush();
+    const watches = service.listWatches().filter((w) => w.id.startsWith('tui:'));
+    expect(watches).toHaveLength(1);
+    expect(watches[0]).toMatchObject({ itemId: 'divine', kind: 'price_below', threshold: 650 });
+  });
+
+  test('w on the opportunities pane creates an edge watch; esc cancels cleanly', async () => {
+    const service = makeService();
+    const { stdin } = render(<ExiliumTui service={service} {...PROPS} />);
+    await flush();
+    stdin.write('2'); // opportunities view
+    await flush();
+    stdin.write('w');
+    await flush();
+    stdin.write('\u001B'); // esc — no watch created
+    await flush();
+    expect(service.listWatches().filter((w) => w.id.startsWith('tui:'))).toHaveLength(0);
+    stdin.write('w');
+    await flush();
+    stdin.write('\r'); // accept prefped edge threshold
+    await flush();
+    const watches = service.listWatches().filter((w) => w.id.startsWith('tui:'));
+    expect(watches).toHaveLength(1);
+    expect(watches[0]!.kind).toBe('opportunity');
   });
 
   test('shows the empty state when no data is ingested', () => {

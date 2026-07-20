@@ -10,7 +10,7 @@ import { formatPriceUnits } from '../domain/format-price.js';
 import { renderSparkline } from './sparkline.js';
 
 type View = 'movers' | 'opps' | 'arb' | 'watches';
-type InputMode = 'normal' | 'search' | 'sort' | 'category';
+type InputMode = 'normal' | 'search' | 'sort' | 'category' | 'watch';
 
 export interface TuiProps {
   readonly service: ExiliumService;
@@ -36,12 +36,22 @@ interface Column<T> {
   readonly sortValue: (row: T) => string | number;
 }
 
+interface WatchTarget {
+  readonly kind: 'price' | 'opportunity';
+  readonly itemId: string;
+  readonly name: string;
+  /** Current price for price watches; current edge % for opportunity watches. */
+  readonly reference: number;
+}
+
 interface TableModel<T> {
   readonly columns: readonly Column<T>[];
   readonly cells: (row: T) => readonly string[];
   readonly searchText: (row: T) => string;
   /** Item name for the Enter → trade-link action; null disables it. */
   readonly itemName: (row: T) => string | null;
+  /** Target for the w → create-watch action; null disables it. */
+  readonly watchTarget: (row: T) => WatchTarget | null;
 }
 
 const fmtChange24 = (m: DetailedMover): string =>
@@ -76,6 +86,7 @@ const buildMoversModel = (ctx: PriceCtx): TableModel<DetailedMover> => ({
   ],
   searchText: (m) => `${m.name} ${m.category}`,
   itemName: (m) => m.name,
+  watchTarget: (m) => ({ kind: 'price', itemId: m.itemId, name: m.name, reference: m.primaryValue }),
 });
 
 const OPPS_MODEL: TableModel<Opportunity> = {
@@ -95,6 +106,7 @@ const OPPS_MODEL: TableModel<Opportunity> = {
   ],
   searchText: (o) => `${o.itemName} ${o.kind} ${o.rationale}`,
   itemName: (o) => o.itemName,
+  watchTarget: (o) => ({ kind: 'opportunity', itemId: o.itemId, name: o.itemName, reference: o.edge * 100 }),
 };
 
 const buildArbModel = (ctx: PriceCtx): TableModel<ArbRow> => ({
@@ -118,6 +130,7 @@ const buildArbModel = (ctx: PriceCtx): TableModel<ArbRow> => ({
   ],
   searchText: (r) => `${r.itemName} ${r.category}`,
   itemName: (r) => r.itemName,
+  watchTarget: (r) => ({ kind: 'price', itemId: r.itemId, name: r.itemName, reference: r.listed }),
 });
 
 const WATCH_MODEL: TableModel<WatchEvent> = {
@@ -138,6 +151,7 @@ const WATCH_MODEL: TableModel<WatchEvent> = {
   },
   searchText: (e) => `${e.watchId} ${JSON.stringify(e.payload)}`,
   itemName: (e) => (e.payload as { itemName?: string }).itemName ?? null,
+  watchTarget: () => null,
 };
 
 function applySearchAndSort<T>(
@@ -243,6 +257,9 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [catQuery, setCatQuery] = useState('');
   const [catPick, setCatPick] = useState(0);
+  const [watchTarget, setWatchTarget] = useState<WatchTarget | null>(null);
+  const [watchInput, setWatchInput] = useState('');
+  const [statusMsg, setStatusMsg] = useState('');
 
   useEffect(() => {
     const t = setInterval(() => setTick((n) => n + 1), refreshSec * 1000);
@@ -335,6 +352,50 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
       }
       return;
     }
+    if (inputMode === 'watch') {
+      if (key.escape) { setInputMode('normal'); setWatchTarget(null); return; }
+      if (key.return) {
+        const threshold = Number(watchInput);
+        if (watchTarget === null || Number.isNaN(threshold) || threshold <= 0) {
+          setStatusMsg('watch not created — threshold must be a positive number');
+          setInputMode('normal');
+          setWatchTarget(null);
+          return;
+        }
+        const kind =
+          watchTarget.kind === 'opportunity'
+            ? ('opportunity' as const)
+            : threshold >= watchTarget.reference
+              ? ('price_above' as const)
+              : ('price_below' as const);
+        try {
+          service.createWatch({
+            id: `tui:${kind}:${watchTarget.itemId}:${Math.round(threshold * 100)}`,
+            game,
+            league,
+            kind,
+            itemId: watchTarget.itemId,
+            category: null,
+            threshold,
+            mode: 'once',
+            webhookUrl: null,
+            createdAt: new Date().toISOString(),
+            active: true,
+          });
+          setStatusMsg(`watch created: ${watchTarget.name} ${kind === 'opportunity' ? `edge ≥ ${threshold}%` : kind === 'price_above' ? `≥ ${threshold}` : `≤ ${threshold}`}`);
+        } catch (err) {
+          setStatusMsg(`watch failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        setInputMode('normal');
+        setWatchTarget(null);
+        return;
+      }
+      if (key.backspace || key.delete) { setWatchInput((s) => s.slice(0, -1)); return; }
+      if (key.upArrow) { setWatchInput((s) => String(Math.round((Number(s) || 0) * 1.01 * 100) / 100)); return; }
+      if (key.downArrow) { setWatchInput((s) => String(Math.round((Number(s) || 0) * 0.99 * 100) / 100)); return; }
+      if (/^[0-9.]+$/.test(input)) setWatchInput((s) => s + input);
+      return;
+    }
     if (inputMode === 'category') {
       const matches = data.categories.filter((c) => c.toLowerCase().includes(catQuery.toLowerCase()));
       if (key.escape) { setInputMode('normal'); setCatQuery(''); return; }
@@ -375,6 +436,18 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
     if (key.rightArrow) { moveSelection(VIEWPORT); return; }
     if (key.leftArrow) { moveSelection(-VIEWPORT); return; }
     if (input === 'c') { setInputMode('category'); setCatQuery(''); setCatPick(0); return; }
+    if (input === 'w' && rowCount > 0) {
+      const row = table.rows[clampedSelected];
+      const target = row === undefined ? null : table.model.watchTarget(row);
+      if (target !== null) {
+        setWatchTarget(target);
+        // Prefill: +5% for price watches, current edge for opportunity watches.
+        setWatchInput(String(Math.round((target.kind === 'price' ? target.reference * 1.05 : target.reference) * 100) / 100));
+        setStatusMsg('');
+        setInputMode('watch');
+      }
+      return;
+    }
     if (key.return && rowCount > 0) {
       const row = table.rows[clampedSelected];
       const name = row === undefined ? null : table.model.itemName(row);
@@ -405,7 +478,9 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
         ? 'sort: f toggles ▼/▲ · ←→ column · ↑↓ scroll · esc done'
         : inputMode === 'category'
           ? 'category: type to filter · ↑↓ pick · ↵ apply · esc cancel'
-          : 's search · f sort · ↵ trade link · ↑↓ rows · ←→ page · c category · r refresh · q quit';
+          : inputMode === 'watch'
+            ? 'watch: type threshold · ↵ create · esc cancel'
+            : 's search · f sort · w watch · ↵ trade link · ↑↓ rows · ←→ page · c category · r refresh · q quit';
 
   const selectedMover = view === 'movers' ? (table.rows[clampedSelected] as DetailedMover | undefined) : undefined;
   const selectedOpp = view === 'opps' ? (table.rows[clampedSelected] as Opportunity | undefined) : undefined;
@@ -415,19 +490,42 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
     <Box flexDirection="column" paddingX={1}>
       <Header game={game} league={league} primary={data.summary.primaryCurrency} asOf={data.summary.asOf} ingesting={ingesting} />
       <Tabs view={view} category={data.category} hint={hint} />
-      {inputMode === 'category' && (
+      {inputMode === 'watch' && watchTarget !== null && (
         <Box flexDirection="column" borderStyle="round" borderColor={GOLD} paddingX={1}>
-          <Text color={GOLD}>{`category: ${catQuery}▌`}<Text color={DIM}>  (type to filter · ↑↓ pick · ↵ apply · esc cancel)</Text></Text>
-          {data.categories
-            .filter((c) => c.toLowerCase().includes(catQuery.toLowerCase()))
-            .slice(0, 10)
-            .map((c, i) => (
-              <Text key={c} inverse={i === catPick} color={i === catPick ? GOLD : DIM} bold={i === catPick}>
-                {i === catPick ? `▶ ${c}` : `  ${c}`}
+          <Text color={GOLD} bold>{`watch: ${watchTarget.name}`}</Text>
+          {watchTarget.kind === 'price' ? (
+            <Text>
+              {`current ${watchTarget.reference.toPrecision(4)} · threshold: ${watchInput}▌  → `}
+              <Text color={Number(watchInput) >= watchTarget.reference ? 'green' : 'red'} bold>
+                {Number(watchInput) >= watchTarget.reference ? `alert when price ≥ ${watchInput}` : `alert when price ≤ ${watchInput}`}
               </Text>
-            ))}
+            </Text>
+          ) : (
+            <Text>{`current edge ${watchTarget.reference.toFixed(1)}% · alert at edge ≥ ${watchInput}▌ %`}</Text>
+          )}
+          <Text color={DIM}>type numbers · ↑↓ nudge ±1% · ↵ create · esc cancel — fires once, visible in pane 4 and `exilium watches`</Text>
         </Box>
       )}
+      {inputMode === 'category' && (() => {
+        const CAT_VIEW = 10;
+        const matches = data.categories.filter((c) => c.toLowerCase().includes(catQuery.toLowerCase()));
+        const pick = Math.min(catPick, Math.max(0, matches.length - 1));
+        const catOffset = Math.max(0, Math.min(pick - CAT_VIEW + 1, Math.max(0, matches.length - CAT_VIEW)));
+        return (
+          <Box flexDirection="column" borderStyle="round" borderColor={GOLD} paddingX={1}>
+            <Text color={GOLD}>{`category: ${catQuery}▌`}<Text color={DIM}>{`  (${matches.length} — type to filter · ↑↓ pick · ↵ apply · esc cancel)`}</Text></Text>
+            {matches.slice(catOffset, catOffset + CAT_VIEW).map((c, i) => {
+              const idx = catOffset + i;
+              return (
+                <Text key={c} inverse={idx === pick} color={idx === pick ? GOLD : DIM} bold={idx === pick}>
+                  {idx === pick ? `▶ ${c}` : `  ${c}`}
+                </Text>
+              );
+            })}
+            {matches.length > CAT_VIEW && <Text color={DIM}>{`  ${pick + 1}/${matches.length}`}</Text>}
+          </Box>
+        );
+      })()}
       {(inputMode === 'search' || search !== '') && (
         <Text color={GOLD}>
           {`search: ${search}${inputMode === 'search' ? '▌' : ''}`}
@@ -465,7 +563,10 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
         </Box>
       )}
       <Box marginTop={1}>
-        <Text color={DIM}>humans execute all trades · data via poe.ninja · {data.summary.categories} categories</Text>
+        <Text color={DIM}>
+          {statusMsg !== '' ? <Text color={GOLD}>{statusMsg}  ·  </Text> : null}
+          humans execute all trades · data via poe.ninja · {data.summary.categories} categories
+        </Text>
       </Box>
     </Box>
   );
