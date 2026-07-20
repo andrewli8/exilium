@@ -282,9 +282,9 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
     const categories = ['All', ...service.categoryList(game, league).map((c) => c.category)];
     const category = categories[categoryIdx % categories.length] ?? 'All';
     const filter = category === 'All' ? undefined : category;
-    const movers = service.moversDetailed(game, league, 2000, filter);
+    const movers = service.moversDetailed(game, league, undefined, filter);
     const opps = service.opportunities(game, league, true, 0, filter).opportunities;
-    const arb = service.arbitrage(game, league, 0, filter).slice(0, 500);
+    const arb = service.arbitrage(game, league, 0, filter);
     let watchEvents: readonly WatchEvent[] = [];
     try {
       watchEvents = service.recentWatchEvents(200);

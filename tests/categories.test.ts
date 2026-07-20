@@ -72,6 +72,16 @@ describe('category browsing', () => {
     expect(() => service.listItems('poe1', 'Mirage', 'Wands')).toThrow(/Currency|Scarab/);
   });
 
+  test('moversDetailed returns every market when no limit is given', () => {
+    const repo = new SnapshotRepository(createDb(':memory:'));
+    repo.save(snap('Big', Array.from({ length: 5000 }, (_, i) =>
+      line({ itemId: `it${i}`, name: `Item ${i}`, category: 'Big', primaryValue: 1 + i }))));
+    const all = new ExiliumService(repo).moversDetailed('poe1', 'Mirage', undefined, 'Big');
+    expect(all).toHaveLength(5000);
+    // A limit still caps when explicitly passed (MCP payload trimming).
+    expect(new ExiliumService(repo).moversDetailed('poe1', 'Mirage', 10, 'Big')).toHaveLength(10);
+  });
+
   test('moversDetailed, opportunities, and arbitrage accept a category filter', () => {
     const movers = service.moversDetailed('poe1', 'Mirage', 10, 'Scarab');
     expect(movers.every((m) => m.category === 'Scarab')).toBe(true);

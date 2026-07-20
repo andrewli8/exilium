@@ -345,7 +345,8 @@ export class ExiliumService {
 
   /** Top movers including sparklines and 24h change. Ranked by |24h change|
    * when derivable, falling back to the 7d figure. */
-  moversDetailed(game: Game, league: string, limit: number, category?: string): readonly DetailedMover[] {
+  /** limit undefined = every market (the TUI passes this so search reaches all). */
+  moversDetailed(game: Game, league: string, limit: number | undefined, category?: string): readonly DetailedMover[] {
     const snaps = this.repo
       .latestAll(game, league)
       .filter((s) => category === undefined || s.category.toLowerCase() === category.toLowerCase());
