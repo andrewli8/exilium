@@ -32,6 +32,8 @@ Working backlog for the looptight loop. Each task carries evidence from the repo
 - TUI keybinding rework (arrows always navigate; c cycles categories; sort direction applies-and-exits) + trader price units (chaos ≥ 1 div renders in divines; dashboard shows real orb images from the PoE CDN).
 - `exilium simulate`: in-memory watch + snipe simulation on synthetic moves (scripted or seeded-random), real pipelines end to end, for league-downtime testing.
 
+- Category coverage expanded via API probing: PoE1 +Runegraft (14 total), PoE2 +Fragments/SoulCores/Abyss/Idols/UncutGems (12 total, ~147 new markets). TUI `c` is now a type-ahead category picker instead of a blind cycle.
+
 Small follow-ups from approval conditions: TUI `r` within the 240s shared gate silently no-ops — surface "fetched Xs ago, skipped" in the TUI header.
 
 ## Review-response round (2026-07-19), completed

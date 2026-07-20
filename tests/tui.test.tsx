@@ -164,12 +164,10 @@ describe('ExiliumTui', () => {
     expect(lastFrame()!).toMatch(/h ago|m ago|just now/);
   });
 
-  test('c cycles the category filter; arrow keys never leave navigation', async () => {
-    // Two categories: cycling to the second must filter rows to it, and the
-    // right arrow must NOT change the category (it pages instead).
+  test('c opens a type-ahead category picker; Enter applies, Esc cancels', async () => {
     const db = createDb(':memory:');
     const repo = new SnapshotRepository(db);
-    repo.save(SNAP); // Currency: Divine Orb, Crashed Orb
+    repo.save(SNAP);
     repo.save({
       ...SNAP,
       category: 'Scarab',
@@ -178,17 +176,49 @@ describe('ExiliumTui', () => {
     const service = new ExiliumService(repo);
     const { lastFrame, stdin } = render(<ExiliumTui service={service} {...PROPS} />);
     await flush();
-    stdin.write('c'); // All -> first category
+    stdin.write('c');
     await flush();
-    stdin.write('c'); // -> second category
+    let frame = lastFrame()!;
+    expect(frame).toMatch(/category:/i); // picker open, listing choices
+    expect(frame).toContain('All');
+    stdin.write('sca'); // type-ahead narrows the list
     await flush();
-    const frames = [lastFrame()!];
-    const scarabOnly = frames[0]!.includes('Ambush Scarab') && !frames[0]!.includes('Divine Orb');
-    const currencyOnly = frames[0]!.includes('Divine Orb') && !frames[0]!.includes('Ambush Scarab');
-    expect(scarabOnly || currencyOnly).toBe(true); // filtered to exactly one category
-    stdin.write('\u001B[C'); // right arrow: pages, must not change the filter
+    frame = lastFrame()!;
+    expect(frame).toContain('Scarab');
+    expect(frame).not.toContain('› Currency');
+    stdin.write('\r'); // apply
     await flush();
-    expect(lastFrame()!.includes('Ambush Scarab')).toBe(frames[0]!.includes('Ambush Scarab'));
+    frame = lastFrame()!;
+    expect(frame).toContain('Ambush Scarab');
+    expect(frame).not.toContain('Divine Orb');
+    // Esc from a fresh picker cancels without changing the filter.
+    stdin.write('c');
+    await flush();
+    stdin.write('\u001B');
+    await flush();
+    expect(lastFrame()!).toContain('Ambush Scarab');
+  });
+
+  test('arrow keys never change the category filter', async () => {
+    const db = createDb(':memory:');
+    const repo = new SnapshotRepository(db);
+    repo.save(SNAP);
+    repo.save({
+      ...SNAP,
+      category: 'Scarab',
+      lines: [{ ...SNAP.lines[0]!, itemId: 'ambush', name: 'Ambush Scarab', category: 'Scarab' }],
+    });
+    const { lastFrame, stdin } = render(<ExiliumTui service={new ExiliumService(repo)} {...PROPS} />);
+    await flush();
+    const before = lastFrame()!;
+    expect(before).toContain('Divine Orb');
+    expect(before).toContain('Ambush Scarab'); // All categories visible
+    stdin.write('\u001B[C'); // right arrow pages
+    stdin.write('\u001B[D'); // left arrow pages back
+    await flush();
+    const after = lastFrame()!;
+    expect(after).toContain('Divine Orb');
+    expect(after).toContain('Ambush Scarab'); // filter untouched
   });
 
   test('shift+arrow jump also works during sort mode', async () => {

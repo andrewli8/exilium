@@ -10,7 +10,7 @@ import { formatPriceUnits } from '../domain/format-price.js';
 import { renderSparkline } from './sparkline.js';
 
 type View = 'movers' | 'opps' | 'arb' | 'watches';
-type InputMode = 'normal' | 'search' | 'sort';
+type InputMode = 'normal' | 'search' | 'sort' | 'category';
 
 export interface TuiProps {
   readonly service: ExiliumService;
@@ -241,6 +241,8 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
   const [search, setSearch] = useState('');
   const [sortCol, setSortCol] = useState<number | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [catQuery, setCatQuery] = useState('');
+  const [catPick, setCatPick] = useState(0);
 
   useEffect(() => {
     const t = setInterval(() => setTick((n) => n + 1), refreshSec * 1000);
@@ -333,6 +335,25 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
       }
       return;
     }
+    if (inputMode === 'category') {
+      const matches = data.categories.filter((c) => c.toLowerCase().includes(catQuery.toLowerCase()));
+      if (key.escape) { setInputMode('normal'); setCatQuery(''); return; }
+      if (key.return) {
+        const chosen = matches[Math.min(catPick, Math.max(0, matches.length - 1))];
+        if (chosen !== undefined) {
+          setCategoryIdx(data.categories.indexOf(chosen));
+          setSelected(0);
+        }
+        setInputMode('normal');
+        setCatQuery('');
+        return;
+      }
+      if (key.upArrow) { setCatPick((i) => Math.max(0, i - 1)); return; }
+      if (key.downArrow) { setCatPick((i) => Math.min(Math.max(0, matches.length - 1), i + 1)); return; }
+      if (key.backspace || key.delete) { setCatQuery((s) => s.slice(0, -1)); setCatPick(0); return; }
+      if (input !== '' && !key.ctrl && !key.meta) { setCatQuery((s) => s + input); setCatPick(0); }
+      return;
+    }
     if (inputMode === 'sort') {
       if (key.escape || key.return) { setInputMode('normal'); return; }
       // Up/down keep scrolling rows — sorting must never steal navigation.
@@ -353,8 +374,7 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
     if (handleMovement()) return;
     if (key.rightArrow) { moveSelection(VIEWPORT); return; }
     if (key.leftArrow) { moveSelection(-VIEWPORT); return; }
-    if (input === 'c') { setCategoryIdx((n) => n + 1); setSelected(0); }
-    if (input === 'C') { setCategoryIdx((n) => Math.max(0, n - 1)); setSelected(0); }
+    if (input === 'c') { setInputMode('category'); setCatQuery(''); setCatPick(0); return; }
     if (key.return && rowCount > 0) {
       const row = table.rows[clampedSelected];
       const name = row === undefined ? null : table.model.itemName(row);
@@ -383,7 +403,9 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
       ? 'type to filter · ↑↓ scroll matches · ↵ keep · esc clear'
       : inputMode === 'sort'
         ? 'sort: f toggles ▼/▲ · ←→ column · ↑↓ scroll · esc done'
-        : 's search · f sort · ↵ trade link · ↑↓ rows · ←→ page · c category · r refresh · q quit';
+        : inputMode === 'category'
+          ? 'category: type to filter · ↑↓ pick · ↵ apply · esc cancel'
+          : 's search · f sort · ↵ trade link · ↑↓ rows · ←→ page · c category · r refresh · q quit';
 
   const selectedMover = view === 'movers' ? (table.rows[clampedSelected] as DetailedMover | undefined) : undefined;
   const selectedOpp = view === 'opps' ? (table.rows[clampedSelected] as Opportunity | undefined) : undefined;
@@ -393,6 +415,18 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
     <Box flexDirection="column" paddingX={1}>
       <Header game={game} league={league} primary={data.summary.primaryCurrency} asOf={data.summary.asOf} ingesting={ingesting} />
       <Tabs view={view} category={data.category} hint={hint} />
+      {inputMode === 'category' && (
+        <Box flexDirection="column">
+          <Text color={GOLD}>{`category: ${catQuery}▌`}<Text color={DIM}>  (type to filter · ↑↓ pick · ↵ apply · esc cancel)</Text></Text>
+          <Text wrap="truncate">
+            {data.categories
+              .filter((c) => c.toLowerCase().includes(catQuery.toLowerCase()))
+              .slice(0, 12)
+              .map((c, i) => (i === catPick ? `› ${c} ‹` : c))
+              .join('   ')}
+          </Text>
+        </Box>
+      )}
       {(inputMode === 'search' || search !== '') && (
         <Text color={GOLD}>
           {`search: ${search}${inputMode === 'search' ? '▌' : ''}`}

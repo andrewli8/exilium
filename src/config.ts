@@ -43,8 +43,8 @@ export interface ExiliumConfig {
 /** Exchange category type names per game, as poe.ninja's API expects them
  * (PoE1 uses singular names; PoE2 uses plural). */
 const CATEGORIES_BY_GAME: Readonly<Record<Game, readonly string[]>> = {
-  poe1: ['Currency', 'Fragment', 'Scarab', 'Essence', 'Oil', 'Fossil', 'Resonator', 'DeliriumOrb', 'Tattoo', 'Omen', 'DivinationCard', 'Artifact', 'AllflameEmber'],
-  poe2: ['Currency', 'Runes', 'Essences', 'Delirium', 'Ritual', 'Expedition', 'Breach'],
+  poe1: ['Currency', 'Fragment', 'Scarab', 'Essence', 'Oil', 'Fossil', 'Resonator', 'DeliriumOrb', 'Tattoo', 'Omen', 'DivinationCard', 'Artifact', 'AllflameEmber', 'Runegraft'],
+  poe2: ['Currency', 'Runes', 'Essences', 'Delirium', 'Ritual', 'Expedition', 'Breach', 'Fragments', 'SoulCores', 'Abyss', 'Idols', 'UncutGems'],
 };
 
 /** The tool identifies itself to upstream APIs; the repo URL is the contact

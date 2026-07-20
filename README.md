@@ -6,7 +6,7 @@ Exilium ingests live Currency Exchange market data (via poe.ninja), stores it lo
 
 **Exilium never executes trades.** It's decision support — every trade is performed by you, in-game. No automation, no session cookies, no game-file access.
 
-Supports **PoE1 (default)** and **PoE2** (`EXILIUM_GAME=poe2`). Prices are in each game's primary currency: **chaos** for PoE1, **divine** for PoE2.
+Supports **PoE1 (default: 14 exchange categories)** and **PoE2 (12 categories)** via `EXILIUM_GAME=poe2`. Prices are in each game's primary currency: **chaos** for PoE1, **divine** for PoE2.
 
 ## Requirements
 
