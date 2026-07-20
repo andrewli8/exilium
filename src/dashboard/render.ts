@@ -1,4 +1,5 @@
 import { assessFreshness } from '../domain/freshness.js';
+import { formatPriceUnits } from '../domain/format-price.js';
 import { renderPriceChart } from './chart.js';
 import type { PricePoint } from '../storage/snapshot-repository.js';
 import type { WatchEvent } from '../storage/watch-repository.js';
@@ -9,10 +10,22 @@ function esc(s: string): string {
   return s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 }
 
-function moverRows(movers: readonly MoverSummary[]): string {
+const CURRENCY_ICONS: Readonly<Record<string, string>> = {
+  c: 'https://web.poecdn.com/image/Art/2DItems/Currency/CurrencyRerollRare.png',
+  div: 'https://web.poecdn.com/image/Art/2DItems/Currency/CurrencyModValues.png',
+};
+
+function priceCell(valueInPrimary: number, summary: MarketSummary): string {
+  const { text, unit } = formatPriceUnits(valueInPrimary, summary.primaryCurrency, summary.divinePerPrimary);
+  const icon = CURRENCY_ICONS[unit];
+  const img = icon === undefined ? esc(unit) : `<img src="${icon}" alt="${esc(unit)}" width="22" height="22" style="vertical-align:middle" loading="lazy">`;
+  return `<td style="white-space:nowrap">${esc(text)} ${img}</td>`;
+}
+
+function moverRows(movers: readonly MoverSummary[], summary: MarketSummary): string {
   return movers
     .map(
-      (m) => `<tr><td>${esc(m.name)}</td><td>${esc(m.category)}</td><td>${m.primaryValue.toPrecision(4)}</td><td>${m.totalChange.toFixed(1)}%</td><td>${Math.round(m.volumePrimaryValue).toLocaleString('en-US')}</td></tr>`,
+      (m) => `<tr><td>${esc(m.name)}</td><td>${esc(m.category)}</td>${priceCell(m.primaryValue, summary)}<td>${m.totalChange.toFixed(1)}%</td><td>${Math.round(m.volumePrimaryValue).toLocaleString('en-US')}</td></tr>`,
     )
     .join('');
 }
@@ -85,8 +98,8 @@ ${charts.length === 0 ? '' : `<h2>Price History <small>(local snapshots, in ${es
 ${charts.map((c) => `<div><div style="font-size:.8rem;color:#8b949e;margin-bottom:.2rem">${esc(c.name)}</div>${renderPriceChart(c.points, { width: 300, height: 80 })}</div>`).join('')}
 </div>`}
 <h2>Top Movers</h2>
-<table><tr><th>Item</th><th>Category</th><th>Price</th><th>Change</th><th>Volume</th></tr>${moverRows(summary.topMovers)}</table>
+<table><tr><th>Item</th><th>Category</th><th>Price</th><th>Change</th><th>Volume</th></tr>${moverRows(summary.topMovers, summary)}</table>
 <h2>Top Volume</h2>
-<table><tr><th>Item</th><th>Category</th><th>Price</th><th>Change</th><th>Volume</th></tr>${moverRows(summary.topVolume)}</table>
+<table><tr><th>Item</th><th>Category</th><th>Price</th><th>Change</th><th>Volume</th></tr>${moverRows(summary.topVolume, summary)}</table>
 </body></html>`;
 }

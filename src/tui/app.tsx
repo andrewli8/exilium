@@ -6,6 +6,7 @@ import type { ArbRow, DetailedMover, ExiliumService } from '../mcp/service.js';
 import type { WatchEvent } from '../storage/watch-repository.js';
 import { draftTradePlan } from '../signals/trade-plan.js';
 import { buildTradeSearchUrl } from '../trade/trade-url.js';
+import { formatPriceUnits } from '../domain/format-price.js';
 import { renderSparkline } from './sparkline.js';
 
 type View = 'movers' | 'opps' | 'arb' | 'watches';
@@ -46,7 +47,17 @@ interface TableModel<T> {
 const fmtChange24 = (m: DetailedMover): string =>
   m.change24h === null ? `7d ${m.totalChange.toFixed(1)}%` : `${m.change24h.toFixed(1)}%`;
 
-const MOVERS_MODEL: TableModel<DetailedMover> = {
+interface PriceCtx {
+  readonly primaryCurrency: string;
+  readonly divinePerPrimary: number | null;
+}
+
+const fmtPrice = (v: number, ctx: PriceCtx): string => {
+  const { text, unit } = formatPriceUnits(v, ctx.primaryCurrency, ctx.divinePerPrimary);
+  return `${text} ${unit}`;
+};
+
+const buildMoversModel = (ctx: PriceCtx): TableModel<DetailedMover> => ({
   columns: [
     { label: 'ITEM', width: 32, sortValue: (m) => m.name.toLowerCase() },
     { label: 'CATEGORY', width: 14, sortValue: (m) => m.category },
@@ -58,14 +69,14 @@ const MOVERS_MODEL: TableModel<DetailedMover> = {
   cells: (m) => [
     m.name,
     m.category,
-    m.primaryValue.toPrecision(4),
+    fmtPrice(m.primaryValue, ctx),
     fmtChange24(m),
     `${m.totalChange.toFixed(1)}%`,
     Math.round(m.volumePrimaryValue).toLocaleString('en-US'),
   ],
   searchText: (m) => `${m.name} ${m.category}`,
   itemName: (m) => m.name,
-};
+});
 
 const OPPS_MODEL: TableModel<Opportunity> = {
   columns: [
@@ -86,7 +97,7 @@ const OPPS_MODEL: TableModel<Opportunity> = {
   itemName: (o) => o.itemName,
 };
 
-const ARB_MODEL: TableModel<ArbRow> = {
+const buildArbModel = (ctx: PriceCtx): TableModel<ArbRow> => ({
   columns: [
     { label: 'ITEM', width: 28, sortValue: (r) => r.itemName.toLowerCase() },
     { label: 'CATEGORY', width: 12, sortValue: (r) => r.category },
@@ -99,15 +110,15 @@ const ARB_MODEL: TableModel<ArbRow> = {
   cells: (r) => [
     r.itemName,
     r.category,
-    r.listed.toPrecision(4),
-    r.implied.toPrecision(4),
+    fmtPrice(r.listed, ctx),
+    fmtPrice(r.implied, ctx),
     r.quoteCurrency,
     `${r.divergencePct.toFixed(1)}%`,
     Math.round(r.volumePrimaryValue).toLocaleString('en-US'),
   ],
   searchText: (r) => `${r.itemName} ${r.category}`,
   itemName: (r) => r.itemName,
-};
+});
 
 const WATCH_MODEL: TableModel<WatchEvent> = {
   columns: [
@@ -265,13 +276,21 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
   }, [service, game, league, tick, ingesting, categoryIdx]);
 
   const table = useMemo(() => {
+    const ctx: PriceCtx = {
+      primaryCurrency: data.summary.primaryCurrency,
+      divinePerPrimary: data.summary.divinePerPrimary,
+    };
     switch (view) {
-      case 'movers':
-        return { model: MOVERS_MODEL as TableModel<unknown>, rows: applySearchAndSort(data.movers, MOVERS_MODEL, search, sortCol, sortDir) as readonly unknown[] };
+      case 'movers': {
+        const model = buildMoversModel(ctx);
+        return { model: model as TableModel<unknown>, rows: applySearchAndSort(data.movers, model, search, sortCol, sortDir) as readonly unknown[] };
+      }
       case 'opps':
         return { model: OPPS_MODEL as TableModel<unknown>, rows: applySearchAndSort(data.opps, OPPS_MODEL, search, sortCol, sortDir) as readonly unknown[] };
-      case 'arb':
-        return { model: ARB_MODEL as TableModel<unknown>, rows: applySearchAndSort(data.arb, ARB_MODEL, search, sortCol, sortDir) as readonly unknown[] };
+      case 'arb': {
+        const model = buildArbModel(ctx);
+        return { model: model as TableModel<unknown>, rows: applySearchAndSort(data.arb, model, search, sortCol, sortDir) as readonly unknown[] };
+      }
       case 'watches':
         return { model: WATCH_MODEL as TableModel<unknown>, rows: applySearchAndSort(data.watchEvents, WATCH_MODEL, search, sortCol, sortDir) as readonly unknown[] };
     }
@@ -303,8 +322,10 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
       if (key.escape || key.return) { setInputMode('normal'); return; }
       if (input === 'f' || key.rightArrow) { setSortCol((c) => ((c ?? -1) + 1) % table.model.columns.length); return; }
       if (key.leftArrow) { setSortCol((c) => ((c ?? 0) - 1 + table.model.columns.length) % table.model.columns.length); return; }
-      if (key.upArrow) { setSortDir('asc'); setSortCol((c) => c ?? 0); return; }
-      if (key.downArrow) { setSortDir('desc'); setSortCol((c) => c ?? 0); return; }
+      // Picking a direction finishes the job — arrows go straight back to
+      // row navigation instead of trapping the user in the mode.
+      if (key.upArrow) { setSortDir('asc'); setSortCol((c) => c ?? 0); setInputMode('normal'); return; }
+      if (key.downArrow) { setSortDir('desc'); setSortCol((c) => c ?? 0); setInputMode('normal'); return; }
       return;
     }
     if (input === 'q' || (key.ctrl && input === 'c')) exit();
@@ -316,10 +337,10 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
     if (input === 'f') { setInputMode('sort'); setSortCol((c) => c ?? 0); return; }
     if (key.downArrow) setSelected((s) => Math.min(rowCount - 1, s + 1));
     if (key.upArrow) setSelected((s) => Math.max(0, s - 1));
-    if (key.pageDown) setSelected((s) => Math.min(rowCount - 1, s + VIEWPORT));
-    if (key.pageUp) setSelected((s) => Math.max(0, s - VIEWPORT));
-    if (key.rightArrow) { setCategoryIdx((c) => c + 1); setSelected(0); }
-    if (key.leftArrow) { setCategoryIdx((c) => Math.max(0, c - 1)); setSelected(0); }
+    if (key.pageDown || key.rightArrow) setSelected((s) => Math.min(rowCount - 1, s + VIEWPORT));
+    if (key.pageUp || key.leftArrow) setSelected((s) => Math.max(0, s - VIEWPORT));
+    if (input === 'c') { setCategoryIdx((n) => n + 1); setSelected(0); }
+    if (input === 'C') { setCategoryIdx((n) => Math.max(0, n - 1)); setSelected(0); }
     if (key.return && rowCount > 0) {
       const row = table.rows[clampedSelected];
       const name = row === undefined ? null : table.model.itemName(row);
@@ -348,7 +369,7 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
       ? 'type to filter · ↵ keep · esc clear'
       : inputMode === 'sort'
         ? 'sort: f/←→ column · ↑ asc ↓ desc · esc done'
-        : 's search · f sort · ↵ trade link · ↑↓ rows · ←→ category · r refresh · q quit';
+        : 's search · f sort · ↵ trade link · ↑↓ rows · ←→ page · c category · r refresh · q quit';
 
   const selectedMover = view === 'movers' ? (table.rows[clampedSelected] as DetailedMover | undefined) : undefined;
   const selectedOpp = view === 'opps' ? (table.rows[clampedSelected] as Opportunity | undefined) : undefined;

@@ -56,6 +56,7 @@ describe('cli formatters', () => {
     const summary: MarketSummary = {
       game: 'poe1',
       primaryCurrency: 'chaos',
+      divinePerPrimary: null,
       league: 'Mirage',
       asOf: '2026-07-18T18:00:00Z',
       categories: 13,

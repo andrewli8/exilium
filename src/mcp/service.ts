@@ -49,6 +49,8 @@ export type ItemSort = 'value' | 'volume' | 'change';
 export interface MarketSummary {
   readonly game: Game;
   readonly primaryCurrency: string;
+  /** Divines per one primary unit (null when the rate is unknown). */
+  readonly divinePerPrimary: number | null;
   readonly league: string;
   readonly asOf: string | null;
   readonly categories: number;
@@ -331,6 +333,8 @@ export class ExiliumService {
     return {
       game,
       primaryCurrency: snaps[0]?.core.primary ?? 'chaos',
+      divinePerPrimary:
+        snaps[0]?.core.primary === 'divine' ? 1 : snaps[0]?.core.perPrimary['divine'] ?? null,
       league,
       asOf: snaps[0]?.fetchedAt ?? null,
       categories: snaps.length,

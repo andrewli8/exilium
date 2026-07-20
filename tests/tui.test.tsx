@@ -164,6 +164,54 @@ describe('ExiliumTui', () => {
     expect(lastFrame()!).toMatch(/h ago|m ago|just now/);
   });
 
+  test('c cycles the category filter; arrow keys never leave navigation', async () => {
+    // Two categories: cycling to the second must filter rows to it, and the
+    // right arrow must NOT change the category (it pages instead).
+    const db = createDb(':memory:');
+    const repo = new SnapshotRepository(db);
+    repo.save(SNAP); // Currency: Divine Orb, Crashed Orb
+    repo.save({
+      ...SNAP,
+      category: 'Scarab',
+      lines: [{ ...SNAP.lines[0]!, itemId: 'ambush', name: 'Ambush Scarab', category: 'Scarab' }],
+    });
+    const service = new ExiliumService(repo);
+    const { lastFrame, stdin } = render(<ExiliumTui service={service} {...PROPS} />);
+    await flush();
+    stdin.write('c'); // All -> first category
+    await flush();
+    stdin.write('c'); // -> second category
+    await flush();
+    const frames = [lastFrame()!];
+    const scarabOnly = frames[0]!.includes('Ambush Scarab') && !frames[0]!.includes('Divine Orb');
+    const currencyOnly = frames[0]!.includes('Divine Orb') && !frames[0]!.includes('Ambush Scarab');
+    expect(scarabOnly || currencyOnly).toBe(true); // filtered to exactly one category
+    stdin.write('\u001B[C'); // right arrow: pages, must not change the filter
+    await flush();
+    expect(lastFrame()!.includes('Ambush Scarab')).toBe(frames[0]!.includes('Ambush Scarab'));
+  });
+
+  test('choosing a sort direction returns arrows to row navigation immediately', async () => {
+    const { lastFrame, stdin } = render(<ExiliumTui service={makeService()} {...PROPS} />);
+    await flush();
+    stdin.write('f');
+    await flush();
+    stdin.write('\u001B[B'); // pick descending — and exit sort mode
+    await flush();
+    const frame = lastFrame()!;
+    expect(frame).toContain('▼');
+    expect(frame).not.toMatch(/sort: f\/←→/); // hint back to normal mode
+    stdin.write('\u001B[B'); // this must now move the selection
+    await flush();
+    expect(lastFrame()!).toMatch(/row 2 of/);
+  });
+
+  test('large chaos prices display in divines with a unit tag', () => {
+    const { lastFrame } = render(<ExiliumTui service={makeService()} {...PROPS} />);
+    // Divine Orb at 720c with divine rate 0.0014 ≈ 1.01 div → shown as div.
+    expect(lastFrame()!).toMatch(/1\.01\s*div/);
+  });
+
   test('shows a 24H change column in the movers view', () => {
     const { lastFrame } = render(<ExiliumTui service={makeService()} {...PROPS} />);
     expect(lastFrame()!).toContain('24H');
@@ -185,16 +233,18 @@ describe('ExiliumTui', () => {
     expect(lastFrame()!).toContain('Divine Orb');
   });
 
-  test('f enters sort mode; arrows pick direction and column', async () => {
+  test('f enters sort mode; a direction choice applies and exits', async () => {
     const { lastFrame, stdin } = render(<ExiliumTui service={makeService()} {...PROPS} />);
     await flush();
     stdin.write('f');
     await flush();
     expect(lastFrame()!).toMatch(/sort/i);
-    stdin.write('\u001B[B'); // desc on the first column
+    stdin.write('\u001B[B'); // desc — applies and exits sort mode
     await flush();
     expect(lastFrame()!).toContain('▼');
-    stdin.write('\u001B[A'); // asc
+    stdin.write('f');
+    await flush();
+    stdin.write('\u001B[A'); // asc on the same column
     await flush();
     expect(lastFrame()!).toContain('▲');
   });

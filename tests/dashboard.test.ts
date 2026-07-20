@@ -5,6 +5,7 @@ import type { MarketSummary, OpportunitiesResult } from '../src/mcp/service.js';
 const SUMMARY: MarketSummary = {
   game: 'poe2',
   primaryCurrency: 'divine',
+  divinePerPrimary: 1,
   league: 'Runes of Aldur',
   asOf: '2026-07-18T18:00:00Z',
   categories: 2,
@@ -75,6 +76,24 @@ describe('renderDashboard', () => {
     expect(html).toContain('polyline');
   });
 
+  test('shows currency icons and divine conversion for large chaos prices', () => {
+    const summary: MarketSummary = {
+      ...SUMMARY,
+      game: 'poe1',
+      primaryCurrency: 'chaos',
+      divinePerPrimary: 1 / 720,
+      topMovers: [
+        { itemId: 'big', name: 'Mageblood', category: 'Currency', primaryValue: 144000, totalChange: 1, volumePrimaryValue: 5000 },
+        { itemId: 'small', name: 'Fusing', category: 'Currency', primaryValue: 2, totalChange: 1, volumePrimaryValue: 5000 },
+      ],
+    };
+    const html = renderDashboard(summary, OPPS, { nowMs: Date.parse('2026-07-18T18:04:00Z'), reloadSec: 30 });
+    expect(html).toContain('alt="div"');
+    expect(html).toContain('alt="c"');
+    expect(html).toContain('200'); // 144000c / 720 = 200 div
+    expect(html).toContain('poecdn.com');
+  });
+
   test('renders a watch-events section when events are provided', () => {
     const html = renderDashboard(SUMMARY, OPPS, { nowMs: Date.parse('2026-07-18T18:04:00Z'), reloadSec: 30 }, [], [
       {
@@ -93,7 +112,7 @@ describe('renderDashboard', () => {
 
   test('shows an empty-state message when there is no data', () => {
     const html = renderDashboard(
-      { game: 'poe1', primaryCurrency: 'chaos', league: 'X', asOf: null, categories: 0, topMovers: [], topVolume: [] },
+      { game: 'poe1', primaryCurrency: 'chaos', divinePerPrimary: null, league: 'X', asOf: null, categories: 0, topMovers: [], topVolume: [] },
       { league: 'X', opportunities: [] },
     );
     expect(html).toMatch(/no data ingested/i);
