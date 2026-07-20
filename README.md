@@ -31,7 +31,7 @@ exilium              # the terminal UI — ingests on first boot and stays live 
 exilium help         # every command
 ```
 
-`setup` writes `~/.exilium/config.json` (secrets stored with 600 permissions; env vars always override), so `stash` and `live` work without retyping cookies. Data lives in `~/.exilium/exilium.db` regardless of where you run commands.
+`setup` writes `~/.exilium/config.json` (secrets stored with 600 permissions; env vars always override), so `stash` and `live` work without retyping cookies. Both credential questions are skippable — every other command works with no account at all. Account names include the #tag (e.g. `CoolExile#1234`). Data lives in `~/.exilium/exilium.db` regardless of where you run commands.
 
 *(Not yet on the npm registry — `npm install -g exilium` will work once published; until then `npm link` gives the identical experience.)*
 
@@ -70,7 +70,7 @@ After `npm install`, run via `npx exilium <command>` (or `npm run <command>` for
 | `exilium watch` | Notification loop (below) |
 | `exilium watches [add\|rm\|events]` | Manage persistent watches (the same ones agents create via MCP) |
 | `exilium live <trade-url>` | Monitor pathofexile.com live searches; whispers auto-copied to clipboard ([walkthrough](examples/05-live-search.md)) |
-| `exilium stash --account NAME` | Value your own stash, track net worth, and see the trade-check delta since last snapshot |
+| `exilium stash --account "Name#1234"` | Value your own stash, track net worth, and see the trade-check delta since last snapshot |
 | `exilium journal [add]` | Record and review trade outcomes; prints your fill rate |
 | `exilium backtest [--horizon N]` | Replay stored history: signal-onset hit rate vs an all-items baseline, wall-clock horizons |
 | `exilium sellsheet --file counts.txt [--discount N]` | Price your dump tab and get a paste-ready bulk WTS message |

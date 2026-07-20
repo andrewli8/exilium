@@ -17,6 +17,14 @@ describe('buildStashUrl', () => {
   });
 });
 
+describe('buildStashUrl with discriminator tags', () => {
+  test('encodes Name#1234 account names correctly', () => {
+    const url = buildStashUrl('CoolExile#1234', 'Mirage', 0);
+    expect(url).toContain('accountName=CoolExile%231234');
+    expect(url).not.toContain('#');
+  });
+});
+
 describe('fetchAllStashItems', () => {
   test('walks every tab and aggregates stackable items', async () => {
     const tab = (items: unknown[]) => new Response(JSON.stringify({ numTabs: 2, items }), { status: 200 });

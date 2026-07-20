@@ -526,7 +526,7 @@ async function cmdStash(): Promise<void> {
   const sessionId = config.poesessid;
   if (account === undefined || sessionId === undefined || sessionId === '') {
     throw new Error(
-      'Stash reading needs your account name and session cookie. Easiest: run `exilium setup` once. Or per-run:\n  EXILIUM_POESESSID=<cookie> exilium stash --account "Your Account Name"\nThe cookie stays on this machine and goes only to pathofexile.com — same trust model as `exilium live`.',
+      'Stash reading needs your account name (including the #tag, e.g. CoolExile#1234) and session cookie. Easiest: run `exilium setup` once. Or per-run:\n  EXILIUM_POESESSID=<cookie> exilium stash --account "CoolExile#1234"\nThe cookie stays on this machine and goes only to pathofexile.com — same trust model as `exilium live`.',
     );
   }
   const league = storedLeague();
@@ -680,14 +680,19 @@ async function cmdSetup(): Promise<void> {
       return a === '' ? fallback : a;
     };
   }
-  console.log('Exilium setup — three questions, then a first data pull.\n');
+  console.log('Exilium setup — a couple of questions, then a first data pull.');
+  console.log('Everything except `stash` and `live` needs NO account or cookie — skip both questions freely.\n');
   const game = (await ask('Game — poe1 or poe2? [poe1] ', 'poe1')) === 'poe2' ? 'poe2' : 'poe1';
-  const account = await ask('PoE account name for stash valuation (Enter to skip): ', '');
+  const account = await ask('PoE account name incl. tag, e.g. CoolExile#1234 (Enter to skip): ', '');
+  if (account !== '' && !account.includes('#')) {
+    console.log(`  Note: modern PoE account names include a #tag (like "${account}#1234") — check your profile page if stash reads fail.`);
+  }
   let poesessid = '';
   if (account !== '') {
-    console.log('\nFor stash and live-search, Exilium can store your POESESSID cookie in ~/.exilium/config.json (chmod 600).');
-    console.log('It stays on this machine and is sent only to pathofexile.com. Treat it like a password.');
-    poesessid = await ask('POESESSID (Enter to skip and use env vars instead): ', '');
+    console.log('\nOptional: your POESESSID cookie enables `stash` and `live`. Stored in ~/.exilium/config.json (chmod 600),');
+    console.log('it stays on this machine and is sent only to pathofexile.com. Treat it like a password — or skip and');
+    console.log('pass EXILIUM_POESESSID per-run only when you use those two commands.');
+    poesessid = await ask('POESESSID (Enter to skip): ', '');
   }
   cleanup();
 

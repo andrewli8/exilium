@@ -50,7 +50,7 @@ export async function fetchAllStashItems(
     });
     if (res.status === 401 || res.status === 403) {
       throw new Error(
-        'pathofexile.com refused the stash request — your POESESSID is missing/expired, or the account name is wrong. Reading your own stash needs your own session cookie (EXILIUM_POESESSID) and exact account name; check both. If this is not your account, its profile would also need to be public.',
+        'pathofexile.com refused the stash request — your POESESSID is missing/expired, or the account name is wrong. Use the full name including the #tag (e.g. CoolExile#1234, shown on your pathofexile.com profile). Reading your own stash needs your own session cookie; check both.',
       );
     }
     if (res.status === 429) {
