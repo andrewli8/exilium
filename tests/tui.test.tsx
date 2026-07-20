@@ -27,6 +27,17 @@ const SNAP: MarketSnapshot = {
       totalChange: 3,
     },
     {
+      itemId: 'mirror',
+      name: 'Mirror of Kalandra',
+      category: 'Currency',
+      primaryValue: 1000000,
+      volumePrimaryValue: 500,
+      maxVolumeCurrency: null,
+      maxVolumeRate: null,
+      sparkline: [1, 2, 1, 2, 1, 2, 1],
+      totalChange: 2,
+    },
+    {
       itemId: 'crashed',
       name: 'Crashed Orb',
       category: 'Currency',
@@ -361,53 +372,79 @@ describe('ExiliumTui', () => {
     expect(decodeURIComponent(opened[0]!)).toContain('"type"');
   });
 
-  test('w opens a prefilled watch builder; Enter creates a price watch', async () => {
+  test('w on a high-value item denominates the threshold in divines', async () => {
     const service = makeService();
     const { lastFrame, stdin } = render(<ExiliumTui service={service} {...PROPS} />);
     await flush();
-    // Select Divine Orb (search to pin it deterministically).
     stdin.write('s');
     await flush();
-    stdin.write('Divine');
+    stdin.write('Mirror');
     await flush();
     stdin.write('\r'); // keep filter, back to normal mode
     await flush();
     stdin.write('w');
     await flush();
     const frame = lastFrame()!;
-    expect(frame).toMatch(/watch.*Divine Orb/i);
-    expect(frame).toMatch(/756/); // prefilled at +5% of 720
-    stdin.write('\r'); // accept the prefill
+    expect(frame).toMatch(/watch.*Mirror of Kalandra/i);
+    // 1,000,000c × 0.0014 = 1400 div; prefill +5% ≈ 1470 div, shown as div.
+    expect(frame).toMatch(/1470/);
+    expect(frame).toMatch(/div/);
+    // Retype a clean divine target.
+    for (let i = 0; i < 12; i++) stdin.write('\u007F');
+    await flush();
+    stdin.write('1500'); // 1500 div
+    await flush();
+    stdin.write('\r');
     await flush();
     const watches = service.listWatches().filter((w) => w.id.startsWith('tui:'));
     expect(watches).toHaveLength(1);
-    expect(watches[0]).toMatchObject({ itemId: 'divine', kind: 'price_above' });
-    expect(watches[0]!.threshold).toBeCloseTo(756);
+    expect(watches[0]).toMatchObject({ itemId: 'mirror', kind: 'price_above' });
+    // Stored threshold is in chaos: 1500 div / 0.0014 ≈ 1,071,428c.
+    expect(watches[0]!.threshold).toBeCloseTo(1500 / 0.0014, 0);
     expect(lastFrame()!).toMatch(/watch created/i);
   });
 
-  test('typing a threshold below the current price infers a drop watch', async () => {
+  test('d/c toggle the watch unit, converting the value', async () => {
     const service = makeService();
-    const { stdin } = render(<ExiliumTui service={service} {...PROPS} />);
+    const { lastFrame, stdin } = render(<ExiliumTui service={service} {...PROPS} />);
     await flush();
     stdin.write('s');
     await flush();
-    stdin.write('Divine');
+    stdin.write('Mirror');
     await flush();
     stdin.write('\r');
     await flush();
     stdin.write('w');
     await flush();
-    // Clear the prefill and type a lower threshold.
+    expect(lastFrame()!).toMatch(/div/); // starts in divines
+    stdin.write('c'); // toggle to chaos — value converts to the chaos equivalent
+    await flush();
+    const frame = lastFrame()!;
+    expect(frame).toMatch(/chaos|1,0\d\d,\d\d\d|105000000/i);
+    expect(frame).not.toMatch(/1470 div/);
+  });
+
+  test('a cheap item stays in chaos and infers a drop watch below current', async () => {
+    const service = makeService();
+    const { stdin } = render(<ExiliumTui service={service} {...PROPS} />);
+    await flush();
+    stdin.write('s');
+    await flush();
+    stdin.write('Crashed'); // 10c, well under 1 div → chaos units
+    await flush();
+    stdin.write('\r');
+    await flush();
+    stdin.write('w');
+    await flush();
     for (let i = 0; i < 10; i++) stdin.write('\u007F');
     await flush();
-    stdin.write('650');
+    stdin.write('8'); // 8 chaos, below the 10c current
     await flush();
     stdin.write('\r');
     await flush();
     const watches = service.listWatches().filter((w) => w.id.startsWith('tui:'));
     expect(watches).toHaveLength(1);
-    expect(watches[0]).toMatchObject({ itemId: 'divine', kind: 'price_below', threshold: 650 });
+    expect(watches[0]).toMatchObject({ itemId: 'crashed', kind: 'price_below', threshold: 8 });
   });
 
   test('w on the opportunities pane creates an edge watch; esc cancels cleanly', async () => {

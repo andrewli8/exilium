@@ -259,6 +259,7 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
   const [catPick, setCatPick] = useState(0);
   const [watchTarget, setWatchTarget] = useState<WatchTarget | null>(null);
   const [watchInput, setWatchInput] = useState('');
+  const [watchUnit, setWatchUnit] = useState<'primary' | 'divine'>('primary');
   const [statusMsg, setStatusMsg] = useState('');
 
   useEffect(() => {
@@ -355,7 +356,10 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
     if (inputMode === 'watch') {
       if (key.escape) { setInputMode('normal'); setWatchTarget(null); return; }
       if (key.return) {
-        const threshold = Number(watchInput);
+        const entered = Number(watchInput);
+        const dpp = data.summary.divinePerPrimary;
+        // Stored threshold is always in the primary currency (chaos on poe1).
+        const threshold = watchUnit === 'divine' && dpp !== null && dpp > 0 ? entered / dpp : entered;
         if (watchTarget === null || Number.isNaN(threshold) || threshold <= 0) {
           setStatusMsg('watch not created — threshold must be a positive number');
           setInputMode('normal');
@@ -393,6 +397,17 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
       if (key.backspace || key.delete) { setWatchInput((s) => s.slice(0, -1)); return; }
       if (key.upArrow) { setWatchInput((s) => String(Math.round((Number(s) || 0) * 1.01 * 100) / 100)); return; }
       if (key.downArrow) { setWatchInput((s) => String(Math.round((Number(s) || 0) * 0.99 * 100) / 100)); return; }
+      const dpp2 = data.summary.divinePerPrimary;
+      if ((input === 'd' || input === 'D') && dpp2 !== null && watchUnit !== 'divine') {
+        setWatchInput((s) => String(Math.round((Number(s) || 0) * dpp2 * 100) / 100));
+        setWatchUnit('divine');
+        return;
+      }
+      if ((input === 'c' || input === 'C') && dpp2 !== null && dpp2 > 0 && watchUnit !== 'primary') {
+        setWatchInput((s) => String(Math.round((Number(s) || 0) / dpp2)));
+        setWatchUnit('primary');
+        return;
+      }
       if (/^[0-9.]+$/.test(input)) setWatchInput((s) => s + input);
       return;
     }
@@ -441,8 +456,14 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
       const target = row === undefined ? null : table.model.watchTarget(row);
       if (target !== null) {
         setWatchTarget(target);
-        // Prefill: +5% for price watches, current edge for opportunity watches.
-        setWatchInput(String(Math.round((target.kind === 'price' ? target.reference * 1.05 : target.reference) * 100) / 100));
+        const dpp = data.summary.divinePerPrimary;
+        // Denominate in divines when the item trades above 1 divine — nobody
+        // knows a Mirror's chaos price, but they know its divine target.
+        const useDiv = target.kind === 'price' && dpp !== null && target.reference * dpp >= 1;
+        setWatchUnit(useDiv ? 'divine' : 'primary');
+        const prefillPrimary = target.kind === 'price' ? target.reference * 1.05 : target.reference;
+        const prefill = useDiv && dpp !== null ? prefillPrimary * dpp : prefillPrimary;
+        setWatchInput(String(Math.round(prefill * 100) / 100));
         setStatusMsg('');
         setInputMode('watch');
       }
@@ -490,22 +511,38 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
     <Box flexDirection="column" paddingX={1}>
       <Header game={game} league={league} primary={data.summary.primaryCurrency} asOf={data.summary.asOf} ingesting={ingesting} />
       <Tabs view={view} category={data.category} hint={hint} />
-      {inputMode === 'watch' && watchTarget !== null && (
-        <Box flexDirection="column" borderStyle="round" borderColor={GOLD} paddingX={1}>
-          <Text color={GOLD} bold>{`watch: ${watchTarget.name}`}</Text>
-          {watchTarget.kind === 'price' ? (
-            <Text>
-              {`current ${watchTarget.reference.toPrecision(4)} · threshold: ${watchInput}▌  → `}
-              <Text color={Number(watchInput) >= watchTarget.reference ? 'green' : 'red'} bold>
-                {Number(watchInput) >= watchTarget.reference ? `alert when price ≥ ${watchInput}` : `alert when price ≤ ${watchInput}`}
+      {inputMode === 'watch' && watchTarget !== null && (() => {
+        const dpp = data.summary.divinePerPrimary;
+        const unitLabel = watchUnit === 'divine' ? 'div' : data.summary.primaryCurrency;
+        // Compare like-for-like: convert both to primary.
+        const enteredPrimary = watchUnit === 'divine' && dpp !== null && dpp > 0 ? (Number(watchInput) || 0) / dpp : Number(watchInput) || 0;
+        const refInUnit = watchUnit === 'divine' && dpp !== null ? watchTarget.reference * dpp : watchTarget.reference;
+        const other =
+          watchTarget.kind !== 'price' || dpp === null || dpp <= 0
+            ? null
+            : watchUnit === 'divine'
+              ? `≈ ${Math.round((Number(watchInput) || 0) / dpp).toLocaleString('en-US')} ${data.summary.primaryCurrency}`
+              : `≈ ${((Number(watchInput) || 0) * dpp).toPrecision(3)} div`;
+        return (
+          <Box flexDirection="column" borderStyle="round" borderColor={GOLD} paddingX={1}>
+            <Text color={GOLD} bold>{`watch: ${watchTarget.name}`}</Text>
+            {watchTarget.kind === 'price' ? (
+              <Text>
+                {`current ${refInUnit.toPrecision(4)} ${unitLabel} · threshold: ${watchInput} ${unitLabel}▌ ${other ?? ''}  → `}
+                <Text color={enteredPrimary >= watchTarget.reference ? 'green' : 'red'} bold>
+                  {enteredPrimary >= watchTarget.reference ? 'alert on rise' : 'alert on drop'}
+                </Text>
               </Text>
+            ) : (
+              <Text>{`current edge ${watchTarget.reference.toFixed(1)}% · alert at edge ≥ ${watchInput}▌ %`}</Text>
+            )}
+            <Text color={DIM}>
+              {watchTarget.kind === 'price' && dpp !== null ? 'd/c switch div↔chaos · ' : ''}
+              type numbers · ↑↓ nudge ±1% · ↵ create · esc cancel — fires once, in pane 4 &amp; `exilium watches`
             </Text>
-          ) : (
-            <Text>{`current edge ${watchTarget.reference.toFixed(1)}% · alert at edge ≥ ${watchInput}▌ %`}</Text>
-          )}
-          <Text color={DIM}>type numbers · ↑↓ nudge ±1% · ↵ create · esc cancel — fires once, visible in pane 4 and `exilium watches`</Text>
-        </Box>
-      )}
+          </Box>
+        );
+      })()}
       {inputMode === 'category' && (() => {
         const CAT_VIEW = 10;
         const matches = data.categories.filter((c) => c.toLowerCase().includes(catQuery.toLowerCase()));
