@@ -31,6 +31,8 @@ const RAW = {
       sparkLine: { data: [1, 2], totalChange: 2 },
     },
     { id: 3, detailsId: 'zero-item', name: 'Zero', chaosValue: 0, listingCount: 5, sparkLine: { data: [], totalChange: 0 } },
+    { id: 4, detailsId: 'greater-multistrike-1-23c', name: 'Greater Multistrike Support', chaosValue: 5, listingCount: 9, gemLevel: 1, gemQuality: 23, corrupted: true, variant: '1/23c', sparkLine: { data: [1], totalChange: 0 } },
+    { id: 5, detailsId: 'awakened-empower-5c', name: 'Awakened Empower Support', chaosValue: 90000, listingCount: 2, gemLevel: 5, corrupted: true, variant: '5c', sparkLine: { data: [1], totalChange: 0 } },
   ],
 };
 
@@ -50,6 +52,13 @@ describe('normalizeItemOverview', () => {
     expect(first.volumePrimaryValue).toBe(207900 * 3);
     const tabula = snap.lines[1]!;
     expect(tabula.name).toBe('Tabula Rasa (6L)');
+  });
+
+  test('renders gem level/quality/corruption readably instead of the raw variant code', () => {
+    const snap = normalizeItemOverview(RAW, CTX);
+    const byId = new Map(snap.lines.map((l) => [l.itemId, l.name]));
+    expect(byId.get('greater-multistrike-1-23c')).toBe('Greater Multistrike Support (lvl 1, 23q, corrupt)');
+    expect(byId.get('awakened-empower-5c')).toBe('Awakened Empower Support (lvl 5, corrupt)');
   });
 
   test('drops zero-priced lines and rejects malformed payloads', () => {

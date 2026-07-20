@@ -36,6 +36,8 @@ Working backlog for the looptight loop. Each task carries evidence from the repo
 
 - Full poe.ninja coverage: discovered the stash/item-overview API via site traffic; PoE1 now ingests 39 categories (~35K markets): 16 exchange (incl. previously missing DjinnCoin, Astrolabe) + 23 listing types with hourly cadence for heavy sweeps. Unresolved: Memory/Temple sidebar pages match no probed type name; PoE2 exposes no item-overview endpoint.
 
+- Prices never use scientific notation (formatNumber routes every price display). Token-AND search (each query word matches independently) so "empower 4" finds a gem across the name/variant boundary. Gem variants render readably: "(lvl 1, 23q, corrupt)" instead of "(1/23c)".
+
 Small follow-ups from approval conditions: TUI `r` within the 240s shared gate silently no-ops — surface "fetched Xs ago, skipped" in the TUI header.
 
 ## Review-response round (2026-07-19), completed

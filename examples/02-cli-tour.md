@@ -158,7 +158,7 @@ A local web page on port 4321. It ingests on boot, refetches every five minutes,
 
 The default. Four views (movers, opportunities, arbitrage, fired watch events), switched with 1, 2, 3, 4. All views share the same table controls:
 
-- `s` — incremental search: type to filter rows, arrows still scroll the matches while you type, Enter keeps the filter, Esc clears it.
+- `s` — incremental search: type words to filter rows (each word just has to appear, so "empower 4" finds the level-4 gem even though the words straddle the name and its variant), arrows scroll the matches while you type, Enter keeps the filter, Esc clears it.
 - `f` — sort: `f` toggles the current column between descending and ascending (only `f` changes direction), ←/→ move to another column, ↑/↓ keep scrolling rows the whole time, Esc done.
 - `c` — category picker: type a few letters ("sca" → Scarab), ↑/↓ to pick (the list scrolls when it's long), Enter applies, Esc cancels. No more cycling past the one you wanted.
 - `w` — create a watch for the selected row without leaving the terminal: type a threshold price (prefilled at +5%), and the direction infers itself — a threshold above the current price alerts on a rise, below alerts on a drop; ↑/↓ nudge ±1%. **High-value items (a Mirror, a chase unique) default to divines** so you can set "alert at 1500 div" without knowing the chaos number; press `d`/`c` to switch units, and the panel shows the chaos equivalent. On the opportunities view `w` builds an edge watch instead. Fires once, shows up in pane 4 and `exilium watches`.

@@ -18,6 +18,9 @@ const itemLineSchema = z.object({
   baseType: z.string().nullish(),
   variant: z.string().nullish(),
   links: z.number().nullish(),
+  gemLevel: z.number().nullish(),
+  gemQuality: z.number().nullish(),
+  corrupted: z.boolean().nullish(),
   chaosValue: z.number().nullish(),
   divineValue: z.number().nullish(),
   listingCount: z.number().nonnegative().default(0),
@@ -27,6 +30,21 @@ const itemLineSchema = z.object({
 });
 
 const itemOverviewSchema = z.object({ lines: z.array(itemLineSchema) });
+
+/** Turn poe.ninja's variant fields into a readable, searchable suffix:
+ * gems spell out level/quality/corruption ("(lvl 1, 23q, corrupt)")
+ * instead of the cryptic "1/23c"; linked uniques show "(6L)". */
+function buildSuffix(l: { gemLevel?: number | null | undefined; gemQuality?: number | null | undefined; corrupted?: boolean | null | undefined; variant?: string | null | undefined; links?: number | null | undefined }): string {
+  if (l.gemLevel != null) {
+    const parts = [`lvl ${l.gemLevel}`];
+    if (l.gemQuality != null && l.gemQuality > 0) parts.push(`${l.gemQuality}q`);
+    if (l.corrupted === true) parts.push('corrupt');
+    return ` (${parts.join(', ')})`;
+  }
+  if (l.variant != null && l.variant !== '') return ` (${l.variant})`;
+  if (l.links != null && l.links >= 5) return ` (${l.links}L)`;
+  return '';
+}
 
 export function normalizeItemOverview(raw: unknown, ctx: NormalizeContext): MarketSnapshot {
   const parsed = itemOverviewSchema.safeParse(raw);
@@ -38,8 +56,7 @@ export function normalizeItemOverview(raw: unknown, ctx: NormalizeContext): Mark
   const lines: readonly MarketLine[] = parsed.data.lines
     .filter((l) => (l.chaosValue ?? 0) > 0)
     .map((l) => {
-      const suffix =
-        l.variant != null && l.variant !== '' ? ` (${l.variant})` : l.links != null && l.links >= 5 ? ` (${l.links}L)` : '';
+      const suffix = buildSuffix(l);
       const chaosValue = l.chaosValue ?? 0;
       return {
         itemId: l.detailsId ?? String(l.id),

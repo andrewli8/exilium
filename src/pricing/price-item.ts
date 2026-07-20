@@ -1,5 +1,6 @@
 import type { MarketLine, MarketSnapshot, PriceQuote } from '../domain/types.js';
 import { volumeConfidence } from '../signals/stats.js';
+import { matchesSearch } from '../tui/search.js';
 
 interface Candidate {
   readonly line: MarketLine;
@@ -22,7 +23,7 @@ export function priceItem(query: string, snapshots: readonly MarketSnapshot[]): 
   const match =
     all.find((c) => c.line.itemId.toLowerCase() === q) ??
     all.find((c) => c.line.name.toLowerCase() === q) ??
-    [...all].sort(byVolume).find((c) => c.line.name.toLowerCase().includes(q) || c.line.itemId.toLowerCase().includes(q)) ??
+    [...all].sort(byVolume).find((c) => matchesSearch(`${c.line.name} ${c.line.itemId}`, query)) ??
     null;
 
   if (match === null) return null;

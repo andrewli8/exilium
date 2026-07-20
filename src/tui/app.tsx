@@ -7,6 +7,7 @@ import type { WatchEvent } from '../storage/watch-repository.js';
 import { draftTradePlan } from '../signals/trade-plan.js';
 import { buildTradeSearchUrl } from '../trade/trade-url.js';
 import { formatNumber, formatPriceUnits } from '../domain/format-price.js';
+import { matchesSearch } from './search.js';
 import { renderSparkline } from './sparkline.js';
 
 type View = 'movers' | 'opps' | 'arb' | 'watches';
@@ -161,8 +162,7 @@ function applySearchAndSort<T>(
   sortCol: number | null,
   sortDir: 'asc' | 'desc',
 ): readonly T[] {
-  const q = search.trim().toLowerCase();
-  const filtered = q === '' ? rows : rows.filter((r) => model.searchText(r).toLowerCase().includes(q));
+  const filtered = search.trim() === '' ? rows : rows.filter((r) => matchesSearch(model.searchText(r), search));
   if (sortCol === null) return filtered;
   const col = model.columns[sortCol];
   if (col === undefined) return filtered;
