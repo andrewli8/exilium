@@ -307,12 +307,27 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
     setSortCol(null);
   };
 
+  const moveSelection = (delta: number): void => {
+    setSelected((s) => Math.max(0, Math.min(rowCount - 1, s + delta)));
+  };
+
   useInput((input, key) => {
+    // Row movement works in normal AND search mode — filtering must never
+    // take scrolling away. Shift+arrow jumps 10.
+    const handleMovement = (): boolean => {
+      if (key.upArrow) { moveSelection(key.shift ? -10 : -1); return true; }
+      if (key.downArrow) { moveSelection(key.shift ? 10 : 1); return true; }
+      if (key.pageUp) { moveSelection(-VIEWPORT); return true; }
+      if (key.pageDown) { moveSelection(VIEWPORT); return true; }
+      return false;
+    };
+
     if (inputMode === 'search') {
+      if (handleMovement()) return;
       if (key.escape) { setSearch(''); setInputMode('normal'); return; }
       if (key.return) { setInputMode('normal'); return; }
       if (key.backspace || key.delete) { setSearch((s) => s.slice(0, -1)); return; }
-      if (input !== '' && !key.ctrl && !key.meta && !key.upArrow && !key.downArrow) {
+      if (input !== '' && !key.ctrl && !key.meta) {
         setSearch((s) => s + input);
         setSelected(0);
       }
@@ -320,7 +335,18 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
     }
     if (inputMode === 'sort') {
       if (key.escape || key.return) { setInputMode('normal'); return; }
-      if (input === 'f' || key.rightArrow) { setSortCol((c) => ((c ?? -1) + 1) % table.model.columns.length); return; }
+      // f alone drives the whole cycle: desc -> asc on the same column,
+      // then on to the next column descending. Arrows remain as shortcuts.
+      if (input === 'f') {
+        if (sortDir === 'desc') {
+          setSortDir('asc');
+        } else {
+          setSortDir('desc');
+          setSortCol((c) => ((c ?? -1) + 1) % table.model.columns.length);
+        }
+        return;
+      }
+      if (key.rightArrow) { setSortCol((c) => ((c ?? -1) + 1) % table.model.columns.length); return; }
       if (key.leftArrow) { setSortCol((c) => ((c ?? 0) - 1 + table.model.columns.length) % table.model.columns.length); return; }
       // Picking a direction finishes the job — arrows go straight back to
       // row navigation instead of trapping the user in the mode.
@@ -334,11 +360,10 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
     if (input === '3') switchView('arb');
     if (input === '4') switchView('watches');
     if (input === 's') { setInputMode('search'); return; }
-    if (input === 'f') { setInputMode('sort'); setSortCol((c) => c ?? 0); return; }
-    if (key.downArrow) setSelected((s) => Math.min(rowCount - 1, s + 1));
-    if (key.upArrow) setSelected((s) => Math.max(0, s - 1));
-    if (key.pageDown || key.rightArrow) setSelected((s) => Math.min(rowCount - 1, s + VIEWPORT));
-    if (key.pageUp || key.leftArrow) setSelected((s) => Math.max(0, s - VIEWPORT));
+    if (input === 'f') { setInputMode('sort'); setSortCol((c) => c ?? 0); setSortDir('desc'); return; }
+    if (handleMovement()) return;
+    if (key.rightArrow) { moveSelection(VIEWPORT); return; }
+    if (key.leftArrow) { moveSelection(-VIEWPORT); return; }
     if (input === 'c') { setCategoryIdx((n) => n + 1); setSelected(0); }
     if (input === 'C') { setCategoryIdx((n) => Math.max(0, n - 1)); setSelected(0); }
     if (key.return && rowCount > 0) {
@@ -366,9 +391,9 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
 
   const hint =
     inputMode === 'search'
-      ? 'type to filter · ↵ keep · esc clear'
+      ? 'type to filter · ↑↓ scroll matches · ↵ keep · esc clear'
       : inputMode === 'sort'
-        ? 'sort: f/←→ column · ↑ asc ↓ desc · esc done'
+        ? 'sort: f cycles ▼/▲/next column · ↑↓ pick & exit · esc done'
         : 's search · f sort · ↵ trade link · ↑↓ rows · ←→ page · c category · r refresh · q quit';
 
   const selectedMover = view === 'movers' ? (table.rows[clampedSelected] as DetailedMover | undefined) : undefined;

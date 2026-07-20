@@ -258,6 +258,47 @@ describe('ExiliumTui', () => {
     expect(frame).toMatch(/31 of 40/);
   });
 
+  test('repeated f cycles direction then column without arrows', async () => {
+    const { lastFrame, stdin } = render(<ExiliumTui service={makeService()} {...PROPS} />);
+    await flush();
+    stdin.write('f'); // enter sort mode: first column, descending
+    await flush();
+    expect(lastFrame()!).toContain('ITEM▼');
+    stdin.write('f'); // same column, ascending
+    await flush();
+    expect(lastFrame()!).toContain('ITEM▲');
+    stdin.write('f'); // next column, descending
+    await flush();
+    expect(lastFrame()!).toContain('CATEGORY▼');
+  });
+
+  test('shift+arrow jumps 10 rows', async () => {
+    const { lastFrame, stdin } = render(<ExiliumTui service={makeBigService(40)} {...PROPS} />);
+    await flush();
+    stdin.write('\u001B[1;2B'); // shift+down
+    await flush();
+    expect(lastFrame()!).toMatch(/row 11 of 40/);
+    stdin.write('\u001B[1;2A'); // shift+up
+    await flush();
+    expect(lastFrame()!).toMatch(/row 1 of 40/);
+  });
+
+  test('arrows keep scrolling while a search filter is active', async () => {
+    const { lastFrame, stdin } = render(<ExiliumTui service={makeBigService(40)} {...PROPS} />);
+    await flush();
+    stdin.write('s');
+    await flush();
+    stdin.write('Item'); // matches all 40 fixture rows
+    await flush();
+    stdin.write('\u001B[B'); // down while still in search mode
+    stdin.write('\u001B[B');
+    await flush();
+    expect(lastFrame()!).toMatch(/row 3 of 40/);
+    stdin.write('\u001B[1;2B'); // shift+down works here too
+    await flush();
+    expect(lastFrame()!).toMatch(/row 13 of 40/);
+  });
+
   test('enter on a selected row opens its trade link', async () => {
     const opened: string[] = [];
     const { stdin } = render(
