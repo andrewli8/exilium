@@ -143,7 +143,14 @@ A local web page on port 4321. It ingests on boot, refetches every five minutes,
 
 ## exilium tui
 
-The default. Four views (movers, opportunities, arbitrage, fired watch events), switched with 1, 2, 3, 4. Selecting a row in the opportunities view shows its full trade plan, journal command included. Arrow keys select rows and cycle category filters. Press r to refetch immediately; it also refetches every five minutes on its own. The dot in the top right tells you data age: green under ten minutes, yellow under thirty, red past that.
+The default. Four views (movers, opportunities, arbitrage, fired watch events), switched with 1, 2, 3, 4. All views share the same table controls:
+
+- `s` — incremental search: type to filter rows, Enter keeps the filter, Esc clears it.
+- `f` — sort mode: `f` or ←/→ picks the highlighted column, ↑ sorts ascending, ↓ descending, Esc done.
+- ↑/↓ and PgUp/PgDn — move through the full list (a "row 12 of 604" indicator shows where you are; there is no top-15 cap).
+- Enter — opens the selected item's search on the official trade site in your browser.
+
+The movers view has a 24H% column computed from Exilium's own stored history, falling back to the poe.ninja sparkline's last-day segment (marked `7d`) until enough history accumulates; the 7D% figure stays alongside. Selecting a row in the opportunities view shows its full trade plan, journal command included. ←/→ cycle category filters. Press r to refetch immediately; it also refetches every five minutes on its own. The dot in the top right tells you data age: green under ten minutes, yellow under thirty, red past that.
 
 ## exilium mcp
 

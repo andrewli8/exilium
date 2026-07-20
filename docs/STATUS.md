@@ -27,6 +27,8 @@ Working backlog for the looptight loop. Each task carries evidence from the repo
 
 - Onboarding round: `exilium setup` wizard (TTY + scriptable piped mode, 600-perm config file), config-file support with env-var precedence, `exilium help`, TUI auto-ingests on fresh boot, unknown-command message points to help/setup.
 
+- TUI table overhaul: search (s), column sort (f + arrows), full-list scrolling with position indicator, Enter opens trade-site search, 24H% change column (stored history first, sparkline fallback).
+
 Small follow-ups from approval conditions: TUI `r` within the 240s shared gate silently no-ops — surface "fetched Xs ago, skipped" in the TUI header.
 
 ## Review-response round (2026-07-19), completed
