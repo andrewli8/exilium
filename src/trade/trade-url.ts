@@ -1,22 +1,32 @@
 import type { Game } from '../domain/types.js';
 
+/** Strip Exilium's display variant suffix — "(lvl 5, corrupt)", "(6L)",
+ * "(5 Flasks)" — so the value matches what the trade site indexes. */
+function baseName(displayName: string): string {
+  return displayName.replace(/\s*\([^)]*\)\s*$/, '').trim();
+}
+
 /** Deep link to the official trade site prefilled for an item. The trade
  * site accepts a URL-encoded JSON query in ?q= — no session required to view.
  *
- * Defaults encode what a trader actually wants to see:
- * - PoE2: status "available" — the site's "Instant Buyout and In Person"
- *   mode, covering both purchase routes (verified against Exiled Exchange
- *   2's mapping: available = both, securable = instant only, online =
- *   in-person only).
- * - PoE1 (no instant buyout exists): online sellers with priced listings,
- *   skipping unpriced clutter. */
-export function buildTradeSearchUrl(game: Game, league: string, itemName: string): string {
+ * Field choice matters: uniques are matched by `name` (the unique's name),
+ * everything else by `type` (the base/gem/currency name). Sending a display
+ * name with a variant suffix into either field finds nothing, which is the
+ * bug this fixes.
+ *
+ * Defaults: PoE2 uses status "available" ("Instant Buyout and In Person");
+ * PoE1 (no instant buyout) uses online sellers with priced listings. */
+export function buildTradeSearchUrl(game: Game, league: string, itemName: string, category?: string): string {
+  const clean = baseName(itemName);
+  const isUnique = category !== undefined && category.startsWith('Unique');
+  const identity = isUnique ? { name: clean } : { type: clean };
+
   const query =
     game === 'poe2'
-      ? { query: { type: itemName, status: { option: 'available' } } }
+      ? { query: { ...identity, status: { option: 'available' } } }
       : {
           query: {
-            type: itemName,
+            ...identity,
             status: { option: 'online' },
             filters: { trade_filters: { filters: { sale_type: { option: 'priced' } } } },
           },

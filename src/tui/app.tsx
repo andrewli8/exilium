@@ -49,8 +49,9 @@ interface TableModel<T> {
   readonly columns: readonly Column<T>[];
   readonly cells: (row: T) => readonly string[];
   readonly searchText: (row: T) => string;
-  /** Item name for the Enter → trade-link action; null disables it. */
-  readonly itemName: (row: T) => string | null;
+  /** Item identity for the Enter → trade-link action; null disables it.
+   * Category drives the name-vs-type field choice on the trade site. */
+  readonly itemName: (row: T) => { name: string; category: string } | null;
   /** Target for the w → create-watch action; null disables it. */
   readonly watchTarget: (row: T) => WatchTarget | null;
 }
@@ -86,7 +87,7 @@ const buildMoversModel = (ctx: PriceCtx): TableModel<DetailedMover> => ({
     Math.round(m.volumePrimaryValue).toLocaleString('en-US'),
   ],
   searchText: (m) => `${m.name} ${m.category}`,
-  itemName: (m) => m.name,
+  itemName: (m) => ({ name: m.name, category: m.category }),
   watchTarget: (m) => ({ kind: 'price', itemId: m.itemId, name: m.name, reference: m.primaryValue }),
 });
 
@@ -106,7 +107,7 @@ const OPPS_MODEL: TableModel<Opportunity> = {
     o.rationale,
   ],
   searchText: (o) => `${o.itemName} ${o.kind} ${o.rationale}`,
-  itemName: (o) => o.itemName,
+  itemName: (o) => ({ name: o.itemName, category: o.category }),
   watchTarget: (o) => ({ kind: 'opportunity', itemId: o.itemId, name: o.itemName, reference: o.edge * 100 }),
 };
 
@@ -130,7 +131,7 @@ const buildArbModel = (ctx: PriceCtx): TableModel<ArbRow> => ({
     Math.round(r.volumePrimaryValue).toLocaleString('en-US'),
   ],
   searchText: (r) => `${r.itemName} ${r.category}`,
-  itemName: (r) => r.itemName,
+  itemName: (r) => ({ name: r.itemName, category: r.category }),
   watchTarget: (r) => ({ kind: 'price', itemId: r.itemId, name: r.itemName, reference: r.listed }),
 });
 
@@ -151,7 +152,10 @@ const WATCH_MODEL: TableModel<WatchEvent> = {
     return [e.firedAt, e.watchId, bits.join(' · ')];
   },
   searchText: (e) => `${e.watchId} ${JSON.stringify(e.payload)}`,
-  itemName: (e) => (e.payload as { itemName?: string }).itemName ?? null,
+  itemName: (e) => {
+    const p = e.payload as { itemName?: string; category?: string };
+    return p.itemName === undefined ? null : { name: p.itemName, category: p.category ?? '' };
+  },
   watchTarget: () => null,
 };
 
@@ -471,8 +475,8 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
     }
     if (key.return && rowCount > 0) {
       const row = table.rows[clampedSelected];
-      const name = row === undefined ? null : table.model.itemName(row);
-      if (name !== null && onOpenLink !== undefined) onOpenLink(buildTradeSearchUrl(game, league, name));
+      const target = row === undefined ? null : table.model.itemName(row);
+      if (target !== null && onOpenLink !== undefined) onOpenLink(buildTradeSearchUrl(game, league, target.name, target.category));
       return;
     }
     if (input === 'r' && onIngest !== undefined && !ingesting) {
