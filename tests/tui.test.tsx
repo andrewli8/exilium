@@ -191,19 +191,15 @@ describe('ExiliumTui', () => {
     expect(lastFrame()!.includes('Ambush Scarab')).toBe(frames[0]!.includes('Ambush Scarab'));
   });
 
-  test('choosing a sort direction returns arrows to row navigation immediately', async () => {
-    const { lastFrame, stdin } = render(<ExiliumTui service={makeService()} {...PROPS} />);
+  test('shift+arrow jump also works during sort mode', async () => {
+    const { lastFrame, stdin } = render(<ExiliumTui service={makeBigService(40)} {...PROPS} />);
     await flush();
     stdin.write('f');
     await flush();
-    stdin.write('\u001B[B'); // pick descending — and exit sort mode
+    stdin.write('\u001B[1;2B'); // shift+down: 10 rows, direction untouched
     await flush();
-    const frame = lastFrame()!;
-    expect(frame).toContain('▼');
-    expect(frame).not.toMatch(/sort: f\/←→/); // hint back to normal mode
-    stdin.write('\u001B[B'); // this must now move the selection
-    await flush();
-    expect(lastFrame()!).toMatch(/row 2 of/);
+    expect(lastFrame()!).toMatch(/row 11 of 40/);
+    expect(lastFrame()!).toContain('▼');
   });
 
   test('large chaos prices display in divines with a unit tag', () => {
@@ -233,20 +229,19 @@ describe('ExiliumTui', () => {
     expect(lastFrame()!).toContain('Divine Orb');
   });
 
-  test('f enters sort mode; a direction choice applies and exits', async () => {
-    const { lastFrame, stdin } = render(<ExiliumTui service={makeService()} {...PROPS} />);
+  test('arrows scroll rows during sort mode without touching the direction', async () => {
+    const { lastFrame, stdin } = render(<ExiliumTui service={makeBigService(40)} {...PROPS} />);
     await flush();
     stdin.write('f');
-    await flush();
-    expect(lastFrame()!).toMatch(/sort/i);
-    stdin.write('\u001B[B'); // desc — applies and exits sort mode
     await flush();
     expect(lastFrame()!).toContain('▼');
-    stdin.write('f');
+    stdin.write('\u001B[B'); // scrolls, does not flip the sort
+    stdin.write('\u001B[B');
     await flush();
-    stdin.write('\u001B[A'); // asc on the same column
-    await flush();
-    expect(lastFrame()!).toContain('▲');
+    const frame = lastFrame()!;
+    expect(frame).toContain('ITEM▼'); // header marker unchanged
+    expect(frame).not.toContain('ITEM▲');
+    expect(frame).toMatch(/row 3 of 40/);
   });
 
   test('selection scrolls past the viewport and shows position', async () => {
@@ -258,16 +253,20 @@ describe('ExiliumTui', () => {
     expect(frame).toMatch(/31 of 40/);
   });
 
-  test('repeated f cycles direction then column without arrows', async () => {
+  test('f only toggles direction on the current column, never advancing', async () => {
     const { lastFrame, stdin } = render(<ExiliumTui service={makeService()} {...PROPS} />);
     await flush();
     stdin.write('f'); // enter sort mode: first column, descending
     await flush();
     expect(lastFrame()!).toContain('ITEM▼');
-    stdin.write('f'); // same column, ascending
+    stdin.write('f'); // toggle: ascending, same column
     await flush();
     expect(lastFrame()!).toContain('ITEM▲');
-    stdin.write('f'); // next column, descending
+    stdin.write('f'); // toggle back: descending, STILL the same column
+    await flush();
+    expect(lastFrame()!).toContain('ITEM▼');
+    expect(lastFrame()!).not.toContain('CATEGORY▼');
+    stdin.write('\u001B[C'); // right arrow changes column explicitly
     await flush();
     expect(lastFrame()!).toContain('CATEGORY▼');
   });

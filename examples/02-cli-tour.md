@@ -159,7 +159,7 @@ A local web page on port 4321. It ingests on boot, refetches every five minutes,
 The default. Four views (movers, opportunities, arbitrage, fired watch events), switched with 1, 2, 3, 4. All views share the same table controls:
 
 - `s` — incremental search: type to filter rows, arrows still scroll the matches while you type, Enter keeps the filter, Esc clears it.
-- `f` — sort: tap `f` repeatedly to cycle descending → ascending → next column (←/→ jump columns, ↑/↓ pick a direction and exit), Esc done.
+- `f` — sort: `f` toggles the current column between descending and ascending (only `f` changes direction), ←/→ move to another column, ↑/↓ keep scrolling rows the whole time, Esc done.
 - ↑/↓ move one row, Shift+↑/↓ jump ten, PgUp/PgDn (or ←/→) page — through the full list (a "row 12 of 604" indicator shows where you are; there is no top-15 cap).
 - Enter — opens the selected item's search on the official trade site in your browser.
 

@@ -335,23 +335,12 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
     }
     if (inputMode === 'sort') {
       if (key.escape || key.return) { setInputMode('normal'); return; }
-      // f alone drives the whole cycle: desc -> asc on the same column,
-      // then on to the next column descending. Arrows remain as shortcuts.
-      if (input === 'f') {
-        if (sortDir === 'desc') {
-          setSortDir('asc');
-        } else {
-          setSortDir('desc');
-          setSortCol((c) => ((c ?? -1) + 1) % table.model.columns.length);
-        }
-        return;
-      }
-      if (key.rightArrow) { setSortCol((c) => ((c ?? -1) + 1) % table.model.columns.length); return; }
-      if (key.leftArrow) { setSortCol((c) => ((c ?? 0) - 1 + table.model.columns.length) % table.model.columns.length); return; }
-      // Picking a direction finishes the job — arrows go straight back to
-      // row navigation instead of trapping the user in the mode.
-      if (key.upArrow) { setSortDir('asc'); setSortCol((c) => c ?? 0); setInputMode('normal'); return; }
-      if (key.downArrow) { setSortDir('desc'); setSortCol((c) => c ?? 0); setInputMode('normal'); return; }
+      // Up/down keep scrolling rows — sorting must never steal navigation.
+      if (handleMovement()) return;
+      // f ONLY toggles direction on the current column; it never advances.
+      if (input === 'f') { setSortDir((d) => (d === 'desc' ? 'asc' : 'desc')); return; }
+      if (key.rightArrow) { setSortCol((c) => ((c ?? -1) + 1) % table.model.columns.length); setSortDir('desc'); return; }
+      if (key.leftArrow) { setSortCol((c) => ((c ?? 0) - 1 + table.model.columns.length) % table.model.columns.length); setSortDir('desc'); return; }
       return;
     }
     if (input === 'q' || (key.ctrl && input === 'c')) exit();
@@ -393,7 +382,7 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
     inputMode === 'search'
       ? 'type to filter · ↑↓ scroll matches · ↵ keep · esc clear'
       : inputMode === 'sort'
-        ? 'sort: f cycles ▼/▲/next column · ↑↓ pick & exit · esc done'
+        ? 'sort: f toggles ▼/▲ · ←→ column · ↑↓ scroll · esc done'
         : 's search · f sort · ↵ trade link · ↑↓ rows · ←→ page · c category · r refresh · q quit';
 
   const selectedMover = view === 'movers' ? (table.rows[clampedSelected] as DetailedMover | undefined) : undefined;
