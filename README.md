@@ -1,164 +1,139 @@
 # Exilium
 
-A market terminal for the **Path of Exile** economy with an **agent-native MCP server**.
+A terminal market tracker for the Path of Exile economy. It pulls live prices from poe.ninja, stores them locally, alerts you on the price moves you care about, and prices your items and stash. It also runs as an MCP server, so you can drive all of it from Claude.
 
-Exilium ingests live Currency Exchange market data (via poe.ninja), stores it locally, runs signal detectors over it, and exposes everything three ways: a CLI, a local web dashboard, and an MCP server that lets AI agents (Claude Code, Claude Desktop, any MCP client) watch markets, price items, find opportunities, and draft trade plans.
+**It never trades for you.** Everything is read-only market data and alerts. You make every trade yourself, in-game. No botting, no automation, no reading game files.
 
-**Exilium never executes trades.** It's decision support — every trade is performed by you, in-game. No automation, no session cookies, no game-file access.
+Free and open source (MIT). Runs entirely on your machine.
 
-Supports **PoE1 (default: 39 categories, ~35,000 markets — exchange currency plus listing-priced uniques, gems, maps, jewels, beasts, and base types)** and **PoE2 (12 categories)** via `EXILIUM_GAME=poe2`. Prices are in each game's primary currency: **chaos** for PoE1, **divine** for PoE2. Exchange categories refresh every 5 minutes; heavy listing categories (SkillGem alone is 5,000+ markets) refresh hourly.
+Covers PoE1 (default: 39 categories, ~35,000 markets including currency, uniques, gems, maps, jewels, beasts, and base types) and PoE2 (12 categories, set `EXILIUM_GAME=poe2`). PoE1 prices are in chaos, PoE2 in divine.
 
-## Requirements
+## What it does
 
-- **Node.js 20+** (`node --version`)
-- ~5 minutes
+- **The whole market in your terminal.** Top movers with 24h and 7d change, plus a searchable, sortable table of every tracked item. Press Enter on a row to open its trade search in your browser.
+- **Price alerts.** Set a watch like "ping me if Mageblood drops below 100 div" and get a desktop notification or Discord message when it hits.
+- **Price anything.** `exilium price headhunter` returns the going rate in chaos and divine.
+- **Snipe live searches.** Point it at a pathofexile.com live search and it copies the trade whisper to your clipboard the moment a listing appears. You paste it in-game.
+- **Value your stash.** See what a tab is worth and what changed since last time.
+- **Ask Claude.** Register the MCP server, then ask "what are the biggest movers right now?" or "find me a flip with 50%+ edge and write out the steps."
 
 ## Install
+
+You need Node.js 20 or newer (`node --version`). Takes about five minutes.
 
 ```bash
 git clone https://github.com/andrewli8/exilium.git
 cd exilium
 npm install
-npm link        # makes `exilium` a global command (sudo npm link if /usr/local/bin is root-owned,
-                # or: ln -s "$PWD/bin/exilium.js" ~/.local/bin/exilium)
+npm link
 ```
 
-Then from anywhere:
+`npm link` makes `exilium` a command you can run from anywhere. If `/usr/local/bin` is root-owned on your machine, use `sudo npm link`, or symlink it yourself:
 
 ```bash
-exilium setup        # one-time: pick your game, first data pull, optional account/cookie
-exilium              # the terminal UI — ingests on first boot and stays live on its own
-exilium help         # every command
+ln -s "$PWD/bin/exilium.js" ~/.local/bin/exilium
 ```
 
-`setup` writes `~/.exilium/config.json` (secrets stored with 600 permissions; env vars always override), so `stash` and `live` work without retyping cookies. Both credential questions are skippable — every other command works with no account at all. Account names include the #tag (e.g. `CoolExile#1234`). Data lives in `~/.exilium/exilium.db` regardless of where you run commands.
-
-*(Not yet on the npm registry — `npm install -g exilium` will work once published; until then `npm link` gives the identical experience.)*
-
-## Using it
-
-### Terminal UI — the Bloomberg-style front door
+Then, from any directory:
 
 ```bash
-npx exilium        # `tui` is the default command
+exilium setup    # pick your game and pull the first batch of data
+exilium          # open the terminal UI
+exilium help     # every command
 ```
 
-A full-screen terminal UI (built with Ink, the React-for-CLIs library) over the local market store:
+Your data lives in `~/.exilium/`, and the terminal UI keeps itself refreshed every five minutes. Not on npm yet; once it is, `npm install -g exilium` will do the same thing.
 
-- **1 · MOVERS** — biggest price moves with a 7-day unicode sparkline detail pane for the selected row
-- **2 · OPPORTUNITIES** — live detector signals with edge, confidence, and rationale
-- **3 · ARBITRAGE** — listed vs implied cross-rate table per market
-- `s` search-as-you-type · `f` column sort · `w` watch the selected row (threshold prefilled, direction inferred, **divine units for high-value items** with `d`/`c` toggle) · `c` category picker · `l` league picker · `↵` opens the item on the trade site · full-list + picker scrolling · 24H% column · Shift+↑/↓ jump 10 · `r` refresh · `q` quit
-- **Stays live on its own**: refetches market data every 5 minutes (`EXILIUM_REFRESH`, floor 300s) and shows a freshness dot — green under 10 min, amber under 30, red beyond. Leave it on a second monitor while you map.
+## The terminal UI
 
-### CLI commands
+`exilium` (or `exilium tui`) opens a full-screen terminal app over your local market data.
 
-After `npm install`, run via `npx exilium <command>` (or `npm run <command>` for the long-running ones):
+- **1 · MOVERS** the biggest price moves, with a 7-day sparkline for the selected row
+- **2 · OPPORTUNITIES** detector signals with an edge estimate, confidence, and the reasoning
+- **3 · ARBITRAGE** listed price vs implied cross-rate per market
+- **4 · WATCHES** your fired price alerts
+
+Keys: `s` search as you type, `f` sort a column, `w` set a watch on the selected row (threshold prefilled, direction inferred, divines for high-value items), `c` pick a category, `l` switch league, `Enter` open the item on the trade site, `↑↓` scroll (`Shift+↑↓` jumps ten), `r` refresh now, `q` quit.
+
+A dot in the top corner shows how fresh the data is: green under 10 minutes, amber under 30, red beyond. It refetches every 5 minutes on its own, so you can leave it on a second monitor while you map.
+
+## Commands
+
+Run any of these as `exilium <command>` from anywhere after `npm link`.
 
 | Command | What it does |
 |---|---|
-| `exilium setup` | One-time interactive setup (scriptable: pipe answers) |
-| `exilium help` | Full command reference |
-| `exilium` / `exilium tui` | Full-screen terminal UI (default; auto-ingests on first boot) |
-| `exilium ingest` | Pull the latest market snapshots (PoE1: 13 categories, ~600 markets) |
-| `exilium snapshot` | Top movers and top-volume markets in your terminal |
-| `exilium categories` | Item categories with market counts and volume |
-| `exilium list <category> [--sort value\|volume\|change]` | Browse every market in a category (Scarabs, Fragments, …) |
-| `exilium opps [--min-edge N] [--experimental] [--category C]` | Current detector signals |
-| `exilium arb [--min-gap N] [--limit N] [--category C]` | Cross-rate arbitrage table: listed vs implied price per market |
-| `exilium price <item name>` | Price any currency/stackable |
-| `exilium watch` | Notification loop (below) |
-| `exilium simulate [--live]` | Test watches and the snipe pipeline on synthetic market moves — built for league downtime |
-| `exilium watches [add\|rm\|events]` | Manage persistent watches (the same ones agents create via MCP) |
-| `exilium live <trade-url>` | Monitor pathofexile.com live searches; whispers auto-copied to clipboard ([walkthrough](examples/05-live-search.md)) |
-| `exilium stash --account "Name#1234"` | Value your own stash, track net worth, and see the trade-check delta since last snapshot |
-| `exilium journal [add]` | Record and review trade outcomes; prints your fill rate |
-| `exilium backtest [--horizon N]` | Replay stored history: signal-onset hit rate vs an all-items baseline, wall-clock horizons |
-| `exilium sellsheet --file counts.txt [--discount N]` | Price your dump tab and get a paste-ready bulk WTS message |
-| `exilium rising [--limit N]` | Volume-weighted top gainers — the league-start lens |
-| `exilium dashboard` | Local web dashboard |
-| `exilium mcp` | MCP server on stdio for AI agents |
+| `exilium setup` | One-time setup: game, first data pull, optional account and cookie |
+| `exilium` / `exilium tui` | The terminal UI (default) |
+| `exilium ingest` | Pull fresh market data now (the UI does this on its own; cron it if you like) |
+| `exilium price <item>` | Price a currency, stackable, unique, gem, or map |
+| `exilium snapshot` | Top movers and top-volume markets |
+| `exilium categories` | Every category with market counts and volume |
+| `exilium list <category>` | Browse one category. `--sort value\|volume\|change` |
+| `exilium rising` | Volume-weighted top gainers, the league-start view |
+| `exilium opps` | Detector signals. `--min-edge N` `--category C` `--experimental` |
+| `exilium arb` | Cross-rate arbitrage table. `--min-gap N` `--limit N` |
+| `exilium watch` | Foreground alert loop (desktop and Discord) |
+| `exilium watches [add\|rm\|events]` | Manage saved watches, the same ones agents create |
+| `exilium live <trade-url>` | Watch a trade-site live search; whispers land on your clipboard |
+| `exilium stash --account "Name#1234"` | Value your stash, track net worth, see what changed |
+| `exilium sellsheet --file counts.txt` | Price a dump tab into a bulk WTS message. `--discount N` |
+| `exilium journal [add]` | Record trade outcomes and see your fill rate |
+| `exilium backtest` | Score the detectors against your stored history. `--horizon N` |
+| `exilium simulate [--live]` | Test watches and the snipe flow on fake market moves |
+| `exilium dashboard` | Local web dashboard on http://localhost:4321 |
+| `exilium mcp` | MCP server for Claude and other AI clients |
 
-### Arbitrage detection — honest scope
-
-`exilium arb` (and the `find_arbitrage` MCP tool) compares every market's **listed price** against the **price implied by its highest-volume quote pair** and the core cross-rates — a two-leg cross-rate consistency check. Findings so far: the in-game exchange is *efficient* — gaps run under 0.5% in practice, which wouldn't survive gold fees. When a wide gap does appear (league start, low-volume markets, breaking news), `arb` and the watch loop will surface it. What Exilium deliberately does **not** claim: multi-leg triangular routes (the data source only quotes each market against the primary + one quote currency) and latency-race arbitrage (our data is minutes old and execution is human — see [PRD.md](./PRD.md) §2 for why we target durable edges instead).
-
-### Watch mode — get pinged when a trade is available
+## Price alerts
 
 ```bash
-npm run watch
+exilium watch
 ```
 
-Every 10 minutes (configurable, floored at 5 for API politeness) Exilium refreshes market data, runs the detectors, and when a **new** opportunity crosses your edge threshold it:
-
-- sends a **desktop notification** (macOS/Linux),
-- prints the full rationale to the terminal,
-- optionally posts to a **Discord webhook** (`EXILIUM_WEBHOOK=https://discord.com/api/webhooks/...`).
-
-Each opportunity notifies once — no repeat pings for the same signal. Tune it:
+Every 10 minutes (configurable, minimum 5 for API politeness) it refreshes the market, runs the detectors, and when a new signal crosses your edge threshold it sends a desktop notification, prints the reasoning, and optionally posts to a Discord webhook (`EXILIUM_WEBHOOK=...`). Each signal fires once. Tune it:
 
 ```bash
-EXILIUM_MIN_EDGE=50 EXILIUM_WATCH_INTERVAL=300 npm run watch   # ≥50% edges, every 5 min
+EXILIUM_MIN_EDGE=50 EXILIUM_WATCH_INTERVAL=300 exilium watch   # 50%+ edges, every 5 min
 ```
 
-### Dashboard
+For alerts that survive restarts, use saved watches instead. `exilium watches add`, or press `w` in the terminal UI, or have Claude create them. Any running surface evaluates them.
+
+## Snipe a live search
 
 ```bash
-npm run dashboard        # → http://localhost:4321
+EXILIUM_POESESSID=<cookie> exilium live "https://www.pathofexile.com/trade/search/Mirage/AbC123xyz"
 ```
 
-Opportunities (with rationale and confidence), **price-history charts for the top-volume markets** (drawn from your local snapshot history — they deepen the longer Exilium runs), top movers, and top-volume tables. **Self-sufficient**: ingests on boot, refetches every 5 minutes in the background, and the page reloads itself every 30s with a freshness badge — one tab replaces your poe.ninja tab pile.
+Build a search on pathofexile.com, copy the URL, and hand it to Exilium. When a listing appears it prints the item and price, sends a desktop notification, and copies the game's own whisper text to your clipboard. In-game that is one paste and Enter.
 
-### With Claude Code (recommended)
+It copies the whisper, it does not send it. Auto-sending is the automation line GGG bans, and a paste is a single keypress like every other accepted tool. This needs your own POESESSID cookie (see [Your session cookie](#your-session-cookie) below); `exilium setup` can store it once.
+
+## Use it from Claude
 
 Register the MCP server once:
 
 ```bash
-claude mcp add exilium -- npx tsx /path/to/exilium/src/cli.ts mcp
+claude mcp add exilium -- exilium mcp
 ```
 
-Then just talk to Claude in any session:
+Then talk to Claude in any session:
 
-- *"What are the biggest movers in the PoE1 economy right now?"*
-- *"Price a Divine Orb and an Awakened Sextant."*
+- *"What are the biggest movers in PoE1 right now?"*
+- *"Price a Divine Orb and a Headhunter."*
 - *"Find opportunities with at least 50% edge and draft me a trade plan for the best one."*
-- *"Compare chaos/divine trends over the stored history."*
+- *"Watch for Mirror of Kalandra under 1500 div and tell me when I ask."*
 
-### With Claude Desktop or any MCP client
+For Claude Desktop or any other MCP client, add this to the client's config:
 
 ```json
 {
   "mcpServers": {
-    "exilium": {
-      "command": "npx",
-      "args": ["tsx", "/path/to/exilium/src/cli.ts", "mcp"]
-    }
+    "exilium": { "command": "exilium", "args": ["mcp"] }
   }
 }
 ```
 
-### MCP tools
-
-| Tool | What it does |
-|---|---|
-| `get_leagues` | Leagues with ingested data, per game |
-| `get_market_snapshot` | Top movers + top volume for a league |
-| `get_pair_history` | Stored price history + trailing sparkline for one item |
-| `get_categories` | Item categories with market counts and volume |
-| `list_items` | Every market in one category, sorted by value/volume/change |
-| `find_arbitrage` | Cross-rate arbitrage table (listed vs implied), sorted by gap; category-filterable |
-| `create_watch` | Persistent server-side watch: price_above/below, change_abs, or opportunity; once/repeat modes; optional webhook; idempotent by id |
-| `list_watches` / `delete_watch` | Manage watches |
-| `poll_watch_results` | Evaluate due watches and page fired events by cursor — agents without webhooks poll this |
-| `record_outcome` | Log outcomes (idempotent via `idempotency_key`) — builds the fill-reality journal |
-| `run_backtest` | Onset-based backtest over stored history with an all-items baseline — how much to trust each detector |
-| `price_item` | Price a currency/stackable by name, with conversions and confidence |
-| `find_opportunities` | Current detector signals, filterable by edge; experimental signals are opt-in |
-| `draft_trade_plan` | Turn an opportunity into an ordered, human-executable plan (gold fees flagged) |
-
-Every tool takes an optional `game` (`poe1`/`poe2`) defaulting to the server's configured game. All tools serve locally cached data only — an agent can never trigger upstream API calls or spend anyone's rate limit. Watches are evaluated after every data refresh (TUI, dashboard, and watch-mode loops all evaluate them) and on each `poll_watch_results` call; fired events dedupe per data snapshot, and `once`-mode watches deactivate after firing.
-
-**Rate-limit citizenship:** on a 429 from poe.ninja the client honors `Retry-After`, enters a cooldown (requests fail fast without hitting the network), and reports upstream health — if you see cooldown errors, raise `EXILIUM_REFRESH`.
+The server exposes 15 tools: `get_leagues`, `get_market_snapshot`, `get_pair_history`, `get_categories`, `list_items`, `price_item`, `find_opportunities`, `find_arbitrage`, `draft_trade_plan`, `create_watch`, `list_watches`, `delete_watch`, `poll_watch_results`, `record_outcome`, and `run_backtest`. They serve only your local cached data, so an agent can never trigger an upstream request or spend anyone's rate limit.
 
 ## Configuration
 
@@ -166,89 +141,53 @@ Every tool takes an optional `game` (`poe1`/`poe2`) defaulting to the server's c
 |---|---|---|
 | `EXILIUM_GAME` | `poe1` | `poe1` or `poe2` |
 | `EXILIUM_LEAGUE` | auto | League name; auto-detects the current challenge league |
-| `EXILIUM_DB` | `~/.exilium/exilium.db` | SQLite database path (one DB holds both games) |
+| `EXILIUM_DB` | `~/.exilium/exilium.db` | Database path (one DB holds both games) |
 | `EXILIUM_PORT` | `4321` | Dashboard port |
-| `EXILIUM_REFRESH` | `300` | TUI/dashboard auto-refetch cadence in seconds (min 300) |
+| `EXILIUM_REFRESH` | `300` | UI auto-refresh cadence in seconds (minimum 300) |
 | `EXILIUM_MIN_EDGE` | `25` | Watch mode: minimum edge (%) to notify on |
-| `EXILIUM_WATCH_INTERVAL` | `600` | Watch mode: seconds between cycles (min 300) |
-| `EXILIUM_WEBHOOK` | — | Watch mode: Discord-compatible webhook URL |
-| `EXILIUM_CONTACT` | — | Optional: appended to the User-Agent poe.ninja sees. The tool already identifies itself via the repo URL; set this only if you operate a fork/deployment and want API operators to reach *you* |
+| `EXILIUM_WATCH_INTERVAL` | `600` | Watch mode: seconds between cycles (minimum 300) |
+| `EXILIUM_WEBHOOK` | none | Watch mode: Discord-compatible webhook URL |
 
-## Feature status vs the PRD
+`exilium setup` writes these (and your optional cookie) to `~/.exilium/config.json`. Environment variables always override the file.
 
-| PRD feature | Status |
-|---|---|
-| Market ingestion (poe.ninja exchange, PoE1 + PoE2) | ✅ 13 + 7 categories |
-| Signal engine: mean-reversion | ✅ |
-| Cross-rate arbitrage (`arb`, `find_arbitrage`) | ✅ (two-leg; markets are usually efficient) |
-| MCP server (14 tools incl. agent watches and outcome journal) | ✅ |
-| Watch/alerts (desktop, terminal, Discord webhook) | ✅ |
-| Agent watches via MCP (create/list/delete/poll, webhooks) | ✅ |
-| Trade journal / fill-reality tracking | ✅ `exilium journal` + record_outcome |
-| Pair price-history charts | ✅ dashboard; deepens as history accumulates |
-| 429 backoff + upstream health telemetry | ✅ |
-| Dashboard | ✅ lean web + full terminal UI (Ink) |
-| Price history accumulation | ✅ grows with each ingest |
-| Bulk↔single spread detector | ⛔ blocked: poe.ninja retired listing-based price APIs (everything is exchange-based now); needs a listing data source |
-| Backtesting | ✅ `exilium backtest` — sharpens as history accumulates |
-| Stash valuation + net-worth tracking | ✅ `exilium stash` (session-based; OAuth transport can swap in later) |
-| Uniques/gems/maps by name (listing-priced) | ✅ 23 listing categories |
-| Mod-based rare valuation | ⛔ out of scope by design (multi-month subsystem) |
+## What the signals actually mean
 
-## Examples and walkthroughs
+Be skeptical, because the market is efficient and this is a heuristic on data that is minutes old.
 
-The [examples/](examples/) folder has step-by-step walkthroughs with real output: [checking prices](examples/01-checking-prices.md), [a tour of every CLI command](examples/02-cli-tour.md), [common workflows](examples/03-common-workflows.md) (flipping sessions, standing alerts, driving Exilium through Claude), and [arbitrage events](examples/04-arbitrage.md).
+- **mean-reversion** flags an item whose latest daily move is a statistical outlier against its trailing week and is at least 10 percentage points off trend. The idea is it may snap back. It is not advice for your exalts.
+- **cross-rate arbitrage** checks whether an item's price disagrees with the price implied by its busiest quote pair. In practice the in-game exchange keeps these gaps under half a percent, so real ones are rare and mostly show up at league start or on thin markets.
 
-## Detector evals
+Every trade plan reminds you about the gold fee the exchange charges and tells you to re-check the live price before you commit. `exilium backtest` scores how often the detectors actually pointed the right way, with a same-window baseline to compare against, so you can decide how much to trust them.
 
-```bash
-npm run eval
-```
+## Your session cookie
 
-Known-answer evals for the signal engine, separate from the unit tests: synthetic markets with planted divergences and spikes where the detectors must score perfect precision and recall (with edge values matching the planted ground truth), plus an independent recomputation of every implied price in your real database. Deterministic, seeded, exits nonzero on failure. These already caught one real bug: the mean-reversion detector used to flag statistically unusual but economically tiny moves; it now requires a minimum absolute deviation on top of the z-score.
+Two commands, `stash` and `live`, need your pathofexile.com session cookie (POESESSID). Everything else works without one. Here is exactly how it is handled:
 
-## What the signals are (and aren't)
+- Stored in `~/.exilium/config.json` with 600 permissions, outside any git repo. Exilium re-tightens the permissions if they ever loosen.
+- Sent to one host only, `www.pathofexile.com`, over HTTPS. There is no Exilium server; the cookie never goes anywhere else, including poe.ninja.
+- Never written to the database, never logged, never shown in errors.
+- Optional. Skip it in setup and pass `EXILIUM_POESESSID` per run, or skip it entirely.
+- Revocable. Log out of pathofexile.com in your browser and the cookie is dead.
 
-- **mean-reversion** — flags items whose latest daily move is a statistical outlier vs their trailing week (z-score) *and* at least 10 percentage points off trend, suggesting a pullback or recovery. A heuristic on minutes-to-hours-old data, not financial advice for your exalts.
-- **cross-rate-divergence** *(experimental, opt-in)* — checks whether an item's price disagrees with the price implied by its highest-volume quote pair. In practice the in-game exchange keeps these tight (<0.5%), so flags are rare; it's a research signal.
-- Every trade plan reminds you about **gold fees** (the in-game exchange charges gold per order) and tells you to re-verify the live ratio before confirming — data freshness is minutes at best.
-- **Pricing covers currency/stackables only** — rare-item (mod-based) valuation is explicitly out of scope; see [PRD.md](./PRD.md).
-
-## Development
-
-```bash
-npm test                       # vitest suite
-npm run coverage               # enforces 80% thresholds
-npx tsx scripts/smoke-mcp.ts   # end-to-end: spawns the real MCP server and exercises every tool
-```
-
-Architecture (full spec in [PRD.md](./PRD.md)): poe.ninja client → zod-validated normalizer → SQLite snapshot store → signal detectors → one service layer shared by the dashboard and the MCP server.
-
-Non-negotiable design anchors:
-
-1. Human-in-the-loop execution — no trade automation, ever.
-2. Durable edges, not latency races.
-3. MCP serves cached data only — never triggers upstream calls.
-4. No POESESSID server-side, ever.
-
-## Security of your session cookie
-
-If you opt into `stash`/`live`, your POESESSID is handled like this — and only like this:
-
-- Stored in `~/.exilium/config.json`, **outside any git repository**, with 600 permissions (only your OS user can read it). Exilium re-tightens the permissions automatically if the file ever drifts looser, and `.gitignore` defensively excludes config files even if you point `EXILIUM_CONFIG` somewhere unusual.
-- Sent to exactly one host, `www.pathofexile.com`, over HTTPS — never to any server of ours (there is none), never to poe.ninja, never anywhere else.
-- Never written to the database, never logged, never included in error messages.
-- Optional at every step: skip it in `setup` and pass `EXILIUM_POESESSID` per-run, or skip entirely — only `stash` and `live` need it.
-- Revocable instantly: logging out of pathofexile.com in your browser invalidates the cookie.
-
-The wizard prints per-browser instructions for finding the cookie (F12 → Application/Storage → Cookies → pathofexile.com → `POESESSID`).
+`exilium setup` prints where to find it (F12, Application or Storage, Cookies, pathofexile.com, POESESSID). This is the same session-cookie approach Awakened PoE Trade and similar tools use.
 
 ## Compliance
 
-- Read-only market analytics from public community APIs, with a proper User-Agent.
-- No trade execution, no game automation, no game-file interaction — in line with GGG's third-party tool expectations.
-- POESESSID never touches any server of ours: `exilium live` and `exilium stash` use it entirely on your machine with your own session, sending the cookie only to pathofexile.com. Whispers are copied to your clipboard, never sent (a paste is a single user action; auto-send is the automation line we will not cross). Stash reading is your own account only; the official GGG OAuth flow can replace this transport later without changing anything else.
-- poe.ninja is a community resource: Exilium caches aggressively and polls politely. Don't cron faster than every 5 minutes.
+Read-only analytics from public community APIs, with a proper User-Agent. No trade execution, no game automation, no game-file access. Whispers are copied, never auto-sent. Stash reads are your own account only. Exilium caches aggressively and does not poll faster than every five minutes.
+
+## Examples
+
+Step-by-step walkthroughs with real output live in [examples/](examples/): [checking prices](examples/01-checking-prices.md), [a tour of every command](examples/02-cli-tour.md), [common workflows](examples/03-common-workflows.md), [arbitrage](examples/04-arbitrage.md), and [live search](examples/05-live-search.md).
+
+## For developers
+
+```bash
+npm test          # test suite
+npm run eval      # detector accuracy checks against planted data
+npm run coverage  # coverage (80% threshold)
+```
+
+The flow is: poe.ninja client, a zod-validated normalizer, a SQLite snapshot store, the signal detectors, and one service layer shared by the dashboard and the MCP server. Full design notes are in [PRD.md](./PRD.md).
 
 ## License
 
