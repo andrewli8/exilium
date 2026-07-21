@@ -23,6 +23,12 @@ import { buildSellSheet, parseCounts } from './trade/sellsheet.js';
 import { buildLiveWsUrl, handleNewListings, parseTradeUrl } from './trade/live-search.js';
 import { diffStash, fetchAllStashItems, valueStash } from './trade/stash.js';
 import { makeFakeListingFetch, parseMoves, randomMoves, rng, runWatchSimulation } from './simulate/simulate.js';
+import { parseItem } from './trade/parse-item.js';
+import { loadStatIndex } from './trade/trade-stats.js';
+import { buildTradeQuery, searchListings, tradeUrlFor } from './trade/price-check.js';
+import { formatPriceCheck } from './cli/format.js';
+import { homedir as homedirForStats } from 'node:os';
+import { join as joinPath } from 'node:path';
 import { StashRepository } from './storage/stash-repository.js';
 import { createNotifier } from './watch/notify.js';
 import { initialWatchState, watchTick } from './watch/watch.js';
@@ -654,7 +660,8 @@ Market
   exilium categories            Item categories with counts and volume
   exilium list <category>       Browse a category   [--sort value|volume|change]
   exilium rising                Volume-weighted gainers (league-start lens)
-  exilium price <name>          Price any currency/stackable
+  exilium price <name>          Price any currency/stackable by name
+  exilium pricecheck            Paste an item (rare, unique, gem) for a live trade price and search link
 
 Trading
   exilium opps                  Detector signals    [--min-edge N] [--category C] [--experimental]
@@ -856,8 +863,59 @@ async function cmdSimulate(): Promise<void> {
   }
 }
 
+async function readPastedItem(): Promise<string> {
+  const fileArg = flagValue('--file');
+  if (fileArg !== undefined) return readFileSync(fileArg, 'utf8');
+  if (process.stdin.isTTY === true) {
+    console.log('Paste the item (Ctrl+C on it in-game), then press Enter and Ctrl+D:');
+  }
+  let buffer = '';
+  for await (const chunk of process.stdin) buffer += String(chunk);
+  return buffer;
+}
+
+async function cmdPriceCheck(): Promise<void> {
+  const text = await readPastedItem();
+  const item = parseItem(text);
+  if (item === null) {
+    throw new Error('That did not look like a PoE item. Copy an item in-game (Ctrl+C) and paste its full text, or pass --file <path>.');
+  }
+  const sessionId = config.poesessid;
+  if (sessionId === undefined || sessionId === '') {
+    throw new Error('Price check searches the live trade site, which needs your session cookie. Run `exilium setup` or set EXILIUM_POESESSID.');
+  }
+  const league = storedLeague();
+  const statsPath = joinPath(homedirForStats(), '.exilium', `trade-stats-${config.game}.json`);
+  const index = await loadStatIndex(config.game, statsPath, (url, i) => fetch(url, i), Date.now());
+  const payload = buildTradeQuery(item, index, config.game);
+  const url = tradeUrlFor(payload, config.game, league);
+
+  let listings: Awaited<ReturnType<typeof searchListings>> = [];
+  try {
+    listings = await searchListings(payload, config.game, league, 10, { fetchFn: (u, i) => fetch(u, i), sessionId });
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+  }
+  console.log(`\n${formatPriceCheck(item, listings)}`);
+
+  if (process.stdin.isTTY === true) {
+    const { createInterface } = await import('node:readline/promises');
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    await rl.question('');
+    rl.close();
+    const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
+    const { spawn } = await import('node:child_process');
+    spawn(opener, [url], { detached: true, stdio: 'ignore' }).unref();
+    console.log('Opened the trade search in your browser.');
+  } else {
+    console.log(`\nTrade search: ${url}`);
+  }
+}
+
 const commands: Record<string, () => Promise<void>> = {
   setup: cmdSetup,
+  pricecheck: cmdPriceCheck,
+  pc: cmdPriceCheck,
   simulate: cmdSimulate,
   help: cmdHelp,
   tui: cmdTui,

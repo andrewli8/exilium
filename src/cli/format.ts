@@ -2,6 +2,8 @@ import type { Opportunity, PriceQuote } from '../domain/types.js';
 import type { ArbRow, CategorySummary, DetailedMover, MarketSummary } from '../mcp/service.js';
 import type { JournalEntry, JournalSummary } from '../storage/journal-repository.js';
 import { formatNumber } from '../domain/format-price.js';
+import type { PricedListing } from '../trade/price-check.js';
+import type { ParsedItem } from '../trade/parse-item.js';
 import type { Watch, WatchEvent } from '../storage/watch-repository.js';
 
 function table(headers: readonly string[], rows: readonly (readonly string[])[]): string {
@@ -128,4 +130,20 @@ export function formatWatchEvents(events: readonly WatchEvent[]): string {
       return [e.firedAt, e.watchId, bits.filter((b) => b !== '').join(' · ')];
     }),
   );
+}
+
+export function formatPriceCheck(item: ParsedItem, listings: readonly PricedListing[]): string {
+  const head = `${item.name}${item.baseType !== undefined && item.baseType !== item.name ? ` · ${item.baseType}` : ''} (${item.rarity})`;
+  if (listings.length === 0) {
+    return `${head}\n\nNo priced listings matched this exact item. It may be rare enough to have no comparable listings, or the filters are too tight. Press Enter to open the search and loosen it.`;
+  }
+  const rows = table(
+    ['#', 'Price', 'Seller'],
+    listings.map((l, i) => [String(i + 1), `${formatNumber(l.amount)} ${l.currency}`, l.seller]),
+  );
+  const amounts = listings.map((l) => l.amount);
+  const inDiv = listings.filter((l) => l.currency === 'divine').map((l) => l.amount);
+  const span = inDiv.length >= 2 ? `\nRange: ${formatNumber(Math.min(...inDiv))}–${formatNumber(Math.max(...inDiv))} divine across ${inDiv.length} listings` : '';
+  const lo = Math.min(...amounts);
+  return `${head}\n\n${rows}${span}\n\nCheapest: ${formatNumber(lo)} ${listings[0]!.currency}. Press Enter to open the full search in your browser.`;
 }

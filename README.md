@@ -66,7 +66,8 @@ Run any of these as `exilium <command>` from anywhere after `npm link`.
 | `exilium setup` | One-time setup: game, first data pull, optional account and cookie |
 | `exilium` / `exilium tui` | The terminal UI (default) |
 | `exilium ingest` | Pull fresh market data now (the UI does this on its own; cron it if you like) |
-| `exilium price <item>` | Price a currency, stackable, unique, gem, or map |
+| `exilium price <item>` | Price a currency, stackable, unique, gem, or map by name |
+| `exilium pricecheck` | Paste a copied item (rare, unique, gem) for a live trade price and a filtered search link |
 | `exilium snapshot` | Top movers and top-volume markets |
 | `exilium categories` | Every category with market counts and volume |
 | `exilium list <category>` | Browse one category. `--sort value\|volume\|change` |
@@ -97,6 +98,16 @@ EXILIUM_MIN_EDGE=50 EXILIUM_WATCH_INTERVAL=300 exilium watch   # 50%+ edges, eve
 ```
 
 For alerts that survive restarts, use saved watches instead. `exilium watches add`, or press `w` in the terminal UI, or have Claude create them. Any running surface evaluates them.
+
+## Price a pasted item
+
+```bash
+exilium pricecheck
+```
+
+Copy any item in-game (Ctrl+C), run the command, and paste. Exilium parses the item, matches its mods to trade-site stat filters, searches the live trade API, and shows the ten cheapest matching listings with a price range. Press Enter and it opens the full search in your browser with every mod and filter applied, so you can tighten the rolls yourself.
+
+This is the one thing name-based pricing cannot do: a rare with random mods has no aggregate price, so it has to be looked up against live listings. Uniques, gems, and currency work too (they search by name). Needs your session cookie, same as live search below.
 
 ## Snipe a live search
 
