@@ -11,7 +11,7 @@ import { matchesSearch } from './search.js';
 import { renderSparkline } from './sparkline.js';
 
 type View = 'movers' | 'opps' | 'arb' | 'watches';
-type InputMode = 'normal' | 'search' | 'sort' | 'category' | 'watch';
+type InputMode = 'normal' | 'search' | 'sort' | 'category' | 'watch' | 'league';
 
 export interface TuiProps {
   readonly service: ExiliumService;
@@ -261,6 +261,9 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [catQuery, setCatQuery] = useState('');
   const [catPick, setCatPick] = useState(0);
+  const [activeLeague, setActiveLeague] = useState(league);
+  const [leagueQuery, setLeagueQuery] = useState('');
+  const [leaguePick, setLeaguePick] = useState(0);
   const [watchTarget, setWatchTarget] = useState<WatchTarget | null>(null);
   const [watchInput, setWatchInput] = useState('');
   const [watchUnit, setWatchUnit] = useState<'primary' | 'divine'>('primary');
@@ -282,14 +285,19 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
     return () => clearInterval(t);
   }, [onIngest, autoIngestSec]);
 
+  const availableLeagues = useMemo(() => {
+    const seen = service.leagues().leagues.filter((l) => l.game === game).map((l) => l.league);
+    return seen.includes(activeLeague) ? seen : [activeLeague, ...seen];
+  }, [service, game, activeLeague, tick]);
+
   const data = useMemo(() => {
-    const summary = service.marketSnapshot(game, league);
-    const categories = ['All', ...service.categoryList(game, league).map((c) => c.category)];
+    const summary = service.marketSnapshot(game, activeLeague);
+    const categories = ['All', ...service.categoryList(game, activeLeague).map((c) => c.category)];
     const category = categories[categoryIdx % categories.length] ?? 'All';
     const filter = category === 'All' ? undefined : category;
-    const movers = service.moversDetailed(game, league, undefined, filter);
-    const opps = service.opportunities(game, league, true, 0, filter).opportunities;
-    const arb = service.arbitrage(game, league, 0, filter);
+    const movers = service.moversDetailed(game, activeLeague, undefined, filter);
+    const opps = service.opportunities(game, activeLeague, true, 0, filter).opportunities;
+    const arb = service.arbitrage(game, activeLeague, 0, filter);
     let watchEvents: readonly WatchEvent[] = [];
     try {
       watchEvents = service.recentWatchEvents(200);
@@ -297,7 +305,7 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
       // watches not enabled — pane shows empty state
     }
     return { summary, categories, category, movers, opps, arb, watchEvents };
-  }, [service, game, league, tick, ingesting, categoryIdx]);
+  }, [service, game, activeLeague, tick, ingesting, categoryIdx]);
 
   const table = useMemo(() => {
     const ctx: PriceCtx = {
@@ -380,7 +388,7 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
           service.createWatch({
             id: `tui:${kind}:${watchTarget.itemId}:${Math.round(threshold * 100)}`,
             game,
-            league,
+            league: activeLeague,
             kind,
             itemId: watchTarget.itemId,
             category: null,
@@ -413,6 +421,27 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
         return;
       }
       if (/^[0-9.]+$/.test(input)) setWatchInput((s) => s + input);
+      return;
+    }
+    if (inputMode === 'league') {
+      const matches = availableLeagues.filter((l) => l.toLowerCase().includes(leagueQuery.toLowerCase()));
+      if (key.escape) { setInputMode('normal'); setLeagueQuery(''); return; }
+      if (key.return) {
+        const chosen = matches[Math.min(leaguePick, Math.max(0, matches.length - 1))];
+        if (chosen !== undefined && chosen !== activeLeague) {
+          setActiveLeague(chosen);
+          setSelected(0);
+          setCategoryIdx(0);
+          setSearch('');
+        }
+        setInputMode('normal');
+        setLeagueQuery('');
+        return;
+      }
+      if (key.upArrow) { setLeaguePick((i) => Math.max(0, i - 1)); return; }
+      if (key.downArrow) { setLeaguePick((i) => Math.min(Math.max(0, matches.length - 1), i + 1)); return; }
+      if (key.backspace || key.delete) { setLeagueQuery((s) => s.slice(0, -1)); setLeaguePick(0); return; }
+      if (input !== '' && !key.ctrl && !key.meta) { setLeagueQuery((s) => s + input); setLeaguePick(0); }
       return;
     }
     if (inputMode === 'category') {
@@ -455,6 +484,7 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
     if (key.rightArrow) { moveSelection(VIEWPORT); return; }
     if (key.leftArrow) { moveSelection(-VIEWPORT); return; }
     if (input === 'c') { setInputMode('category'); setCatQuery(''); setCatPick(0); return; }
+    if (input === 'l') { setInputMode('league'); setLeagueQuery(''); setLeaguePick(0); return; }
     if (input === 'w' && rowCount > 0) {
       const row = table.rows[clampedSelected];
       const target = row === undefined ? null : table.model.watchTarget(row);
@@ -476,7 +506,7 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
     if (key.return && rowCount > 0) {
       const row = table.rows[clampedSelected];
       const target = row === undefined ? null : table.model.itemName(row);
-      if (target !== null && onOpenLink !== undefined) onOpenLink(buildTradeSearchUrl(game, league, target.name, target.category));
+      if (target !== null && onOpenLink !== undefined) onOpenLink(buildTradeSearchUrl(game, activeLeague, target.name, target.category));
       return;
     }
     if (input === 'r' && onIngest !== undefined && !ingesting) {
@@ -490,7 +520,7 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
   if (data.summary.asOf === null) {
     return (
       <Box flexDirection="column" padding={1}>
-        <Header game={game} league={league} primary={data.summary.primaryCurrency} asOf={null} ingesting={ingesting} />
+        <Header game={game} league={activeLeague} primary={data.summary.primaryCurrency} asOf={null} ingesting={ingesting} />
         <Text color={DIM}>No data ingested yet — press r to ingest now, or run `exilium ingest`.</Text>
       </Box>
     );
@@ -505,7 +535,7 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
           ? 'category: type to filter · ↑↓ pick · ↵ apply · esc cancel'
           : inputMode === 'watch'
             ? 'watch: type threshold · ↵ create · esc cancel'
-            : 's search · f sort · w watch · ↵ trade link · ↑↓ rows · ←→ page · c category · r refresh · q quit';
+            : 's search · f sort · w watch · ↵ trade link · ↑↓ rows · ←→ page · c category · l league · r refresh · q quit';
 
   const selectedMover = view === 'movers' ? (table.rows[clampedSelected] as DetailedMover | undefined) : undefined;
   const selectedOpp = view === 'opps' ? (table.rows[clampedSelected] as Opportunity | undefined) : undefined;
@@ -513,7 +543,7 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Header game={game} league={league} primary={data.summary.primaryCurrency} asOf={data.summary.asOf} ingesting={ingesting} />
+      <Header game={game} league={activeLeague} primary={data.summary.primaryCurrency} asOf={data.summary.asOf} ingesting={ingesting} />
       <Tabs view={view} category={data.category} hint={hint} />
       {inputMode === 'watch' && watchTarget !== null && (() => {
         const dpp = data.summary.divinePerPrimary;
@@ -544,6 +574,26 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
               {watchTarget.kind === 'price' && dpp !== null ? 'd/c switch div↔chaos · ' : ''}
               type numbers · ↑↓ nudge ±1% · ↵ create · esc cancel — fires once, in pane 4 &amp; `exilium watches`
             </Text>
+          </Box>
+        );
+      })()}
+      {inputMode === 'league' && (() => {
+        const LG_VIEW = 10;
+        const matches = availableLeagues.filter((l) => l.toLowerCase().includes(leagueQuery.toLowerCase()));
+        const pick = Math.min(leaguePick, Math.max(0, matches.length - 1));
+        const off = Math.max(0, Math.min(pick - LG_VIEW + 1, Math.max(0, matches.length - LG_VIEW)));
+        return (
+          <Box flexDirection="column" borderStyle="round" borderColor={GOLD} paddingX={1}>
+            <Text color={GOLD}>{`league: ${leagueQuery}▌`}<Text color={DIM}>{`  (${matches.length} with data — type to filter · ↑↓ pick · ↵ switch · esc cancel)`}</Text></Text>
+            {matches.slice(off, off + LG_VIEW).map((l, i) => {
+              const idx = off + i;
+              return (
+                <Text key={l} inverse={idx === pick} color={idx === pick ? GOLD : DIM} bold={idx === pick}>
+                  {idx === pick ? `▶ ${l}` : `  ${l}`}
+                </Text>
+              );
+            })}
+            <Text color={DIM}>Switch to a league you have not ingested with `EXILIUM_LEAGUE=… exilium ingest`.</Text>
           </Box>
         );
       })()}

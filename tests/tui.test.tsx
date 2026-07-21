@@ -467,6 +467,35 @@ describe('ExiliumTui', () => {
     expect(watches[0]!.kind).toBe('opportunity');
   });
 
+  test('l opens a league picker; selecting one switches the active league', async () => {
+    const db = createDb(':memory:');
+    const repo = new SnapshotRepository(db);
+    repo.save(SNAP); // Mirage: Divine Orb, Mirror, Crashed Orb
+    repo.save({
+      ...SNAP,
+      league: 'Standard',
+      lines: [{ ...SNAP.lines[0]!, itemId: 'exalt', name: 'Exalted Orb', primaryValue: 50 }],
+    });
+    const { lastFrame, stdin } = render(<ExiliumTui service={new ExiliumService(repo)} {...PROPS} />);
+    await flush();
+    expect(lastFrame()!).toContain('poe1/Mirage'); // starts on the prop league
+    stdin.write('l');
+    await flush();
+    let frame = lastFrame()!;
+    expect(frame).toMatch(/league:/i);
+    expect(frame).toContain('▶ Mirage');
+    expect(frame).toContain('Standard');
+    stdin.write('stan'); // type-ahead
+    await flush();
+    expect(lastFrame()!).toContain('▶ Standard');
+    stdin.write('\r'); // apply
+    await flush();
+    frame = lastFrame()!;
+    expect(frame).toContain('poe1/Standard'); // header switched
+    expect(frame).toContain('Exalted Orb'); // Standard-only item now visible
+    expect(frame).not.toContain('Divine Orb');
+  });
+
   test('shows the empty state when no data is ingested', () => {
     const repo = new SnapshotRepository(createDb(':memory:'));
     const { lastFrame } = render(
