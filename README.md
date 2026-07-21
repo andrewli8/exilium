@@ -34,6 +34,8 @@ npm link
 ln -s "$PWD/bin/exilium.js" ~/.local/bin/exilium
 ```
 
+**On Windows**, use PowerShell or Windows Terminal (recommended over old `cmd.exe` for the terminal UI's box-drawing characters). `npm link` works as-is and creates the `exilium` command; you do not need the symlink line above. `npm install` builds a native module (better-sqlite3), which ships prebuilt binaries for common Node versions, so it usually needs no extra tooling. If it fails to build, install the [VS C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/). Clipboard, desktop notifications, and opening trade links all work natively on Windows.
+
 Then, from any directory:
 
 ```bash

@@ -17,8 +17,22 @@ function osascriptCommand(title: string, message: string): readonly string[] {
   return ['-e', `display notification "${esc(message)}" with title "${esc(title)}"`];
 }
 
+/** Best-effort Windows toast via a PowerShell balloon. Failures are swallowed
+ * by the caller; the terminal print and Discord webhook are the reliable
+ * channels on Windows. */
+function powershellCommand(title: string, message: string): readonly string[] {
+  const q = (s: string) => `'${s.replaceAll("'", "''")}'`;
+  const script =
+    'Add-Type -AssemblyName System.Windows.Forms;' +
+    '$b = New-Object System.Windows.Forms.NotifyIcon;' +
+    '$b.Icon = [System.Drawing.SystemIcons]::Information; $b.Visible = $true;' +
+    `$b.ShowBalloonTip(6000, ${q(title)}, ${q(message)}, 'Info');` +
+    'Start-Sleep -Milliseconds 3000; $b.Dispose()';
+  return ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', script];
+}
+
 /** Composite notifier: desktop notification (macOS osascript / Linux
- * notify-send) plus optional Discord-compatible webhook. Channel failures are
+ * notify-send / Windows PowerShell toast) plus optional Discord webhook. Channel failures are
  * logged, never thrown — a broken channel must not kill the watch loop. */
 export function createNotifier(opts: NotifierOptions): Notifier {
   return {
@@ -28,6 +42,8 @@ export function createNotifier(opts: NotifierOptions): Notifier {
           await opts.execFn('osascript', osascriptCommand(title, message));
         } else if (opts.platform === 'linux') {
           await opts.execFn('notify-send', [title, message]);
+        } else if (opts.platform === 'win32') {
+          await opts.execFn('powershell', powershellCommand(title, message));
         }
       } catch (err) {
         opts.log(`desktop notification failed: ${err instanceof Error ? err.message : String(err)}`);

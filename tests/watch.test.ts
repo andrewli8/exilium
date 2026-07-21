@@ -109,9 +109,17 @@ describe('createNotifier', () => {
     expect(log).toHaveBeenCalled();
   });
 
-  test('skips desktop channel on unsupported platforms', async () => {
-    const execFn = vi.fn();
+  test('uses PowerShell for desktop notifications on Windows', async () => {
+    const execFn = vi.fn().mockResolvedValue(undefined);
     const notifier = createNotifier({ platform: 'win32', execFn, fetchFn: vi.fn(), log: () => {} });
+    await notifier.notify('Exilium', 'Divine hit 200c');
+    expect(execFn).toHaveBeenCalledWith('powershell', expect.arrayContaining(['-Command']));
+    expect(execFn.mock.calls[0]![1].join(' ')).toContain('Divine hit 200c');
+  });
+
+  test('skips desktop channel on genuinely unsupported platforms', async () => {
+    const execFn = vi.fn();
+    const notifier = createNotifier({ platform: 'freebsd' as never, execFn, fetchFn: vi.fn(), log: () => {} });
     await notifier.notify('t', 'm');
     expect(execFn).not.toHaveBeenCalled();
   });

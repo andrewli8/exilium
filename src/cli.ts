@@ -27,6 +27,7 @@ import { parseItem } from './trade/parse-item.js';
 import { loadStatIndex } from './trade/trade-stats.js';
 import { buildTradeQuery, searchListings, tradeUrlFor } from './trade/price-check.js';
 import { formatPriceCheck } from './cli/format.js';
+import { copyToClipboard, openUrl } from './platform.js';
 import { homedir as homedirForStats } from 'node:os';
 import { join as joinPath } from 'node:path';
 import { StashRepository } from './storage/stash-repository.js';
@@ -39,7 +40,9 @@ const configPath = configFilePath(process.env);
 const fileConfig = readFileConfig(configPath, (p) => readFileSyncForConfig(p, 'utf8'));
 // A config file holding a session cookie must never be group/other readable.
 // If it drifted (copied, restored from backup), fix it and say so.
-if (fileConfig.poesessid !== undefined) {
+if (fileConfig.poesessid !== undefined && process.platform !== 'win32') {
+  // Unix file permissions don't apply on Windows (NTFS ACLs are separate),
+  // so this guard is a no-op there.
   try {
     const mode = statSync(configPath).mode & 0o777;
     if (!isPermissionSafe(mode)) {
@@ -329,12 +332,7 @@ async function cmdTui(): Promise<void> {
       refreshSec: 30,
       onIngest,
       autoIngestSec: config.refreshSec,
-      onOpenLink: (url: string) => {
-        const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
-        import('node:child_process').then(({ spawn }) => {
-          spawn(opener, [url], { detached: true, stdio: 'ignore' }).unref();
-        }).catch(() => undefined);
-      },
+      onOpenLink: (url: string) => openUrl(url, { platform: process.platform }),
     }),
   );
 }
@@ -424,22 +422,10 @@ async function cmdLive(): Promise<void> {
   }
   const searches = urls.map(parseTradeUrl);
   const { default: WebSocket } = await import('ws');
-  const { execFile, spawn } = await import('node:child_process');
+  const { execFile } = await import('node:child_process');
   const { promisify } = await import('node:util');
   const exec = promisify(execFile);
-  const clipboard = async (text: string): Promise<void> => {
-    if (process.platform === 'darwin' || process.platform === 'linux') {
-      const child =
-        process.platform === 'darwin' ? spawn('pbcopy') : spawn('xclip', ['-selection', 'clipboard']);
-      child.stdin.end(text);
-      await new Promise<void>((resolve, reject) => {
-        child.on('close', () => resolve());
-        child.on('error', reject);
-      });
-    } else {
-      throw new Error('no clipboard helper on this platform');
-    }
-  };
+  const clipboard = (text: string): Promise<void> => copyToClipboard(text, { platform: process.platform });
   const notifier = createNotifier({
     platform: process.platform,
     execFn: async (cmd, args) => exec(cmd, [...args]),
@@ -788,14 +774,7 @@ async function cmdSimulate(): Promise<void> {
     for (const l of listings) {
       const results = await handleNewListings([l.id], { realm: 'trade', league, searchId: 'simulated' }, 'SIMULATED', {
         fetchFn,
-        clipboard: async (text) => {
-          const { spawn } = await import('node:child_process');
-          if (process.platform === 'darwin' || process.platform === 'linux') {
-            const child = process.platform === 'darwin' ? spawn('pbcopy') : spawn('xclip', ['-selection', 'clipboard']);
-            child.stdin.end(text);
-            await new Promise<void>((resolve, reject) => { child.on('close', () => resolve()); child.on('error', reject); });
-          }
-        },
+        clipboard: (text) => copyToClipboard(text, { platform: process.platform }),
         notify: (title, message) => notifier.notify(title, message),
         log: (m) => console.error(m),
       });
@@ -903,9 +882,7 @@ async function cmdPriceCheck(): Promise<void> {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     await rl.question('');
     rl.close();
-    const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
-    const { spawn } = await import('node:child_process');
-    spawn(opener, [url], { detached: true, stdio: 'ignore' }).unref();
+    openUrl(url, { platform: process.platform });
     console.log('Opened the trade search in your browser.');
   } else {
     console.log(`\nTrade search: ${url}`);
