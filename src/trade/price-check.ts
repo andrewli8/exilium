@@ -16,7 +16,10 @@ export interface TradePayload {
 const NAME_ONLY: ReadonlySet<string> = new Set(['Currency', 'Gem', 'Divination Card']);
 
 export function buildTradeQuery(item: ParsedItem, index: StatIndex, game: Game): TradePayload {
-  const status = { option: game === 'poe2' ? 'available' : 'online' };
+  // "available" is the trade site's "Instant Buyout and In Person" — priced
+  // listings from online sellers, ready to buy. ("online" is "In Person
+  // (Online)", which also surfaces unpriced listings.) Same for both games.
+  const status = { option: 'available' };
   const statFilters =
     item.rarity === 'Rare' || item.rarity === 'Magic' || item.rarity === 'Normal'
       ? item.mods.map((m) => matchMod(m, index)).filter((f): f is NonNullable<typeof f> => f !== null)

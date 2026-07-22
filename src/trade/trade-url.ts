@@ -14,8 +14,8 @@ function baseName(displayName: string): string {
  * name with a variant suffix into either field finds nothing, which is the
  * bug this fixes.
  *
- * Defaults: PoE2 uses status "available" ("Instant Buyout and In Person");
- * PoE1 (no instant buyout) uses online sellers with priced listings. */
+ * Status defaults to "available" for both games — the trade site's "Instant
+ * Buyout and In Person", i.e. priced listings ready to buy right now. */
 export function buildTradeSearchUrl(game: Game, league: string, itemName: string, category?: string): string {
   const clean = baseName(itemName);
   const isUnique = category !== undefined && category.startsWith('Unique');
@@ -24,7 +24,8 @@ export function buildTradeSearchUrl(game: Game, league: string, itemName: string
   const query = {
     query: {
       ...identity,
-      status: { option: game === 'poe2' ? 'available' : 'online' },
+      // "available" is the trade site's "Instant Buyout and In Person".
+      status: { option: 'available' },
     },
   };
   const q = encodeURIComponent(JSON.stringify(query));

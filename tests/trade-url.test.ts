@@ -27,7 +27,7 @@ describe('buildTradeSearchUrl', () => {
     const url = buildTradeSearchUrl('poe1', 'Mirage', 'Divine Orb', 'Currency');
     const q = query(url);
     expect(q.query.type).toBe('Divine Orb');
-    expect(q.query.status).toEqual({ option: 'online' });
+    expect(q.query.status).toEqual({ option: 'available' }); // "Instant Buyout and In Person"
     expect(q.query.filters).toBeUndefined(); // no invalid sale_type filter
   });
 
