@@ -27,7 +27,9 @@ export interface TuiProps {
   /** Opens a URL in the browser; injectable for tests. */
   readonly onOpenLink?: ((url: string) => void) | undefined;
   /** Price-check the item on the clipboard (reads clipboard, searches trade). */
-  readonly onPriceCheck?: (() => Promise<PriceCheckResult>) | undefined;
+  readonly onPriceCheck?: ((league: string) => Promise<PriceCheckResult>) | undefined;
+  /** Fetch the leagues the trade search currently accepts (for the `l` picker). */
+  readonly onFetchLeagues?: (() => Promise<readonly string[]>) | undefined;
 }
 
 const GOLD = '#d4a017';
@@ -250,7 +252,7 @@ function Tabs({ view, category, hint }: {
 
 /** Bloomberg-style terminal UI over the local snapshot store. Reads cached
  * data only; "r" triggers a live ingest via the injected callback. */
-export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIngestSec, onOpenLink, onPriceCheck }: TuiProps): React.JSX.Element {
+export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIngestSec, onOpenLink, onPriceCheck, onFetchLeagues }: TuiProps): React.JSX.Element {
   const { exit } = useApp();
   const { isRawModeSupported } = useStdin();
   const [view, setView] = useState<View>('movers');
@@ -267,6 +269,8 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
   const [activeLeague, setActiveLeague] = useState(league);
   const [leagueQuery, setLeagueQuery] = useState('');
   const [leaguePick, setLeaguePick] = useState(0);
+  const [liveLeagues, setLiveLeagues] = useState<readonly string[]>([]);
+  const [leagueLoad, setLeagueLoad] = useState<'idle' | 'loading' | 'error'>('idle');
   const [watchTarget, setWatchTarget] = useState<WatchTarget | null>(null);
   const [watchInput, setWatchInput] = useState('');
   const [watchUnit, setWatchUnit] = useState<'primary' | 'divine'>('primary');
@@ -290,10 +294,21 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
     return () => clearInterval(t);
   }, [onIngest, autoIngestSec]);
 
+  const localLeagues = useMemo(
+    () => service.leagues().leagues.filter((l) => l.game === game).map((l) => l.league),
+    [service, game, tick],
+  );
+  const localSet = useMemo(() => new Set(localLeagues), [localLeagues]);
+  // Live trade leagues first (these are the ones the search accepts), then any
+  // league we hold local pane data for, then whatever is active. Deduped.
   const availableLeagues = useMemo(() => {
-    const seen = service.leagues().leagues.filter((l) => l.game === game).map((l) => l.league);
-    return seen.includes(activeLeague) ? seen : [activeLeague, ...seen];
-  }, [service, game, activeLeague, tick]);
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const l of [...liveLeagues, ...localLeagues, activeLeague]) {
+      if (!seen.has(l)) { seen.add(l); out.push(l); }
+    }
+    return out;
+  }, [liveLeagues, localLeagues, activeLeague]);
 
   const data = useMemo(() => {
     const summary = service.marketSnapshot(game, activeLeague);
@@ -351,7 +366,7 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
   const runPriceCheck = (): void => {
     if (onPriceCheck === undefined) return;
     setPc({ kind: 'loading' });
-    onPriceCheck()
+    onPriceCheck(activeLeague)
       .then((r) => setPc({ kind: 'result', r }))
       .catch((e: unknown) => setPc({ kind: 'error', message: e instanceof Error ? e.message : String(e) }));
   };
@@ -508,7 +523,16 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
     if (key.rightArrow) { moveSelection(VIEWPORT); return; }
     if (key.leftArrow) { moveSelection(-VIEWPORT); return; }
     if (input === 'c') { setInputMode('category'); setCatQuery(''); setCatPick(0); return; }
-    if (input === 'l') { setInputMode('league'); setLeagueQuery(''); setLeaguePick(0); return; }
+    if (input === 'l') {
+      setInputMode('league'); setLeagueQuery(''); setLeaguePick(0);
+      if (onFetchLeagues !== undefined && leagueLoad !== 'loading' && liveLeagues.length === 0) {
+        setLeagueLoad('loading');
+        onFetchLeagues()
+          .then((ls) => { setLiveLeagues(ls); setLeagueLoad('idle'); })
+          .catch(() => setLeagueLoad('error'));
+      }
+      return;
+    }
     if (input === 'p') { runPriceCheck(); return; }
     if (input === 'w' && rowCount > 0) {
       const row = table.rows[clampedSelected];
@@ -630,18 +654,23 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
         const matches = availableLeagues.filter((l) => l.toLowerCase().includes(leagueQuery.toLowerCase()));
         const pick = Math.min(leaguePick, Math.max(0, matches.length - 1));
         const off = Math.max(0, Math.min(pick - LG_VIEW + 1, Math.max(0, matches.length - LG_VIEW)));
+        const status =
+          leagueLoad === 'loading' ? 'fetching live leagues…'
+          : leagueLoad === 'error' ? 'trade API unreachable — showing local leagues'
+          : `${matches.length} leagues`;
         return (
           <Box flexDirection="column" borderStyle="round" borderColor={GOLD} paddingX={1}>
-            <Text color={GOLD}>{`league: ${leagueQuery}▌`}<Text color={DIM}>{`  (${matches.length} with data — type to filter · ↑↓ pick · ↵ switch · esc cancel)`}</Text></Text>
+            <Text color={GOLD}>{`league: ${leagueQuery}▌`}<Text color={DIM}>{`  (${status} · type to filter · ↑↓ pick · ↵ switch · esc cancel)`}</Text></Text>
             {matches.slice(off, off + LG_VIEW).map((l, i) => {
               const idx = off + i;
+              const tag = localSet.has(l) ? ' · data' : '';
               return (
                 <Text key={l} inverse={idx === pick} color={idx === pick ? GOLD : DIM} bold={idx === pick}>
-                  {idx === pick ? `▶ ${l}` : `  ${l}`}
+                  {(idx === pick ? `▶ ${l}` : `  ${l}`) + tag}
                 </Text>
               );
             })}
-            <Text color={DIM}>Switch to a league you have not ingested with `EXILIUM_LEAGUE=… exilium ingest`.</Text>
+            <Text color={DIM}>Live leagues come from the trade API; `· data` marks ones you have ingested.</Text>
           </Box>
         );
       })()}

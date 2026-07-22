@@ -61,7 +61,7 @@ Build the standalone binaries yourself with `npm run build:binaries` (needs [Bun
 - **3 · ARBITRAGE** listed price vs implied cross-rate per market
 - **4 · WATCHES** your fired price alerts
 
-Keys: `s` search as you type, `f` sort a column, `w` set a watch on the selected row, `p` price-check the item on your clipboard (Ctrl+C it in game first), `c` pick a category, `l` switch league, `Enter` open the item on the trade site, `↑↓` scroll (`Shift+↑↓` jumps ten), `r` refresh now, `q` quit.
+Keys: `s` search as you type, `f` sort a column, `w` set a watch on the selected row, `p` price-check the item on your clipboard (Ctrl+C it in game first), `c` pick a category, `l` switch league (fetches the leagues the trade site currently accepts), `Enter` open the item on the trade site, `↑↓` scroll (`Shift+↑↓` jumps ten), `r` refresh now, `q` quit.
 
 A dot in the top corner shows how fresh the data is: green under 10 minutes, amber under 30, red beyond. It refetches every 5 minutes on its own, so you can leave it on a second monitor while you map.
 

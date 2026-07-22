@@ -32,6 +32,11 @@ describe('searchListings', () => {
     const fetchFn = vi.fn().mockResolvedValue(new Response('no', { status: 401 }));
     await expect(searchListings(payload, 'poe1', 'Mirage', 10, { fetchFn, sessionId: 'BAD' })).rejects.toThrow(/POESESSID|session/i);
   });
+
+  test('a 400 points at a likely-ended league and the l picker', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(new Response('{"error":{"code":2,"message":"Invalid query"}}', { status: 400 }));
+    await expect(searchListings(payload, 'poe1', 'Mirage', 10, { fetchFn, sessionId: 'OK' })).rejects.toThrow(/league.*\bl\b|press l/i);
+  });
 });
 
 describe('tradeUrlFor', () => {

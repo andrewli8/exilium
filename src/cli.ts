@@ -26,6 +26,7 @@ import { makeFakeListingFetch, parseMoves, randomMoves, rng, runWatchSimulation 
 import { parseItem } from './trade/parse-item.js';
 import { loadStatIndex } from './trade/trade-stats.js';
 import { buildTradeQuery, searchListings, tradeUrlFor } from './trade/price-check.js';
+import { fetchTradeLeagues } from './trade/leagues.js';
 import { formatPriceCheck } from './cli/format.js';
 import { copyToClipboard, openUrl, readClipboard } from './platform.js';
 import { homedir as homedirForStats } from 'node:os';
@@ -333,7 +334,8 @@ async function cmdTui(): Promise<void> {
       onIngest,
       autoIngestSec: config.refreshSec,
       onOpenLink: (url: string) => openUrl(url, { platform: process.platform }),
-      onPriceCheck: priceCheckFromClipboard,
+      onPriceCheck: (lg: string) => priceCheckFromClipboard(lg),
+      onFetchLeagues: () => fetchTradeLeagues(config.game, (url, init) => fetch(url, init)),
     }),
   );
 }
@@ -857,13 +859,13 @@ async function readItemText(): Promise<string> {
   return readClipboard({ platform: process.platform });
 }
 
-async function priceCheckFromClipboard(): Promise<import('./trade/price-check.js').PriceCheckResult> {
+async function priceCheckFromClipboard(leagueOverride?: string): Promise<import('./trade/price-check.js').PriceCheckResult> {
   const text = await readItemText();
   const item = parseItem(text);
   if (item === null) {
     throw new Error('No PoE item found. In game, hover the item and press Ctrl+C, then try again.');
   }
-  const league = storedLeague();
+  const league = leagueOverride ?? storedLeague();
   const statsPath = joinPath(homedirForStats(), '.exilium', `trade-stats-${config.game}.json`);
   let index;
   try {

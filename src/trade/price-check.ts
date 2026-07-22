@@ -119,6 +119,9 @@ export async function searchListings(
     throw new Error('pathofexile.com rejected the search — your POESESSID is missing or expired. Refresh it and retry.');
   }
   if (searchRes.status === 429) throw new Error('pathofexile.com rate-limited the search — wait a minute and retry.');
+  if (searchRes.status === 400) {
+    throw new Error(`trade rejected the query (400) for league "${league}" — this usually means the league has ended. Press l to pick a current league and retry.`);
+  }
   if (!searchRes.ok) throw new Error(`trade search failed (${searchRes.status})`);
   const search = searchSchema.safeParse(await searchRes.json());
   if (!search.success) throw new Error('trade search response did not match the expected shape');
