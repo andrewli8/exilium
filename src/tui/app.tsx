@@ -7,7 +7,7 @@ import type { WatchEvent } from '../storage/watch-repository.js';
 import { draftTradePlan } from '../signals/trade-plan.js';
 import { buildTradeSearchUrl } from '../trade/trade-url.js';
 import type { PriceCheckResult } from '../trade/price-check.js';
-import { formatNumber, formatPriceUnits } from '../domain/format-price.js';
+import { formatDelta, formatNumber, formatPriceUnits } from '../domain/format-price.js';
 import { matchesSearch } from './search.js';
 import { renderSparkline } from './sparkline.js';
 
@@ -62,7 +62,7 @@ interface TableModel<T> {
 }
 
 const fmtChange24 = (m: DetailedMover): string =>
-  m.change24h === null ? `7d ${m.totalChange.toFixed(1)}%` : `${m.change24h.toFixed(1)}%`;
+  m.change24h === null ? `7d ${formatDelta(m.totalChange)}` : formatDelta(m.change24h);
 
 interface PriceCtx {
   readonly primaryCurrency: string;
@@ -79,8 +79,8 @@ const buildMoversModel = (ctx: PriceCtx): TableModel<DetailedMover> => ({
     { label: 'ITEM', width: 32, sortValue: (m) => m.name.toLowerCase() },
     { label: 'CATEGORY', width: 14, sortValue: (m) => m.category },
     { label: 'PRICE', width: 11, sortValue: (m) => m.primaryValue },
-    { label: '24H%', width: 10, sortValue: (m) => m.change24h ?? m.totalChange },
-    { label: '7D%', width: 9, sortValue: (m) => m.totalChange },
+    { label: '24H Δ', width: 10, sortValue: (m) => m.change24h ?? m.totalChange },
+    { label: '7D Δ', width: 9, sortValue: (m) => m.totalChange },
     { label: 'VOLUME', width: 11, sortValue: (m) => m.volumePrimaryValue },
   ],
   cells: (m) => [
@@ -88,7 +88,7 @@ const buildMoversModel = (ctx: PriceCtx): TableModel<DetailedMover> => ({
     m.category,
     fmtPrice(m.primaryValue, ctx),
     fmtChange24(m),
-    `${m.totalChange.toFixed(1)}%`,
+    formatDelta(m.totalChange),
     Math.round(m.volumePrimaryValue).toLocaleString('en-US'),
   ],
   searchText: (m) => `${m.name} ${m.category}`,
@@ -720,7 +720,7 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
           <Text>
             7d trend <Text color="cyan">{renderSparkline(selectedMover.sparkline)}</Text>
             {'  24h '}
-            {selectedMover.change24h === null ? `n/a (7d ${selectedMover.totalChange.toFixed(1)}%)` : `${selectedMover.change24h.toFixed(1)}%`}
+            {selectedMover.change24h === null ? `n/a (7d ${formatDelta(selectedMover.totalChange)})` : formatDelta(selectedMover.change24h)}
             {'  ↵ opens trade site'}
           </Text>
         </Box>

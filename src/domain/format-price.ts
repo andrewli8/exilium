@@ -44,3 +44,15 @@ function trimZeros(s: string): string {
 function trim(v: number): string {
   return formatNumber(v);
 }
+
+/** Format a percentage change so large swings read as a multiplier instead of
+ * an absurd percent. A price that went 50× is "50×", not "+4900%"; one that
+ * fell to a twentieth is "÷20", not "-95%". Moderate moves (between halving
+ * and doubling) stay as a signed percent, which is what a percent is good at.
+ * A total wipe (-100%) has no finite multiplier, so it stays a percent. */
+export function formatDelta(pct: number): string {
+  const multiplier = 1 + pct / 100;
+  if (multiplier >= 2) return `${trimZeros(multiplier.toFixed(multiplier >= 100 ? 0 : 1))}×`;
+  if (multiplier > 0 && multiplier <= 0.5) return `÷${trimZeros((1 / multiplier).toFixed(1 / multiplier >= 100 ? 0 : 1))}`;
+  return `${pct > 0 ? '+' : ''}${pct.toFixed(1)}%`;
+}
