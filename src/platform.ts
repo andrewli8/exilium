@@ -37,6 +37,27 @@ export function openCommand(platform: NodeJS.Platform, url: string): Command {
   return { cmd: 'xdg-open', args: [url] };
 }
 
+export function clipboardReadCommand(platform: NodeJS.Platform): Command | null {
+  if (platform === 'darwin') return { cmd: 'pbpaste', args: [] };
+  if (platform === 'win32') return { cmd: 'powershell', args: ['-NoProfile', '-Command', 'Get-Clipboard'] };
+  if (platform === 'linux') return { cmd: 'xclip', args: ['-selection', 'clipboard', '-o'] };
+  return null;
+}
+
+/** Read the current clipboard text. This is how PoE price-check tools work:
+ * you Ctrl+C an item in game, we read what the game wrote, no terminal paste. */
+export async function readClipboard(deps: { platform: NodeJS.Platform; execFn?: (cmd: string, args: readonly string[]) => Promise<{ stdout: string }> }): Promise<string> {
+  const c = clipboardReadCommand(deps.platform);
+  if (c === null) throw new Error(`No clipboard reader for platform "${deps.platform}".`);
+  const exec = deps.execFn ?? (async (cmd, args) => {
+    const { execFile } = await import('node:child_process');
+    const { promisify } = await import('node:util');
+    return promisify(execFile)(cmd, [...args], { maxBuffer: 4 * 1024 * 1024 });
+  });
+  const { stdout } = await exec(c.cmd, c.args);
+  return stdout;
+}
+
 export async function copyToClipboard(text: string, deps: PlatformDeps): Promise<void> {
   const c = clipboardCommand(deps.platform);
   if (c === null) throw new Error(`No clipboard tool for platform "${deps.platform}".`);

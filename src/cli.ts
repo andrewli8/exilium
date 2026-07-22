@@ -27,7 +27,7 @@ import { parseItem } from './trade/parse-item.js';
 import { loadStatIndex } from './trade/trade-stats.js';
 import { buildTradeQuery, searchListings, tradeUrlFor } from './trade/price-check.js';
 import { formatPriceCheck } from './cli/format.js';
-import { copyToClipboard, openUrl } from './platform.js';
+import { copyToClipboard, openUrl, readClipboard } from './platform.js';
 import { homedir as homedirForStats } from 'node:os';
 import { join as joinPath } from 'node:path';
 import { StashRepository } from './storage/stash-repository.js';
@@ -647,7 +647,7 @@ Market
   exilium list <category>       Browse a category   [--sort value|volume|change]
   exilium rising                Volume-weighted gainers (league-start lens)
   exilium price <name>          Price any currency/stackable by name
-  exilium pricecheck            Paste an item (rare, unique, gem) for a live trade price and search link
+  exilium pricecheck            Copy an item in-game (Ctrl+C), then run this for a live trade price and search
 
 Trading
   exilium opps                  Detector signals    [--min-edge N] [--category C] [--experimental]
@@ -842,42 +842,59 @@ async function cmdSimulate(): Promise<void> {
   }
 }
 
-async function readPastedItem(): Promise<string> {
+/** Get the item text: an explicit --file wins; a piped stdin (non-TTY) is
+ * used as-is; otherwise we read the clipboard — the game already put the
+ * item there when you pressed Ctrl+C, so no terminal paste is needed. */
+async function readItemText(): Promise<string> {
   const fileArg = flagValue('--file');
   if (fileArg !== undefined) return readFileSync(fileArg, 'utf8');
-  if (process.stdin.isTTY === true) {
-    console.log('Paste the item (Ctrl+C on it in-game), then press Enter and Ctrl+D:');
+  if (process.stdin.isTTY !== true) {
+    let buffer = '';
+    for await (const chunk of process.stdin) buffer += String(chunk);
+    return buffer;
   }
-  let buffer = '';
-  for await (const chunk of process.stdin) buffer += String(chunk);
-  return buffer;
+  return readClipboard({ platform: process.platform });
 }
 
 async function cmdPriceCheck(): Promise<void> {
-  const text = await readPastedItem();
+  const text = await readItemText();
   const item = parseItem(text);
   if (item === null) {
-    throw new Error('That did not look like a PoE item. Copy an item in-game (Ctrl+C) and paste its full text, or pass --file <path>.');
-  }
-  const sessionId = config.poesessid;
-  if (sessionId === undefined || sessionId === '') {
-    throw new Error('Price check searches the live trade site, which needs your session cookie. Run `exilium setup` or set EXILIUM_POESESSID.');
+    throw new Error(
+      'No PoE item found. In game, hover the item and press Ctrl+C, then run `exilium pricecheck`. (Or pipe/point --file at the item text.)',
+    );
   }
   const league = storedLeague();
   const statsPath = joinPath(homedirForStats(), '.exilium', `trade-stats-${config.game}.json`);
-  const index = await loadStatIndex(config.game, statsPath, (url, i) => fetch(url, i), Date.now());
+  let index;
+  try {
+    index = await loadStatIndex(config.game, statsPath, (url, i) => fetch(url, i), Date.now());
+  } catch (err) {
+    console.error(`Could not load trade stat data (${err instanceof Error ? err.message : err}); searching without mod filters.`);
+    const { buildStatIndex } = await import('./trade/trade-stats.js');
+    index = buildStatIndex({ result: [] });
+  }
   const payload = buildTradeQuery(item, index, config.game);
   const url = tradeUrlFor(payload, config.game, league);
 
-  let listings: Awaited<ReturnType<typeof searchListings>> = [];
-  try {
-    listings = await searchListings(payload, config.game, league, 10, { fetchFn: (u, i) => fetch(u, i), sessionId });
-  } catch (err) {
-    console.error(err instanceof Error ? err.message : String(err));
+  const sessionId = config.poesessid;
+  if (sessionId !== undefined && sessionId !== '') {
+    let listings: Awaited<ReturnType<typeof searchListings>> = [];
+    try {
+      listings = await searchListings(payload, config.game, league, 10, { fetchFn: (u, i) => fetch(u, i), sessionId });
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : String(err));
+    }
+    console.log(`\n${formatPriceCheck(item, listings)}`);
+  } else {
+    console.log(`\n${item.name}${item.baseType !== undefined && item.baseType !== item.name ? ` · ${item.baseType}` : ''} (${item.rarity})`);
+    console.log('\nLive prices need your session cookie (run `exilium setup`). Opening the filtered trade search instead.');
   }
-  console.log(`\n${formatPriceCheck(item, listings)}`);
 
+  // stdin is untouched (we read the clipboard), so on a TTY we can wait for
+  // one Enter to open the browser. Otherwise just print the link.
   if (process.stdin.isTTY === true) {
+    console.log('\nPress Enter to open this search in your browser (Ctrl+C to skip).');
     const { createInterface } = await import('node:readline/promises');
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     await rl.question('');

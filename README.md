@@ -107,15 +107,17 @@ EXILIUM_MIN_EDGE=50 EXILIUM_WATCH_INTERVAL=300 exilium watch   # 50%+ edges, eve
 
 For alerts that survive restarts, use saved watches instead. `exilium watches add`, or press `w` in the terminal UI, or have Claude create them. Any running surface evaluates them.
 
-## Price a pasted item
+## Price-check a copied item
+
+Copy any item in-game (Ctrl+C), then run:
 
 ```bash
 exilium pricecheck
 ```
 
-Copy any item in-game (Ctrl+C), run the command, and paste. Exilium parses the item, matches its mods to trade-site stat filters, searches the live trade API, and shows the ten cheapest matching listings with a price range. Press Enter and it opens the full search in your browser with every mod and filter applied, so you can tighten the rolls yourself.
+It reads the item straight from your clipboard (no pasting into the terminal), matches its mods to trade-site stat filters, searches the live trade API, and shows the ten cheapest matching listings with a price range. Press Enter to open the full search in your browser with every mod and filter applied, so you can tighten the rolls yourself.
 
-This is the one thing name-based pricing cannot do: a rare with random mods has no aggregate price, so it has to be looked up against live listings. Uniques, gems, and currency work too (they search by name). Needs your session cookie, same as live search below.
+This is the one thing name-based pricing cannot do: a rare with random mods has no aggregate price, so it has to be looked up against live listings. Uniques, gems, and currency work too. Live prices need your session cookie (`exilium setup`); without one it still parses the item and opens the filtered search. You can also pipe item text in or pass `--file`.
 
 ## Snipe a live search
 

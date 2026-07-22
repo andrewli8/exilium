@@ -41,3 +41,12 @@ describe('openUrl', () => {
     expect(spawnFn).toHaveBeenCalledWith('cmd', ['/c', 'start', '', 'https://poe'], expect.objectContaining({ detached: true }));
   });
 });
+
+describe('clipboardReadCommand', () => {
+  test('per-platform clipboard read tools', async () => {
+    const { clipboardReadCommand } = await import('../src/platform.js');
+    expect(clipboardReadCommand('darwin')).toEqual({ cmd: 'pbpaste', args: [] });
+    expect(clipboardReadCommand('win32')).toEqual({ cmd: 'powershell', args: ['-NoProfile', '-Command', 'Get-Clipboard'] });
+    expect(clipboardReadCommand('linux')).toEqual({ cmd: 'xclip', args: ['-selection', 'clipboard', '-o'] });
+  });
+});
