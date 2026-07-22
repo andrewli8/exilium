@@ -61,7 +61,7 @@ Build the standalone binaries yourself with `npm run build:binaries` (needs [Bun
 - **3 · ARBITRAGE** listed price vs implied cross-rate per market
 - **4 · WATCHES** your fired price alerts
 
-Keys: `s` search as you type, `f` sort a column, `w` set a watch on the selected row (threshold prefilled, direction inferred, divines for high-value items), `c` pick a category, `l` switch league, `Enter` open the item on the trade site, `↑↓` scroll (`Shift+↑↓` jumps ten), `r` refresh now, `q` quit.
+Keys: `s` search as you type, `f` sort a column, `w` set a watch on the selected row, `p` price-check the item on your clipboard (Ctrl+C it in game first), `c` pick a category, `l` switch league, `Enter` open the item on the trade site, `↑↓` scroll (`Shift+↑↓` jumps ten), `r` refresh now, `q` quit.
 
 A dot in the top corner shows how fresh the data is: green under 10 minutes, amber under 30, red beyond. It refetches every 5 minutes on its own, so you can leave it on a second monitor while you map.
 
@@ -109,13 +109,13 @@ For alerts that survive restarts, use saved watches instead. `exilium watches ad
 
 ## Price-check a copied item
 
-Copy any item in-game (Ctrl+C), then run:
+While the terminal UI is open, press `p` after copying an item in game (Ctrl+C) and it prices the item inline, with Enter opening the trade search. Or as a standalone command:
 
 ```bash
 exilium pricecheck
 ```
 
-It reads the item straight from your clipboard (no pasting into the terminal), matches its mods to trade-site stat filters, searches the live trade API, and shows the ten cheapest matching listings with a price range. Press Enter to open the full search in your browser with every mod and filter applied, so you can tighten the rolls yourself.
+Either way it reads the item straight from your clipboard (no pasting into the terminal), matches its mods to trade-site stat filters, searches the live trade API, and shows the ten cheapest matching listings with a price range. Press Enter to open the full search in your browser with every mod and filter applied, so you can tighten the rolls yourself.
 
 This is the one thing name-based pricing cannot do: a rare with random mods has no aggregate price, so it has to be looked up against live listings. Uniques, gems, and currency work too. Live prices need your session cookie (`exilium setup`); without one it still parses the item and opens the filtered search. You can also pipe item text in or pass `--file`.
 

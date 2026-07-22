@@ -6,6 +6,7 @@ import type { ArbRow, DetailedMover, ExiliumService } from '../mcp/service.js';
 import type { WatchEvent } from '../storage/watch-repository.js';
 import { draftTradePlan } from '../signals/trade-plan.js';
 import { buildTradeSearchUrl } from '../trade/trade-url.js';
+import type { PriceCheckResult } from '../trade/price-check.js';
 import { formatNumber, formatPriceUnits } from '../domain/format-price.js';
 import { matchesSearch } from './search.js';
 import { renderSparkline } from './sparkline.js';
@@ -25,6 +26,8 @@ export interface TuiProps {
   readonly autoIngestSec?: number | undefined;
   /** Opens a URL in the browser; injectable for tests. */
   readonly onOpenLink?: ((url: string) => void) | undefined;
+  /** Price-check the item on the clipboard (reads clipboard, searches trade). */
+  readonly onPriceCheck?: (() => Promise<PriceCheckResult>) | undefined;
 }
 
 const GOLD = '#d4a017';
@@ -247,7 +250,7 @@ function Tabs({ view, category, hint }: {
 
 /** Bloomberg-style terminal UI over the local snapshot store. Reads cached
  * data only; "r" triggers a live ingest via the injected callback. */
-export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIngestSec, onOpenLink }: TuiProps): React.JSX.Element {
+export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIngestSec, onOpenLink, onPriceCheck }: TuiProps): React.JSX.Element {
   const { exit } = useApp();
   const { isRawModeSupported } = useStdin();
   const [view, setView] = useState<View>('movers');
@@ -267,6 +270,8 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
   const [watchTarget, setWatchTarget] = useState<WatchTarget | null>(null);
   const [watchInput, setWatchInput] = useState('');
   const [watchUnit, setWatchUnit] = useState<'primary' | 'divine'>('primary');
+  type PcState = { kind: 'idle' } | { kind: 'loading' } | { kind: 'result'; r: PriceCheckResult } | { kind: 'error'; message: string };
+  const [pc, setPc] = useState<PcState>({ kind: 'idle' });
   const [statusMsg, setStatusMsg] = useState('');
 
   useEffect(() => {
@@ -343,7 +348,26 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
     setSelected((s) => Math.max(0, Math.min(rowCount - 1, s + delta)));
   };
 
+  const runPriceCheck = (): void => {
+    if (onPriceCheck === undefined) return;
+    setPc({ kind: 'loading' });
+    onPriceCheck()
+      .then((r) => setPc({ kind: 'result', r }))
+      .catch((e: unknown) => setPc({ kind: 'error', message: e instanceof Error ? e.message : String(e) }));
+  };
+
   useInput((input, key) => {
+    // The price-check overlay owns the keyboard while it is open.
+    if (pc.kind !== 'idle') {
+      if (key.escape || input === 'q') { setPc({ kind: 'idle' }); return; }
+      if (key.return && pc.kind === 'result' && onOpenLink !== undefined) {
+        onOpenLink(pc.r.url);
+        setPc({ kind: 'idle' });
+        return;
+      }
+      if (input === 'p' && pc.kind !== 'loading') runPriceCheck();
+      return;
+    }
     // Row movement works in normal AND search mode — filtering must never
     // take scrolling away. Shift+arrow jumps 10.
     const handleMovement = (): boolean => {
@@ -485,6 +509,7 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
     if (key.leftArrow) { moveSelection(-VIEWPORT); return; }
     if (input === 'c') { setInputMode('category'); setCatQuery(''); setCatPick(0); return; }
     if (input === 'l') { setInputMode('league'); setLeagueQuery(''); setLeaguePick(0); return; }
+    if (input === 'p') { runPriceCheck(); return; }
     if (input === 'w' && rowCount > 0) {
       const row = table.rows[clampedSelected];
       const target = row === undefined ? null : table.model.watchTarget(row);
@@ -535,7 +560,7 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
           ? 'category: type to filter · ↑↓ pick · ↵ apply · esc cancel'
           : inputMode === 'watch'
             ? 'watch: type threshold · ↵ create · esc cancel'
-            : 's search · f sort · w watch · ↵ trade link · ↑↓ rows · ←→ page · c category · l league · r refresh · q quit';
+            : 's search · f sort · w watch · p price-check clipboard · ↵ trade link · ↑↓ rows · ←→ page · c category · l league · r refresh · q quit';
 
   const selectedMover = view === 'movers' ? (table.rows[clampedSelected] as DetailedMover | undefined) : undefined;
   const selectedOpp = view === 'opps' ? (table.rows[clampedSelected] as Opportunity | undefined) : undefined;
@@ -545,6 +570,29 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
     <Box flexDirection="column" paddingX={1}>
       <Header game={game} league={activeLeague} primary={data.summary.primaryCurrency} asOf={data.summary.asOf} ingesting={ingesting} />
       <Tabs view={view} category={data.category} hint={hint} />
+      {pc.kind !== 'idle' && (
+        <Box flexDirection="column" borderStyle="round" borderColor={GOLD} paddingX={1}>
+          {pc.kind === 'loading' && <Text color={GOLD}>Price-checking the item on your clipboard…</Text>}
+          {pc.kind === 'error' && <Text color="red">{pc.message}  <Text color={DIM}>(esc to close)</Text></Text>}
+          {pc.kind === 'result' && (() => {
+            const r = pc.r;
+            const head = `${r.itemName}${r.baseType !== undefined && r.baseType !== r.itemName ? ` · ${r.baseType}` : ''} (${r.rarity})`;
+            const divs = r.listings.filter((l) => l.currency === 'divine').map((l) => l.amount);
+            return (
+              <Box flexDirection="column">
+                <Text color={GOLD} bold>{head}</Text>
+                {r.note !== undefined && <Text color={DIM}>{r.note}</Text>}
+                {r.listings.length === 0 && r.note === undefined && <Text color={DIM}>No matching listings — the item may be rare enough to have none, or the filters are tight.</Text>}
+                {r.listings.slice(0, 10).map((l, i) => (
+                  <Text key={i}>{`  ${String(i + 1).padStart(2)}. ${formatNumber(l.amount)} ${l.currency}`}<Text color={DIM}>{`  ${l.seller}`}</Text></Text>
+                ))}
+                {divs.length >= 2 && <Text color={DIM}>{`  range ${formatNumber(Math.min(...divs))}–${formatNumber(Math.max(...divs))} divine`}</Text>}
+                <Text color={DIM}>press Enter to open the trade search · esc to close</Text>
+              </Box>
+            );
+          })()}
+        </Box>
+      )}
       {inputMode === 'watch' && watchTarget !== null && (() => {
         const dpp = data.summary.divinePerPrimary;
         const unitLabel = watchUnit === 'divine' ? 'div' : data.summary.primaryCurrency;

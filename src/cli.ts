@@ -333,6 +333,7 @@ async function cmdTui(): Promise<void> {
       onIngest,
       autoIngestSec: config.refreshSec,
       onOpenLink: (url: string) => openUrl(url, { platform: process.platform }),
+      onPriceCheck: priceCheckFromClipboard,
     }),
   );
 }
@@ -854,6 +855,37 @@ async function readItemText(): Promise<string> {
     return buffer;
   }
   return readClipboard({ platform: process.platform });
+}
+
+async function priceCheckFromClipboard(): Promise<import('./trade/price-check.js').PriceCheckResult> {
+  const text = await readItemText();
+  const item = parseItem(text);
+  if (item === null) {
+    throw new Error('No PoE item found. In game, hover the item and press Ctrl+C, then try again.');
+  }
+  const league = storedLeague();
+  const statsPath = joinPath(homedirForStats(), '.exilium', `trade-stats-${config.game}.json`);
+  let index;
+  try {
+    index = await loadStatIndex(config.game, statsPath, (url, i) => fetch(url, i), Date.now());
+  } catch {
+    const { buildStatIndex } = await import('./trade/trade-stats.js');
+    index = buildStatIndex({ result: [] });
+  }
+  const payload = buildTradeQuery(item, index, config.game);
+  const url = tradeUrlFor(payload, config.game, league);
+  const sessionId = config.poesessid;
+  if (sessionId === undefined || sessionId === '') {
+    return { itemName: item.name, rarity: item.rarity, baseType: item.baseType, listings: [], url, note: 'Live prices need your session cookie (run `exilium setup`). Opening the filtered search.' };
+  }
+  let listings: Awaited<ReturnType<typeof searchListings>> = [];
+  let note: string | undefined;
+  try {
+    listings = await searchListings(payload, config.game, league, 10, { fetchFn: (u, i) => fetch(u, i), sessionId });
+  } catch (err) {
+    note = err instanceof Error ? err.message : String(err);
+  }
+  return { itemName: item.name, rarity: item.rarity, baseType: item.baseType, listings, url, note };
 }
 
 async function cmdPriceCheck(): Promise<void> {

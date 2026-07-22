@@ -76,6 +76,16 @@ const fetchSchema = z.object({
   ),
 });
 
+export interface PriceCheckResult {
+  readonly itemName: string;
+  readonly rarity: string;
+  readonly baseType: string | undefined;
+  readonly listings: readonly PricedListing[];
+  readonly url: string;
+  /** Set when we couldn't fetch live prices (e.g. no session cookie). */
+  readonly note: string | undefined;
+}
+
 export interface PricedListing {
   readonly amount: number;
   readonly currency: string;

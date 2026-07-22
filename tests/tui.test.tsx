@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import React from 'react';
 import { render } from 'ink-testing-library';
 import { ExiliumTui } from '../src/tui/app.js';
@@ -494,6 +494,55 @@ describe('ExiliumTui', () => {
     expect(frame).toContain('poe1/Standard'); // header switched
     expect(frame).toContain('Exalted Orb'); // Standard-only item now visible
     expect(frame).not.toContain('Divine Orb');
+  });
+
+  test('p price-checks the clipboard item inline and Enter opens its trade link', async () => {
+    const opened: string[] = [];
+    const onPriceCheck = vi.fn().mockResolvedValue({
+      itemName: 'Facebreaker',
+      rarity: 'Unique',
+      baseType: 'Strapped Mitts',
+      listings: [
+        { amount: 5, currency: 'divine', seller: 'Sell1', whisper: '' },
+        { amount: 8, currency: 'divine', seller: 'Sell2', whisper: '' },
+      ],
+      url: 'https://www.pathofexile.com/trade/search/Mirage?q=%7B%22query%22%3A%7B%22name%22%3A%22Facebreaker%22%7D%7D',
+      note: undefined,
+    });
+    const { lastFrame, stdin } = render(
+      <ExiliumTui service={makeService()} {...PROPS} onPriceCheck={onPriceCheck} onOpenLink={(u) => opened.push(u)} />,
+    );
+    await flush();
+    stdin.write('p');
+    await flush();
+    await flush();
+    const frame = lastFrame()!;
+    expect(onPriceCheck).toHaveBeenCalled();
+    expect(frame).toContain('Facebreaker');
+    expect(frame).toMatch(/5 divine/);
+    expect(frame).toMatch(/press enter/i);
+    stdin.write('\r'); // open the trade link
+    await flush();
+    expect(opened).toEqual([
+      'https://www.pathofexile.com/trade/search/Mirage?q=%7B%22query%22%3A%7B%22name%22%3A%22Facebreaker%22%7D%7D',
+    ]);
+    // Esc closes the overlay back to the table.
+    stdin.write('p');
+    await flush();
+    await flush();
+    stdin.write('\u001B');
+    await flush();
+    expect(lastFrame()!).not.toMatch(/press enter to open the trade/i);
+  });
+
+  test('p shows a friendly message when the clipboard has no item', async () => {
+    const onPriceCheck = vi.fn().mockRejectedValue(new Error('No PoE item found on the clipboard.'));
+    const { lastFrame, stdin } = render(<ExiliumTui service={makeService()} {...PROPS} onPriceCheck={onPriceCheck} />);
+    await flush();
+    stdin.write('p');
+    await flush();
+    await flush();
+    expect(lastFrame()!).toMatch(/no poe item/i);
   });
 
   test('shows the empty state when no data is ingested', () => {
