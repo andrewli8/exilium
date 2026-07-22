@@ -312,10 +312,10 @@ async function cmdTui(): Promise<void> {
     league = await resolveLeague(client);
   }
   const tuiService = makeService();
-  const onIngest = async (): Promise<void> => {
+  const onIngest = async (lg: string = league): Promise<void> => {
     await ingestLeague(client, repo, {
       game: config.game,
-      league,
+      league: lg,
       categories: config.categories,
       now: () => new Date().toISOString(),
     });

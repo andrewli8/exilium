@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Text, useApp, useInput, useStdin } from 'ink';
 import type { Game, Opportunity } from '../domain/types.js';
 import { assessFreshness } from '../domain/freshness.js';
@@ -21,7 +21,7 @@ export interface TuiProps {
   /** Seconds between data re-reads from the local store. */
   readonly refreshSec: number;
   /** Optional: triggers a live ingest when the user presses "r". */
-  readonly onIngest?: (() => Promise<void>) | undefined;
+  readonly onIngest?: ((league: string) => Promise<void>) | undefined;
   /** Optional: auto-run onIngest every N seconds (live-companion mode). */
   readonly autoIngestSec?: number | undefined;
   /** Opens a URL in the browser; injectable for tests. */
@@ -267,6 +267,10 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
   const [catQuery, setCatQuery] = useState('');
   const [catPick, setCatPick] = useState(0);
   const [activeLeague, setActiveLeague] = useState(league);
+  // Ref mirror so the auto-ingest interval always reads the current league
+  // without the effect (and its timer) restarting on every league switch.
+  const activeLeagueRef = useRef(activeLeague);
+  activeLeagueRef.current = activeLeague;
   const [leagueQuery, setLeagueQuery] = useState('');
   const [leaguePick, setLeaguePick] = useState(0);
   const [liveLeagues, setLiveLeagues] = useState<readonly string[]>([]);
@@ -287,7 +291,7 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
     if (onIngest === undefined || autoIngestSec === undefined) return;
     const t = setInterval(() => {
       setIngesting(true);
-      onIngest()
+      onIngest(activeLeagueRef.current)
         .catch(() => undefined)
         .finally(() => { setIngesting(false); setTick((n) => n + 1); });
     }, autoIngestSec * 1000);
@@ -560,7 +564,7 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
     }
     if (input === 'r' && onIngest !== undefined && !ingesting) {
       setIngesting(true);
-      onIngest()
+      onIngest(activeLeague)
         .catch(() => undefined)
         .finally(() => { setIngesting(false); setTick((n) => n + 1); });
     }
