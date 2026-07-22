@@ -28,7 +28,7 @@ describe('buildTradeSearchUrl', () => {
     const q = query(url);
     expect(q.query.type).toBe('Divine Orb');
     expect(q.query.status).toEqual({ option: 'online' });
-    expect(q.query.filters.trade_filters.filters.sale_type).toEqual({ option: 'priced' });
+    expect(q.query.filters).toBeUndefined(); // no invalid sale_type filter
   });
 
   test('poe2 uses the trade2 route, available status, and strips variants', () => {

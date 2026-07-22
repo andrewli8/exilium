@@ -25,9 +25,7 @@ export function buildTradeQuery(item: ParsedItem, index: StatIndex, game: Game):
   const query: TradePayload['query'] = {
     status,
     stats: [{ type: 'and', filters: statFilters }],
-    filters: {
-      trade_filters: { filters: { sale_type: { option: 'priced' } } },
-    },
+    filters: {},
   };
 
   if (item.rarity === 'Unique') {

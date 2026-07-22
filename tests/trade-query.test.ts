@@ -48,6 +48,7 @@ describe('buildTradeQuery', () => {
     }), index, 'poe1');
     expect(payload.query.type).toBe('Saintly Chainmail');
     expect(payload.query.status).toEqual({ option: 'online' });
+    expect(payload.query.filters).not.toHaveProperty('trade_filters'); // sale_type is not a valid trade filter
     expect(payload.query.filters.misc_filters.filters.ilvl).toEqual({ min: 84 });
     expect(payload.query.filters.misc_filters.filters.corrupted).toEqual({ option: 'true' });
     expect(payload.query.filters.socket_filters.filters.links).toEqual({ min: 6 });

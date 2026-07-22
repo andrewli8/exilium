@@ -21,16 +21,12 @@ export function buildTradeSearchUrl(game: Game, league: string, itemName: string
   const isUnique = category !== undefined && category.startsWith('Unique');
   const identity = isUnique ? { name: clean } : { type: clean };
 
-  const query =
-    game === 'poe2'
-      ? { query: { ...identity, status: { option: 'available' } } }
-      : {
-          query: {
-            ...identity,
-            status: { option: 'online' },
-            filters: { trade_filters: { filters: { sale_type: { option: 'priced' } } } },
-          },
-        };
+  const query = {
+    query: {
+      ...identity,
+      status: { option: game === 'poe2' ? 'available' : 'online' },
+    },
+  };
   const q = encodeURIComponent(JSON.stringify(query));
   const base =
     game === 'poe2'
