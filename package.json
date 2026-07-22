@@ -13,7 +13,8 @@
     "dashboard": "tsx src/cli.ts dashboard",
     "watch": "tsx src/cli.ts watch",
     "tui": "tsx src/cli.ts tui",
-    "eval": "tsx evals/run-evals.ts"
+    "eval": "tsx evals/run-evals.ts",
+    "build:binaries": "bash scripts/build-binaries.sh"
   },
   "repository": {
     "type": "git",
@@ -38,6 +39,7 @@
     "better-sqlite3": "12.11.1",
     "ink": "7.1.1",
     "react": "19.2.7",
+    "react-devtools-core": "7.0.1",
     "ws": "8.21.1",
     "zod": "4.4.3"
   },

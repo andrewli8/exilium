@@ -19,24 +19,19 @@ Covers PoE1 (default: 39 categories, ~35,000 markets including currency, uniques
 
 ## Install
 
-You need Node.js 20 or newer (`node --version`). Takes about five minutes.
+Download one file and run it. No Node.js, no toolchain.
+
+**Windows:** grab `exilium-windows-x64.exe` from the [latest release](https://github.com/andrewli8/exilium/releases/latest), rename it to `exilium.exe`, and run it from a terminal (Windows Terminal is nicer than old `cmd.exe` for the UI). Put it somewhere on your PATH to run it from anywhere.
+
+**macOS / Linux:** one line downloads the right binary and puts `exilium` on your PATH:
 
 ```bash
-git clone https://github.com/andrewli8/exilium.git
-cd exilium
-npm install
-npm link
+curl -fsSL https://raw.githubusercontent.com/andrewli8/exilium/main/scripts/install.sh | bash
 ```
 
-`npm link` makes `exilium` a command you can run from anywhere. If `/usr/local/bin` is root-owned on your machine, use `sudo npm link`, or symlink it yourself:
+Or download `exilium-<os>-<arch>` from the [releases page](https://github.com/andrewli8/exilium/releases/latest) yourself, `chmod +x` it, and move it onto your PATH.
 
-```bash
-ln -s "$PWD/bin/exilium.js" ~/.local/bin/exilium
-```
-
-**On Windows**, use PowerShell or Windows Terminal (recommended over old `cmd.exe` for the terminal UI's box-drawing characters). `npm link` works as-is and creates the `exilium` command; you do not need the symlink line above. `npm install` builds a native module (better-sqlite3), which ships prebuilt binaries for common Node versions, so it usually needs no extra tooling. If it fails to build, install the [VS C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/). Clipboard, desktop notifications, and opening trade links all work natively on Windows.
-
-Then, from any directory:
+Then:
 
 ```bash
 exilium setup    # pick your game and pull the first batch of data
@@ -44,7 +39,18 @@ exilium          # open the terminal UI
 exilium help     # every command
 ```
 
-Your data lives in `~/.exilium/`, and the terminal UI keeps itself refreshed every five minutes. Not on npm yet; once it is, `npm install -g exilium` will do the same thing.
+Your data lives in `~/.exilium/`, and the terminal UI refreshes itself every five minutes.
+
+### From source (developers)
+
+```bash
+git clone https://github.com/andrewli8/exilium.git
+cd exilium
+npm install
+npm link          # or: ln -s "$PWD/bin/exilium.js" ~/.local/bin/exilium
+```
+
+Build the standalone binaries yourself with `npm run build:binaries` (needs [Bun](https://bun.sh); it cross-compiles all platforms from one machine).
 
 ## The terminal UI
 
