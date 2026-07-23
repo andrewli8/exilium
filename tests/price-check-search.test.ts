@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
 import { searchListings, tradeUrlFor } from '../src/trade/price-check.js';
 import type { TradePayload } from '../src/trade/price-check.js';
+import { TradeRateLimiter, RateLimitError } from '../src/trade/rate-limit.js';
 
 const payload: TradePayload = { query: { type: 'Saintly Chainmail', stats: [{ type: 'and', filters: [] }] }, sort: { price: 'asc' } };
 
@@ -36,6 +37,22 @@ describe('searchListings', () => {
   test('a 400 points at a likely-ended league and the l picker', async () => {
     const fetchFn = vi.fn().mockResolvedValue(new Response('{"error":{"code":2,"message":"Invalid query"}}', { status: 400 }));
     await expect(searchListings(payload, 'poe1', 'Mirage', 10, { fetchFn, sessionId: 'OK' })).rejects.toThrow(/league.*\bl\b|press l/i);
+  });
+
+  test('gates before hitting the API when a cooldown is active — no request is sent', async () => {
+    const limiter = new TradeRateLimiter(() => 0);
+    limiter.observe({ status: 429, headers: { get: (n) => (n.toLowerCase() === 'retry-after' ? '30' : null) } });
+    const fetchFn = vi.fn();
+    await expect(searchListings(payload, 'poe1', 'Standard', 10, { fetchFn, sessionId: 'OK', limiter })).rejects.toThrow(RateLimitError);
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  test('a 429 from the API surfaces as a RateLimitError and records the cooldown', async () => {
+    const limiter = new TradeRateLimiter(() => 0);
+    const fetchFn = vi.fn().mockResolvedValue(new Response('slow down', { status: 429, headers: { 'Retry-After': '17' } }));
+    await expect(searchListings(payload, 'poe1', 'Standard', 10, { fetchFn, sessionId: 'OK', limiter })).rejects.toThrow(RateLimitError);
+    expect(limiter.health().total429s).toBe(1);
+    expect(limiter.health().cooldownRemainingSec).toBe(17);
   });
 });
 

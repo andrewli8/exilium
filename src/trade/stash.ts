@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { DetailedMover } from '../mcp/service.js';
+import { RateLimitError, sharedTradeRateLimiter, TradeRateLimiter } from './rate-limit.js';
 
 /** Stash reading over the user's own session — the same client-side trust
  * model as live search (Exilence and Awakened established it): the cookie
@@ -29,6 +30,8 @@ export interface StashFetchDeps {
   readonly fetchFn: (url: string, init: { headers: Record<string, string> }) => Promise<Response>;
   /** Pause between tab requests — stash walking is many requests. */
   readonly delayMs: number;
+  /** Shared trade-API rate limiter; defaults to the process-wide instance. */
+  readonly limiter?: TradeRateLimiter;
 }
 
 const MAX_TABS = 60;
@@ -41,20 +44,23 @@ export async function fetchAllStashItems(
 ): Promise<readonly StashItem[]> {
   const counts = new Map<string, number>();
   let numTabs = 1;
+  const limiter = deps.limiter ?? sharedTradeRateLimiter;
   for (let tabIndex = 0; tabIndex < Math.min(numTabs, MAX_TABS); tabIndex++) {
+    limiter.gate();
     const res = await deps.fetchFn(buildStashUrl(accountName, league, tabIndex), {
       headers: {
         Cookie: `POESESSID=${sessionId}`,
         'User-Agent': 'Exilium/0.1.0 (+https://github.com/andrewli8/exilium)',
       },
     });
+    limiter.observe(res);
     if (res.status === 401 || res.status === 403) {
       throw new Error(
         'pathofexile.com refused the stash request — your POESESSID is missing/expired, or the account name is wrong. Use the full name including the #tag (e.g. CoolExile#1234, shown on your pathofexile.com profile). Reading your own stash needs your own session cookie; check both.',
       );
     }
     if (res.status === 429) {
-      throw new Error('pathofexile.com rate-limited the stash walk — wait a minute and rerun.');
+      throw new RateLimitError(limiter.health().cooldownRemainingSec || 60);
     }
     if (!res.ok) throw new Error(`stash request failed (${res.status})`);
     const parsed = stashResponseSchema.safeParse(await res.json());

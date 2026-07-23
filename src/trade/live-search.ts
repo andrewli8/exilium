@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { RateLimitError, sharedTradeRateLimiter, TradeRateLimiter } from './rate-limit.js';
 
 /** Live trade-search monitoring against pathofexile.com, using the user's own
  * session, on the user's own machine. The session cookie goes to
@@ -67,6 +68,8 @@ export interface LiveDeps {
   readonly clipboard: (text: string) => Promise<void>;
   readonly notify: (title: string, message: string) => Promise<void>;
   readonly log: (message: string) => void;
+  /** Shared trade-API rate limiter; defaults to the process-wide instance. */
+  readonly limiter?: TradeRateLimiter;
 }
 
 const FETCH_BATCH = 10;
@@ -80,17 +83,21 @@ export async function handleNewListings(
   deps: LiveDeps,
 ): Promise<readonly LiveListing[]> {
   const listings: LiveListing[] = [];
+  const limiter = deps.limiter ?? sharedTradeRateLimiter;
   for (let i = 0; i < ids.length; i += FETCH_BATCH) {
     const batch = ids.slice(i, i + FETCH_BATCH);
+    limiter.gate();
     const res = await deps.fetchFn(buildFetchUrl(batch, search.searchId, search.realm), {
       headers: {
         Cookie: `POESESSID=${sessionId}`,
         'User-Agent': 'Exilium/0.1.0 (+https://github.com/andrewli8/exilium)',
       },
     });
+    limiter.observe(res);
     if (res.status === 401 || res.status === 403) {
       throw new Error('pathofexile.com rejected the session — your POESESSID is missing or expired. Log into the trade site in a browser and copy the fresh cookie into EXILIUM_POESESSID.');
     }
+    if (res.status === 429) throw new RateLimitError(limiter.health().cooldownRemainingSec || 60);
     if (!res.ok) throw new Error(`trade fetch failed (${res.status})`);
     const parsed = fetchResponseSchema.safeParse(await res.json());
     if (!parsed.success) throw new Error('trade fetch response did not match the expected shape');

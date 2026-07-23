@@ -196,6 +196,10 @@ Two commands, `stash` and `live`, need your pathofexile.com session cookie (POES
 
 Read-only analytics from public community APIs, with a proper User-Agent. No trade execution, no game automation, no game-file access. Whispers are copied, never auto-sent. Stash reads are your own account only. Exilium caches aggressively and does not poll faster than every five minutes.
 
+When it does talk to the official trade site (price-check, live search, stash), it reads GGG's rate-limit headers and backs off before it would trip a limit, and it honors any Retry-After it gets back. That keeps your account in good standing. If you ever see a "backing off" message, it is Exilium protecting your access, not an error.
+
+Exilium is a fan-made tool. It is not affiliated with, endorsed by, or sponsored by Grinding Gear Games. Path of Exile and all related content are property of Grinding Gear Games.
+
 ## Examples
 
 Step-by-step walkthroughs with real output live in [examples/](examples/): [checking prices](examples/01-checking-prices.md), [a tour of every command](examples/02-cli-tour.md), [common workflows](examples/03-common-workflows.md), [arbitrage](examples/04-arbitrage.md), and [live search](examples/05-live-search.md).
@@ -212,4 +216,6 @@ The flow is: poe.ninja client, a zod-validated normalizer, a SQLite snapshot sto
 
 ## License
 
-MIT
+MIT. See [LICENSE](./LICENSE).
+
+Not affiliated with or endorsed by Grinding Gear Games. Path of Exile is a trademark of Grinding Gear Games.

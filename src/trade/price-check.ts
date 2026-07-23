@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { Game } from '../domain/types.js';
 import type { ParsedItem } from './parse-item.js';
 import { matchMod, type StatIndex } from './trade-stats.js';
+import { RateLimitError, sharedTradeRateLimiter, TradeRateLimiter } from './rate-limit.js';
 
 /** Build a trade.pathofexile.com query from a parsed item. Uniques search by
  * name; rares/magic/normal by base type plus item level, links, corruption,
@@ -97,6 +98,8 @@ export interface PricedListing {
 export interface PriceCheckDeps {
   readonly fetchFn: (url: string, init: { method?: string; headers: Record<string, string>; body?: string }) => Promise<Response>;
   readonly sessionId: string;
+  /** Shared trade-API rate limiter; defaults to the process-wide instance. */
+  readonly limiter?: TradeRateLimiter;
 }
 
 /** Run the search and return up to `limit` cheapest priced listings. */
@@ -108,20 +111,23 @@ export async function searchListings(
   deps: PriceCheckDeps,
 ): Promise<readonly PricedListing[]> {
   const api = game === 'poe2' ? 'trade2' : 'trade';
+  const limiter = deps.limiter ?? sharedTradeRateLimiter;
   const headers = {
     Cookie: `POESESSID=${deps.sessionId}`,
     'User-Agent': 'Exilium/0.1.0 (+https://github.com/andrewli8/exilium)',
     'Content-Type': 'application/json',
   };
+  limiter.gate(); // throws RateLimitError if we are inside a cooldown window
   const searchRes = await deps.fetchFn(`https://www.pathofexile.com/api/${api}/search/${encodeURIComponent(league)}`, {
     method: 'POST',
     headers,
     body: JSON.stringify(payload),
   });
+  limiter.observe(searchRes);
   if (searchRes.status === 401 || searchRes.status === 403) {
     throw new Error('pathofexile.com rejected the search — your POESESSID is missing or expired. Refresh it and retry.');
   }
-  if (searchRes.status === 429) throw new Error('pathofexile.com rate-limited the search — wait a minute and retry.');
+  if (searchRes.status === 429) throw new RateLimitError(limiter.health().cooldownRemainingSec || 60);
   if (searchRes.status === 400) {
     throw new Error(`trade rejected the query (400) for league "${league}" — this usually means the league has ended. Press l to pick a current league and retry.`);
   }
@@ -131,10 +137,13 @@ export async function searchListings(
   const ids = search.data.result.slice(0, limit);
   if (ids.length === 0) return [];
 
+  limiter.gate();
   const fetchRes = await deps.fetchFn(
     `https://www.pathofexile.com/api/${api}/fetch/${ids.join(',')}?query=${search.data.id}`,
     { headers },
   );
+  limiter.observe(fetchRes);
+  if (fetchRes.status === 429) throw new RateLimitError(limiter.health().cooldownRemainingSec || 60);
   if (!fetchRes.ok) throw new Error(`trade fetch failed (${fetchRes.status})`);
   const parsed = fetchSchema.safeParse(await fetchRes.json());
   if (!parsed.success) throw new Error('trade fetch response did not match the expected shape');
