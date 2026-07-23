@@ -168,6 +168,8 @@ The server exposes 15 tools: `get_leagues`, `get_market_snapshot`, `get_pair_his
 | `EXILIUM_MIN_EDGE` | `25` | Watch mode: minimum edge (%) to notify on |
 | `EXILIUM_WATCH_INTERVAL` | `600` | Watch mode: seconds between cycles (minimum 300) |
 | `EXILIUM_WEBHOOK` | none | Watch mode: Discord-compatible webhook URL |
+| `EXILIUM_ASCII` | auto | Force plain-ASCII glyphs (set to `1`). Auto-on for the legacy Windows console; modern terminals keep the full look |
+| `EXILIUM_UNICODE` | auto | Force the full Unicode look (set to `1`), overriding the ASCII fallback |
 
 `exilium setup` writes these (and your optional cookie) to `~/.exilium/config.json`. Environment variables always override the file.
 

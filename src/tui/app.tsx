@@ -10,6 +10,7 @@ import type { PriceCheckResult } from '../trade/price-check.js';
 import { formatDelta, formatNumber, formatPriceUnits } from '../domain/format-price.js';
 import { matchesSearch } from './search.js';
 import { renderSparkline } from './sparkline.js';
+import { glyphs, fold } from './glyphs.js';
 
 type View = 'movers' | 'opps' | 'arb' | 'watches';
 type InputMode = 'normal' | 'search' | 'sort' | 'category' | 'watch' | 'league';
@@ -192,8 +193,8 @@ function HeaderRow<T>({ model, sortCol, sortDir, sortMode }: {
   return (
     <Box>
       {model.columns.map((c, i) => {
-        const marker = sortCol === i ? (sortDir === 'asc' ? '▲' : '▼') : '';
-        const label = `${c.label}${marker}`.slice(0, c.width).padEnd(c.width);
+        const marker = sortCol === i ? (sortDir === 'asc' ? glyphs.sortAsc : glyphs.sortDesc) : '';
+        const label = fold(`${c.label}${marker}`).slice(0, c.width).padEnd(c.width);
         return (
           <Text key={c.label} inverse={sortMode && sortCol === i} color={sortCol === i ? GOLD : 'white'} bold={sortCol === i}>
             {label}{' '}
@@ -210,7 +211,7 @@ function DataRow<T>({ model, row, selected }: {
   readonly selected: boolean;
 }): React.JSX.Element {
   const cells = model.cells(row);
-  const line = model.columns.map((c, i) => (cells[i] ?? '').slice(0, c.width).padEnd(c.width)).join(' ');
+  const line = model.columns.map((c, i) => fold(cells[i] ?? '').slice(0, c.width).padEnd(c.width)).join(' ');
   return <Text inverse={selected} wrap="truncate">{line}</Text>;
 }
 
@@ -223,10 +224,10 @@ function Header({ game, league, primary, asOf, ingesting }: {
   const fresh = assessFreshness(asOf, Date.now());
   return (
     <Box justifyContent="space-between">
-      <Text bold color={GOLD}>{' EXILIUM '}<Text color="white">· {game}/{league} · prices in {primary}</Text></Text>
+      <Text bold color={GOLD}>{' EXILIUM '}<Text color="white">{fold(`· ${game}/${league} · prices in ${primary}`)}</Text></Text>
       <Text color={DIM}>
-        {ingesting ? 'ingesting… ' : ''}
-        {fresh === null ? 'no data ' : <Text><Text color={FRESH_COLORS[fresh.level]}>●</Text> {fresh.label} </Text>}
+        {ingesting ? fold('ingesting… ') : ''}
+        {fresh === null ? 'no data ' : <Text><Text color={FRESH_COLORS[fresh.level]}>{fold('●')}</Text> {fresh.label} </Text>}
       </Text>
     </Box>
   );
@@ -574,12 +575,12 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
     return (
       <Box flexDirection="column" padding={1}>
         <Header game={game} league={activeLeague} primary={data.summary.primaryCurrency} asOf={null} ingesting={ingesting} />
-        <Text color={DIM}>No data ingested yet — press r to ingest now, or run `exilium ingest`.</Text>
+        <Text color={DIM}>{fold('No data ingested yet — press r to ingest now, or run `exilium ingest`.')}</Text>
       </Box>
     );
   }
 
-  const hint =
+  const hint = fold(
     inputMode === 'search'
       ? 'type to filter · ↑↓ scroll matches · ↵ keep · esc clear'
       : inputMode === 'sort'
@@ -588,7 +589,8 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
           ? 'category: type to filter · ↑↓ pick · ↵ apply · esc cancel'
           : inputMode === 'watch'
             ? 'watch: type threshold · ↵ create · esc cancel'
-            : 's search · f sort · w watch · p price-check clipboard · ↵ trade link · ↑↓ rows · ←→ page · c category · l league · r refresh · q quit';
+            : 's search · f sort · w watch · p price-check clipboard · ↵ trade link · ↑↓ rows · ←→ page · c category · l league · r refresh · q quit',
+  );
 
   const selectedMover = view === 'movers' ? (table.rows[clampedSelected] as DetailedMover | undefined) : undefined;
   const selectedOpp = view === 'opps' ? (table.rows[clampedSelected] as Opportunity | undefined) : undefined;
@@ -599,23 +601,23 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
       <Header game={game} league={activeLeague} primary={data.summary.primaryCurrency} asOf={data.summary.asOf} ingesting={ingesting} />
       <Tabs view={view} category={data.category} hint={hint} />
       {pc.kind !== 'idle' && (
-        <Box flexDirection="column" borderStyle="round" borderColor={GOLD} paddingX={1}>
-          {pc.kind === 'loading' && <Text color={GOLD}>Price-checking the item on your clipboard…</Text>}
-          {pc.kind === 'error' && <Text color="red">{pc.message}  <Text color={DIM}>(esc to close)</Text></Text>}
+        <Box flexDirection="column" borderStyle={glyphs.border} borderColor={GOLD} paddingX={1}>
+          {pc.kind === 'loading' && <Text color={GOLD}>{fold('Price-checking the item on your clipboard…')}</Text>}
+          {pc.kind === 'error' && <Text color="red">{fold(pc.message)}  <Text color={DIM}>(esc to close)</Text></Text>}
           {pc.kind === 'result' && (() => {
             const r = pc.r;
             const head = `${r.itemName}${r.baseType !== undefined && r.baseType !== r.itemName ? ` · ${r.baseType}` : ''} (${r.rarity})`;
             const divs = r.listings.filter((l) => l.currency === 'divine').map((l) => l.amount);
             return (
               <Box flexDirection="column">
-                <Text color={GOLD} bold>{head}</Text>
+                <Text color={GOLD} bold>{fold(head)}</Text>
                 {r.note !== undefined && <Text color={DIM}>{r.note}</Text>}
-                {r.listings.length === 0 && r.note === undefined && <Text color={DIM}>No matching listings — the item may be rare enough to have none, or the filters are tight.</Text>}
+                {r.listings.length === 0 && r.note === undefined && <Text color={DIM}>{fold('No matching listings — the item may be rare enough to have none, or the filters are tight.')}</Text>}
                 {r.listings.slice(0, 10).map((l, i) => (
                   <Text key={i}>{`  ${String(i + 1).padStart(2)}. ${formatNumber(l.amount)} ${l.currency}`}<Text color={DIM}>{`  ${l.seller}`}</Text></Text>
                 ))}
-                {divs.length >= 2 && <Text color={DIM}>{`  range ${formatNumber(Math.min(...divs))}–${formatNumber(Math.max(...divs))} divine`}</Text>}
-                <Text color={DIM}>press Enter to open the trade search · esc to close</Text>
+                {divs.length >= 2 && <Text color={DIM}>{fold(`  range ${formatNumber(Math.min(...divs))}–${formatNumber(Math.max(...divs))} divine`)}</Text>}
+                <Text color={DIM}>{fold('press Enter to open the trade search · esc to close')}</Text>
               </Box>
             );
           })()}
@@ -634,21 +636,21 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
               ? `≈ ${Math.round((Number(watchInput) || 0) / dpp).toLocaleString('en-US')} ${data.summary.primaryCurrency}`
               : `≈ ${formatNumber((Number(watchInput) || 0) * dpp)} div`;
         return (
-          <Box flexDirection="column" borderStyle="round" borderColor={GOLD} paddingX={1}>
+          <Box flexDirection="column" borderStyle={glyphs.border} borderColor={GOLD} paddingX={1}>
             <Text color={GOLD} bold>{`watch: ${watchTarget.name}`}</Text>
             {watchTarget.kind === 'price' ? (
               <Text>
-                {`current ${formatNumber(refInUnit)} ${unitLabel} · threshold: ${watchInput} ${unitLabel}▌ ${other ?? ''}  → `}
+                {fold(`current ${formatNumber(refInUnit)} ${unitLabel} · threshold: ${watchInput} ${unitLabel}▌ ${other ?? ''}  → `)}
                 <Text color={enteredPrimary >= watchTarget.reference ? 'green' : 'red'} bold>
                   {enteredPrimary >= watchTarget.reference ? 'alert on rise' : 'alert on drop'}
                 </Text>
               </Text>
             ) : (
-              <Text>{`current edge ${watchTarget.reference.toFixed(1)}% · alert at edge ≥ ${watchInput}▌ %`}</Text>
+              <Text>{fold(`current edge ${watchTarget.reference.toFixed(1)}% · alert at edge ≥ ${watchInput}▌ %`)}</Text>
             )}
             <Text color={DIM}>
-              {watchTarget.kind === 'price' && dpp !== null ? 'd/c switch div↔chaos · ' : ''}
-              type numbers · ↑↓ nudge ±1% · ↵ create · esc cancel — fires once, in pane 4 &amp; `exilium watches`
+              {watchTarget.kind === 'price' && dpp !== null ? fold('d/c switch div↔chaos · ') : ''}
+              {fold('type numbers · ↑↓ nudge ±1% · ↵ create · esc cancel — fires once, in pane 4 & `exilium watches`')}
             </Text>
           </Box>
         );
@@ -663,18 +665,18 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
           : leagueLoad === 'error' ? 'trade API unreachable — showing local leagues'
           : `${matches.length} leagues`;
         return (
-          <Box flexDirection="column" borderStyle="round" borderColor={GOLD} paddingX={1}>
-            <Text color={GOLD}>{`league: ${leagueQuery}▌`}<Text color={DIM}>{`  (${status} · type to filter · ↑↓ pick · ↵ switch · esc cancel)`}</Text></Text>
+          <Box flexDirection="column" borderStyle={glyphs.border} borderColor={GOLD} paddingX={1}>
+            <Text color={GOLD}>{fold(`league: ${leagueQuery}▌`)}<Text color={DIM}>{fold(`  (${status} · type to filter · ↑↓ pick · ↵ switch · esc cancel)`)}</Text></Text>
             {matches.slice(off, off + LG_VIEW).map((l, i) => {
               const idx = off + i;
               const tag = localSet.has(l) ? ' · data' : '';
               return (
                 <Text key={l} inverse={idx === pick} color={idx === pick ? GOLD : DIM} bold={idx === pick}>
-                  {(idx === pick ? `▶ ${l}` : `  ${l}`) + tag}
+                  {fold((idx === pick ? `▶ ${l}` : `  ${l}`) + tag)}
                 </Text>
               );
             })}
-            <Text color={DIM}>Live leagues come from the trade API; `· data` marks ones you have ingested.</Text>
+            <Text color={DIM}>{fold('Live leagues come from the trade API; `· data` marks ones you have ingested.')}</Text>
           </Box>
         );
       })()}
@@ -684,13 +686,13 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
         const pick = Math.min(catPick, Math.max(0, matches.length - 1));
         const catOffset = Math.max(0, Math.min(pick - CAT_VIEW + 1, Math.max(0, matches.length - CAT_VIEW)));
         return (
-          <Box flexDirection="column" borderStyle="round" borderColor={GOLD} paddingX={1}>
-            <Text color={GOLD}>{`category: ${catQuery}▌`}<Text color={DIM}>{`  (${matches.length} — type to filter · ↑↓ pick · ↵ apply · esc cancel)`}</Text></Text>
+          <Box flexDirection="column" borderStyle={glyphs.border} borderColor={GOLD} paddingX={1}>
+            <Text color={GOLD}>{fold(`category: ${catQuery}▌`)}<Text color={DIM}>{fold(`  (${matches.length} — type to filter · ↑↓ pick · ↵ apply · esc cancel)`)}</Text></Text>
             {matches.slice(catOffset, catOffset + CAT_VIEW).map((c, i) => {
               const idx = catOffset + i;
               return (
                 <Text key={c} inverse={idx === pick} color={idx === pick ? GOLD : DIM} bold={idx === pick}>
-                  {idx === pick ? `▶ ${c}` : `  ${c}`}
+                  {fold(idx === pick ? `▶ ${c}` : `  ${c}`)}
                 </Text>
               );
             })}
@@ -700,7 +702,7 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
       })()}
       {(inputMode === 'search' || search !== '') && (
         <Text color={GOLD}>
-          {`search: ${search}${inputMode === 'search' ? '▌' : ''}`}
+          {fold(`search: ${search}${inputMode === 'search' ? '▌' : ''}`)}
           <Text color={DIM}>{`  (${rowCount} match${rowCount === 1 ? '' : 'es'})`}</Text>
         </Text>
       )}
@@ -711,17 +713,17 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
         ))}
         {rowCount === 0 && <Text color={DIM}>Nothing matches.</Text>}
         {rowCount > 0 && (
-          <Text color={DIM}>{`row ${clampedSelected + 1} of ${rowCount}${rowCount > VIEWPORT ? ' · ↑↓/PgUp/PgDn to scroll' : ''}`}</Text>
+          <Text color={DIM}>{fold(`row ${clampedSelected + 1} of ${rowCount}${rowCount > VIEWPORT ? ' · ↑↓/PgUp/PgDn to scroll' : ''}`)}</Text>
         )}
       </Box>
       {selectedMover !== undefined && (
         <Box marginTop={1} flexDirection="column">
           <Text color={GOLD} bold>{selectedMover.name}</Text>
           <Text>
-            7d trend <Text color="cyan">{renderSparkline(selectedMover.sparkline)}</Text>
+            7d trend <Text color="cyan">{renderSparkline(selectedMover.sparkline, glyphs.spark)}</Text>
             {'  24h '}
-            {selectedMover.change24h === null ? `n/a (7d ${formatDelta(selectedMover.totalChange)})` : formatDelta(selectedMover.change24h)}
-            {'  ↵ opens trade site'}
+            {fold(selectedMover.change24h === null ? `n/a (7d ${formatDelta(selectedMover.totalChange)})` : formatDelta(selectedMover.change24h))}
+            {fold('  ↵ opens trade site')}
           </Text>
         </Box>
       )}
@@ -736,8 +738,8 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
       )}
       <Box marginTop={1}>
         <Text color={DIM}>
-          {statusMsg !== '' ? <Text color={GOLD}>{statusMsg}  ·  </Text> : null}
-          humans execute all trades · data via poe.ninja · {data.summary.categories} categories
+          {statusMsg !== '' ? <Text color={GOLD}>{fold(`${statusMsg}  ·  `)}</Text> : null}
+          {fold(`humans execute all trades · data via poe.ninja · ${data.summary.categories} categories`)}
         </Text>
       </Box>
     </Box>
