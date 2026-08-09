@@ -5,8 +5,8 @@ import type { ExiliumConfig } from '../config.js';
 import { ingestLeague } from '../ingest/ingest.js';
 import { NinjaClient } from '../sources/ninja/client.js';
 import type { SnapshotRepository } from '../storage/snapshot-repository.js';
-import { fetchTradeLeagues } from '../trade/leagues.js';
 import { buildLiveWsUrl, fetchListings, type TradeSearch } from '../trade/live-search.js';
+import { effectiveLeague, resolveSnipeLeague } from './league.js';
 import { createNotifier } from '../watch/notify.js';
 import { copyToClipboard, openUrl } from '../platform.js';
 import {
@@ -14,7 +14,6 @@ import {
   readSnipeFolderFiles,
   resolveSnipeFolder,
   scaffoldSnipeFolder,
-  type SnipeTarget,
 } from './bettertrading.js';
 import { assessMargin } from './margin.js';
 import { decideSnipe, formatAlert, type SnipeAlert } from './engine.js';
@@ -40,33 +39,6 @@ export interface SnipeFlags {
 /** GGG allows a bounded number of live-search sockets per account. */
 const MAX_SOCKETS = 20;
 const CONNECT_STAGGER_MS = 500;
-/** Snipe league fallback when the trade API is unreachable: the current
- * challenge league. */
-const DEFAULT_SNIPE_LEAGUE = 'Allflame';
-
-/** Current challenge league (Allflame today): first trade-API league that is
- * not a standard/hardcore/ruthless variant. */
-export async function resolveSnipeLeague(config: ExiliumConfig, flagLeague: string | undefined, log: (m: string) => void): Promise<string> {
-  if (flagLeague !== undefined) return flagLeague;
-  if (config.league !== null) return config.league;
-  try {
-    const leagues = await fetchTradeLeagues(config.game, (url, init) => fetch(url, init));
-    const challenge = leagues.find((l) => !/standard|hardcore|ruthless/i.test(l));
-    if (challenge !== undefined) return challenge;
-  } catch (err) {
-    log(`could not fetch trade leagues (${err instanceof Error ? err.message : err}) — defaulting to ${DEFAULT_SNIPE_LEAGUE}`);
-  }
-  return DEFAULT_SNIPE_LEAGUE;
-}
-
-/** The league a target actually runs under. PoE1 searches are rewritten to
- * the resolved league (slugs are league-portable); PoE2 searches keep their
- * own league because a PoE1 league name would 400. */
-function effectiveLeague(target: SnipeTarget, resolved: string, keepLeague: boolean): string | null {
-  if (target.realm === 'trade2') return target.league;
-  if (keepLeague && target.league !== null) return target.league;
-  return resolved;
-}
 
 interface SnipeDeps {
   readonly config: ExiliumConfig;
@@ -240,7 +212,11 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
             const fresh = (msg.new ?? []).filter((id) => !seen.has(id));
             if (fresh.length === 0) return;
             const listings = await fetchListings(fresh, search, sessionId, { fetchFn: (url, init) => fetch(url, init) });
-            const snapshots = repo.latestAll(config.game, league);
+            // Reference prices must come from the league the search actually
+            // runs under — a --keep-league target in Standard must never be
+            // margined against Allflame prices. Off-league targets simply
+            // have no local data, so their alerts say "no reference price".
+            const snapshots = repo.latestAll(config.game, search.league);
             const nowMs = Date.now();
             for (const listing of listings) {
               const decision = decideSnipe({
