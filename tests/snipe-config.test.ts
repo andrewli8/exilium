@@ -25,6 +25,10 @@ describe('snipe settings', () => {
     expect(loadConfig({}, { snipe: { autoTravelAcknowledged: true } }).snipe.autoTravelAcknowledged).toBe(true);
   });
 
+  test('an empty folder env var falls through to the file value', () => {
+    expect(loadConfig({ EXILIUM_BETTERTRADING: '' }, { snipe: { folder: '/from-file' } }).snipe.folder).toBe('/from-file');
+  });
+
   test('a non-numeric margin env var fails fast', () => {
     expect(() => loadConfig({ EXILIUM_SNIPE_MIN_MARGIN: 'lots' })).toThrow(/EXILIUM_SNIPE_MIN_MARGIN/);
   });

@@ -39,6 +39,9 @@ export interface SnipeFlags {
 /** GGG allows a bounded number of live-search sockets per account. */
 const MAX_SOCKETS = 20;
 const CONNECT_STAGGER_MS = 500;
+/** The socket loop dedupes ids at message time; the engine's own duplicate
+ * check gets an empty prior set. */
+const NO_PRIOR_LISTINGS: ReadonlySet<string> = new Set();
 
 interface SnipeDeps {
   readonly config: ExiliumConfig;
@@ -76,7 +79,6 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
 
   const folder = resolveSnipeFolder({
     flagValue: flags.folder ?? config.snipe.folder,
-    env: process.env,
     cwd: process.cwd(),
     home: homedir(),
   });
@@ -119,8 +121,11 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
 
   // Reference prices stay inside the 10-minute freshness window: refresh on
   // start and every refreshSec (floored at 300s; the DB-refereed min
-  // interval dedupes across processes). A failed refresh never blocks
-  // alerts — they just carry a STALE marker.
+  // interval dedupes across processes). Item categories — the uniques being
+  // sniped — must ride the same cadence, not ingest's default hourly one.
+  // A failed or in-flight refresh never blocks alerts — they just carry a
+  // STALE marker, so the first refresh runs concurrently with the sockets
+  // instead of delaying them.
   const client = new NinjaClient({ userAgent: config.userAgent });
   const refresh = async (): Promise<void> => {
     try {
@@ -129,13 +134,14 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
         league,
         categories: config.categories,
         now: () => new Date().toISOString(),
+        itemsMinIntervalSec: Math.max(300, config.refreshSec),
       });
       if (result.saved.length > 0) log(`refreshed ${result.saved.length} categories`);
     } catch (err) {
       log(`price refresh failed: ${err instanceof Error ? err.message : err}`);
     }
   };
-  await refresh();
+  void refresh();
   setInterval(() => void refresh(), config.refreshSec * 1000);
 
   const { execFile } = await import('node:child_process');
@@ -168,6 +174,16 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
 
   const handleAlert = async (alert: SnipeAlert): Promise<void> => {
     const rendered = formatAlert(alert);
+    // The travel action is the time-critical part of a snipe — start it
+    // first and let clipboard/sound/notification I/O overlap it.
+    const travelPromise = dispatchTravel(alert, {
+      mode: travel.mode,
+      openSearchPage: flags.open,
+      openUrl: async (url) => {
+        openUrl(url, { platform: process.platform });
+      },
+      ...(page === undefined ? {} : { page }),
+    });
     if (alert.whisper !== '') {
       try {
         await copyToClipboard(alert.whisper, { platform: process.platform });
@@ -178,14 +194,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     playSound(config, execFn);
     await notifier.notify(rendered.title, rendered.body);
     out(`[${new Date().toISOString()}] ${rendered.line}`);
-    const result = await dispatchTravel(alert, {
-      mode: travel.mode,
-      openSearchPage: flags.open,
-      openUrl: async (url) => {
-        openUrl(url, { platform: process.platform });
-      },
-      ...(page === undefined ? {} : { page }),
-    });
+    const result = await travelPromise;
     out(`  ${result.action}: ${result.detail}`);
     recordSnipe(alert, result.action, result.detail, log);
   };
@@ -211,6 +220,10 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
             const msg = JSON.parse(data.toString()) as { new?: string[] };
             const fresh = (msg.new ?? []).filter((id) => !seen.has(id));
             if (fresh.length === 0) return;
+            // Mark ids seen BEFORE the awaited fetch: a replayed/duplicate
+            // message arriving mid-await must not double-fire the alert (or
+            // an auto-travel click).
+            for (const id of fresh) seen.add(id);
             const listings = await fetchListings(fresh, search, sessionId, { fetchFn: (url, init) => fetch(url, init) });
             // Reference prices must come from the league the search actually
             // runs under — a --keep-league target in Standard must never be
@@ -222,11 +235,15 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
               const decision = decideSnipe({
                 listing,
                 target,
-                assessment: assessMargin({ itemName: listing.itemName, price: listing.price, snapshots, nowMs }),
+                // referenceName, not the joined display name — poe.ninja
+                // indexes "Mageblood", never "Mageblood Heavy Belt".
+                assessment: assessMargin({ itemName: listing.referenceName, price: listing.price, snapshots, nowMs }),
                 snapshots,
                 globalMinMarginPct: minMarginPct,
                 league: search.league,
-                seen,
+                // Dedupe already happened at message time (ids marked seen
+                // before the await); the engine must not re-suppress them.
+                seen: NO_PRIOR_LISTINGS,
               });
               if (decision.kind === 'suppressed') {
                 log(`skip ${listing.itemName}: ${decision.reason}`);
@@ -234,7 +251,6 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
                 await handleAlert(decision.alert);
               }
             }
-            for (const id of fresh) seen.add(id);
           } catch (err) {
             log(err instanceof Error ? err.message : String(err));
           }

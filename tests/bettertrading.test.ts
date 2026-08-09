@@ -136,12 +136,13 @@ describe('folder resolution and reading', () => {
   const base = mkdtempSync(join(tmpdir(), 'exilium-bt-'));
   afterAll(() => rmSync(base, { recursive: true, force: true }));
 
-  test('resolveSnipeFolder precedence: flag, env, cwd, home fallback', () => {
+  test('resolveSnipeFolder precedence: explicit choice, cwd, home fallback', () => {
     const cwdFolder = join(base, 'cwd', 'BetterTrading');
     mkdirSync(cwdFolder, { recursive: true });
-    const opts = { env: {}, cwd: join(base, 'cwd'), home: join(base, 'home') };
+    const opts = { cwd: join(base, 'cwd'), home: join(base, 'home') };
     expect(resolveSnipeFolder({ ...opts, flagValue: '/explicit' })).toBe('/explicit');
-    expect(resolveSnipeFolder({ ...opts, env: { EXILIUM_BETTERTRADING: '/from-env' } })).toBe('/from-env');
+    // Empty string means "no choice made", never "the empty path".
+    expect(resolveSnipeFolder({ ...opts, flagValue: '' })).toBe(cwdFolder);
     expect(resolveSnipeFolder(opts)).toBe(cwdFolder);
     expect(resolveSnipeFolder({ ...opts, cwd: join(base, 'elsewhere') })).toBe(
       join(base, 'home', '.exilium', 'BetterTrading'),

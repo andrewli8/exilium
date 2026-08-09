@@ -207,21 +207,20 @@ export function loadSnipeFolder(files: readonly FolderFile[], warn: (message: st
 }
 
 export interface ResolveFolderOptions {
+  /** Explicit choice: --folder flag, else the env/file-resolved
+   * config.snipe.folder. Env precedence lives in config.ts only. */
   readonly flagValue?: string | undefined;
-  readonly env: Readonly<Record<string, string | undefined>>;
   readonly cwd: string;
   readonly home: string;
   readonly exists?: (path: string) => boolean;
 }
 
-/** Where the BetterTrading folder lives: --folder flag → EXILIUM_BETTERTRADING
- * → ./BetterTrading (if present) → ~/.exilium/BetterTrading (scaffolded by the
- * CLI when missing). */
+/** Where the BetterTrading folder lives: explicit choice → ./BetterTrading
+ * (if present) → ~/.exilium/BetterTrading (scaffolded by the CLI when
+ * missing). */
 export function resolveSnipeFolder(opts: ResolveFolderOptions): string {
   const exists = opts.exists ?? existsSync;
-  if (opts.flagValue !== undefined) return opts.flagValue;
-  const fromEnv = opts.env['EXILIUM_BETTERTRADING'];
-  if (fromEnv !== undefined && fromEnv !== '') return fromEnv;
+  if (opts.flagValue !== undefined && opts.flagValue !== '') return opts.flagValue;
   const inCwd = join(opts.cwd, 'BetterTrading');
   if (exists(inCwd)) return inCwd;
   return join(opts.home, '.exilium', 'BetterTrading');

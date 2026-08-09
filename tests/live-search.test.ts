@@ -53,7 +53,31 @@ describe('fetchListings', () => {
       new Response(JSON.stringify({ result: [{ id: 'bare1', listing: {} }] }), { status: 200 }),
     );
     const [l] = await fetchListings(['bare1'], search, 'S', { fetchFn, limiter: limiter() });
-    expect(l).toEqual({ id: 'bare1', itemName: 'bare1', priceText: 'no price', price: null, seller: 'unknown', whisper: '' });
+    expect(l).toEqual({ id: 'bare1', itemName: 'bare1', referenceName: 'bare1', priceText: 'no price', price: null, seller: 'unknown', whisper: '' });
+  });
+
+  test('uniques keep the display join but reference the unique name alone', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ result: [{ id: 'u1', listing: {}, item: { name: 'Mageblood', typeLine: 'Heavy Belt' } }] }),
+        { status: 200 },
+      ),
+    );
+    const [l] = await fetchListings(['u1'], search, 'S', { fetchFn, limiter: limiter() });
+    expect(l!.itemName).toBe('Mageblood Heavy Belt');
+    // poe.ninja indexes "Mageblood" — the joined form would never match.
+    expect(l!.referenceName).toBe('Mageblood');
+  });
+
+  test('currency and bases fall back to the type line for the reference name', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ result: [{ id: 'c1', listing: {}, item: { name: '', typeLine: 'Divine Orb' } }] }),
+        { status: 200 },
+      ),
+    );
+    const [l] = await fetchListings(['c1'], search, 'S', { fetchFn, limiter: limiter() });
+    expect(l!.referenceName).toBe('Divine Orb');
   });
 
   test('carries the structured price through for margin math', async () => {

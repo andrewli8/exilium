@@ -56,7 +56,11 @@ const fetchResponseSchema = z.object({
 
 export interface LiveListing {
   readonly id: string;
+  /** Display name: unique name + base ("Mageblood Heavy Belt"). */
   readonly itemName: string;
+  /** Name to price against reference data: the unique/gem/currency name
+   * alone ("Mageblood") — poe.ninja indexes that, never the joined form. */
+  readonly referenceName: string;
   readonly priceText: string;
   /** Structured listing price when the seller set one (for margin math). */
   readonly price: { readonly amount: number; readonly currency: string } | null;
@@ -110,6 +114,7 @@ export async function fetchListings(
       listings.push({
         id: r.id,
         itemName: name,
+        referenceName: r.item?.name || r.item?.typeLine || r.id,
         priceText: price,
         price: r.listing.price ?? null,
         seller: r.listing.account?.lastCharacterName ?? r.listing.account?.name ?? 'unknown',

@@ -39,6 +39,12 @@ describe('resolveTravelMode', () => {
     expect(resolved.warning).toMatch(/--auto-travel/);
   });
 
+  test('config/env auto without acknowledgment also downgrades — never crashes the session', () => {
+    const resolved = resolveTravelMode({ modeFlag: undefined, autoTravelFlag: false, configuredMode: 'auto', acknowledged: false });
+    expect(resolved.mode).toBe('ping');
+    expect(resolved.warning).toMatch(/--auto-travel/);
+  });
+
   test('unknown mode values are rejected', () => {
     expect(() =>
       resolveTravelMode({ modeFlag: 'yolo', autoTravelFlag: false, configuredMode: undefined, acknowledged: false }),

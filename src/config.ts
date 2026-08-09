@@ -102,8 +102,10 @@ function parseSnipeMinMargin(envRaw: string | undefined, fileValue: number | und
 }
 
 function loadSnipeSettings(env: NodeJS.ProcessEnv, file: SnipeFileConfig): SnipeSettings {
+  const envFolder = env['EXILIUM_BETTERTRADING'];
   return {
-    folder: env['EXILIUM_BETTERTRADING'] ?? file.folder,
+    // An empty env var means "unset", never "the empty path".
+    folder: envFolder !== undefined && envFolder !== '' ? envFolder : file.folder,
     minMarginPct: parseSnipeMinMargin(env['EXILIUM_SNIPE_MIN_MARGIN'], file.minMarginPct),
     mode: env['EXILIUM_SNIPE_MODE'] ?? file.mode,
     sound: env['EXILIUM_SNIPE_SOUND'] === '1' || (env['EXILIUM_SNIPE_SOUND'] === undefined && file.sound === true),

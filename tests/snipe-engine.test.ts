@@ -37,7 +37,8 @@ const TARGET: SnipeTarget = { label: 'MB snipes', realm: 'trade', searchId: 'AbC
 function listing(partial: Partial<LiveListing> = {}): LiveListing {
   return {
     id: 'listing-1',
-    itemName: 'Mageblood',
+    itemName: 'Mageblood Heavy Belt',
+    referenceName: 'Mageblood',
     priceText: '150 divine',
     price: { amount: 150, currency: 'divine' },
     seller: 'Valdo_Enjoyer',
@@ -56,7 +57,7 @@ function decide(over: {
   return decideSnipe({
     listing: l,
     target: over.target ?? TARGET,
-    assessment: assessMargin({ itemName: l.itemName, price: l.price, snapshots: SNAPSHOTS, nowMs: NOW }),
+    assessment: assessMargin({ itemName: l.referenceName, price: l.price, snapshots: SNAPSHOTS, nowMs: NOW }),
     snapshots: SNAPSHOTS,
     globalMinMarginPct: over.globalMinMarginPct ?? null,
     league: 'Allflame',
@@ -110,7 +111,7 @@ describe('decideSnipe', () => {
   });
 
   test('unpriceable items pass a margin threshold flagged as unknown', () => {
-    const rare = listing({ itemName: 'Loath Cut Ring', price: { amount: 10, currency: 'chaos' } });
+    const rare = listing({ itemName: 'Loath Cut Ring', referenceName: 'Loath Cut Ring', price: { amount: 10, currency: 'chaos' } });
     const result = decide({ listing: rare, globalMinMarginPct: 30 });
     expect(result.kind).toBe('alert');
     if (result.kind !== 'alert') return;
@@ -137,7 +138,7 @@ describe('formatAlert', () => {
     const result = decideSnipe({
       listing: l,
       target: TARGET,
-      assessment: assessMargin({ itemName: l.itemName, price: l.price, snapshots: staleSnapshots, nowMs: NOW }),
+      assessment: assessMargin({ itemName: l.referenceName, price: l.price, snapshots: staleSnapshots, nowMs: NOW }),
       snapshots: staleSnapshots,
       globalMinMarginPct: null,
       league: 'Allflame',

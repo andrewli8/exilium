@@ -42,17 +42,20 @@ export function resolveTravelMode(input: ResolveTravelModeInput): ResolvedTravel
     throw new Error(`--mode must be "ping" or "auto", got "${requested}"`);
   }
   if (requested === 'ping') return { mode: 'ping' };
+  // Auto from config/env alone (an inherited shell variable, say) never
+  // crashes the session — it downgrades. Only an explicit per-run flag can
+  // reach the acknowledgment gate.
+  if (flagMode !== 'auto') {
+    return {
+      mode: 'ping',
+      warning: 'snipe.mode is "auto" in config/env, but auto-travel also needs --auto-travel on the command line each run — staying ping-only.',
+    };
+  }
   if (!input.acknowledged) {
     throw new Error(
       'Auto-travel needs a standing acknowledgment: set "snipe": { "autoTravelAcknowledged": true } in ~/.exilium/config.json. ' +
         'Understand what you are enabling first — it clicks a trade-site button for you, which is automation GGG can act on. Ping-only needs nothing.',
     );
-  }
-  if (flagMode !== 'auto') {
-    return {
-      mode: 'ping',
-      warning: 'snipe.mode is "auto" in config, but auto-travel also needs --auto-travel on the command line each run — staying ping-only.',
-    };
   }
   return { mode: 'auto', warning: AUTO_WARNING };
 }
