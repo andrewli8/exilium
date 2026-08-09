@@ -58,6 +58,8 @@ export interface LiveListing {
   readonly id: string;
   readonly itemName: string;
   readonly priceText: string;
+  /** Structured listing price when the seller set one (for margin math). */
+  readonly price: { readonly amount: number; readonly currency: string } | null;
   readonly seller: string;
   readonly whisper: string;
 }
@@ -74,13 +76,14 @@ export interface LiveDeps {
 
 const FETCH_BATCH = 10;
 
-/** Resolve new listing ids from a live search into whisper-ready listings.
- * Copies the newest whisper to the clipboard and sends one notification. */
-export async function handleNewListings(
+/** Resolve new listing ids from a live search into structured listings.
+ * Fetch-only — callers decide how to notify (the `live` command copies and
+ * pings; the snipe engine adds margin math first). */
+export async function fetchListings(
   ids: readonly string[],
   search: TradeSearch,
   sessionId: string,
-  deps: LiveDeps,
+  deps: Pick<LiveDeps, 'fetchFn' | 'limiter'>,
 ): Promise<readonly LiveListing[]> {
   const listings: LiveListing[] = [];
   const limiter = deps.limiter ?? sharedTradeRateLimiter;
@@ -108,11 +111,24 @@ export async function handleNewListings(
         id: r.id,
         itemName: name,
         priceText: price,
+        price: r.listing.price ?? null,
         seller: r.listing.account?.lastCharacterName ?? r.listing.account?.name ?? 'unknown',
         whisper: r.listing.whisper ?? '',
       });
     }
   }
+  return listings;
+}
+
+/** The `live` command's flow: fetch new listings, copy the newest whisper to
+ * the clipboard, and send one notification. */
+export async function handleNewListings(
+  ids: readonly string[],
+  search: TradeSearch,
+  sessionId: string,
+  deps: LiveDeps,
+): Promise<readonly LiveListing[]> {
+  const listings = await fetchListings(ids, search, sessionId, deps);
 
   const newest = listings.find((l) => l.whisper !== '');
   if (newest !== undefined) {

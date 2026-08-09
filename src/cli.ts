@@ -495,6 +495,27 @@ async function cmdLive(): Promise<void> {
   }
 }
 
+async function cmdSnipe(): Promise<void> {
+  const { runSnipe } = await import('./snipe/run.js');
+  await runSnipe(
+    {
+      folder: flagValue('--folder'),
+      league: flagValue('--league'),
+      keepLeague: process.argv.includes('--keep-league'),
+      minMargin: flagValue('--min-margin'),
+      mode: flagValue('--mode'),
+      autoTravel: process.argv.includes('--auto-travel'),
+      open: process.argv.includes('--open'),
+    },
+    {
+      config,
+      repo,
+      out: (m) => console.log(m),
+      log: (m) => console.error(m),
+    },
+  );
+}
+
 async function cmdBacktest(): Promise<void> {
   const horizon = Number(flagValue('--horizon') ?? 6);
   if (Number.isNaN(horizon) || horizon < 1) throw new Error('--horizon must be a positive number of hours');
@@ -656,6 +677,9 @@ Trading
   exilium opps                  Detector signals    [--min-edge N] [--category C] [--experimental]
   exilium arb                   Cross-rate arbitrage table [--min-gap N] [--limit N]
   exilium live <trade-url>      Live-search monitor; whisper copied to clipboard
+  exilium snipe                 Snipe every search in your BetterTrading folder with poe.ninja margins
+                                [--folder DIR] [--min-margin PCT] [--mode ping|auto] [--auto-travel]
+                                [--league NAME] [--keep-league] [--open]
   exilium stash                 Value your stash, net worth, trade-check delta [--account NAME]
   exilium sellsheet --file F    Price a dump tab into a bulk WTS message [--discount N]
   exilium journal [add ...]     Record and review trade outcomes
@@ -958,6 +982,7 @@ const commands: Record<string, () => Promise<void>> = {
   journal: cmdJournal,
   watches: cmdWatches,
   live: cmdLive,
+  snipe: cmdSnipe,
   backtest: cmdBacktest,
   sellsheet: cmdSellsheet,
   rising: cmdRising,

@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
-import { buildFetchUrl, buildLiveWsUrl, handleNewListings, parseTradeUrl } from '../src/trade/live-search.js';
+import { buildFetchUrl, buildLiveWsUrl, fetchListings, handleNewListings, parseTradeUrl } from '../src/trade/live-search.js';
+import { TradeRateLimiter } from '../src/trade/rate-limit.js';
 
 describe('parseTradeUrl', () => {
   test('parses a PoE1 trade search link', () => {
@@ -34,6 +35,50 @@ describe('URL builders', () => {
   test('fetch URL batches ids and carries the search id', () => {
     const url = buildFetchUrl(['a', 'b'], 'abc', 'trade');
     expect(url).toBe('https://www.pathofexile.com/api/trade/fetch/a,b?query=abc');
+  });
+
+  test('trade2 fetch URL hits the trade2 API', () => {
+    expect(buildFetchUrl(['a'], 'abc', 'trade2')).toBe('https://www.pathofexile.com/api/trade2/fetch/a?query=abc');
+  });
+});
+
+describe('fetchListings', () => {
+  const search = { realm: 'trade' as const, league: 'Allflame', searchId: 'abc' };
+  // Fresh limiter per call — a 429 in one test must not poison the shared
+  // process-wide limiter that other tests rely on.
+  const limiter = () => new TradeRateLimiter();
+
+  test('fills every fallback: unnamed items, no price, unknown seller, empty whisper', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ result: [{ id: 'bare1', listing: {} }] }), { status: 200 }),
+    );
+    const [l] = await fetchListings(['bare1'], search, 'S', { fetchFn, limiter: limiter() });
+    expect(l).toEqual({ id: 'bare1', itemName: 'bare1', priceText: 'no price', price: null, seller: 'unknown', whisper: '' });
+  });
+
+  test('carries the structured price through for margin math', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ result: [{ id: 'p1', listing: { price: { amount: 150, currency: 'divine' } }, item: { name: 'Mageblood' } }] }),
+        { status: 200 },
+      ),
+    );
+    const [l] = await fetchListings(['p1'], search, 'S', { fetchFn, limiter: limiter() });
+    expect(l!.price).toEqual({ amount: 150, currency: 'divine' });
+    expect(l!.priceText).toBe('150 divine');
+    expect(l!.itemName).toBe('Mageblood');
+  });
+
+  test('surfaces a rate limit as a retryable error', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(new Response('slow down', { status: 429 }));
+    await expect(fetchListings(['x'], search, 'S', { fetchFn, limiter: limiter() })).rejects.toThrow(/limit/i);
+  });
+
+  test('other upstream failures and malformed payloads are descriptive errors', async () => {
+    const boom = vi.fn().mockResolvedValue(new Response('oops', { status: 500 }));
+    await expect(fetchListings(['x'], search, 'S', { fetchFn: boom, limiter: limiter() })).rejects.toThrow(/500/);
+    const weird = vi.fn().mockResolvedValue(new Response(JSON.stringify({ nope: [] }), { status: 200 }));
+    await expect(fetchListings(['x'], search, 'S', { fetchFn: weird, limiter: limiter() })).rejects.toThrow(/shape/i);
   });
 });
 

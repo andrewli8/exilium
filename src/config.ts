@@ -13,6 +13,29 @@ export interface FileConfig {
   readonly experimental?: boolean;
   readonly account?: string;
   readonly poesessid?: string;
+  readonly snipe?: SnipeFileConfig;
+}
+
+/** `snipe` block of the config file — every field optional. */
+export interface SnipeFileConfig {
+  readonly folder?: string;
+  readonly minMarginPct?: number;
+  readonly mode?: string;
+  readonly sound?: boolean;
+  /** Standing consent for auto-travel. Deliberately file-only (no env var):
+   * enabling automation should be an explicit edit, not an inherited shell
+   * variable. */
+  readonly autoTravelAcknowledged?: boolean;
+}
+
+/** Resolved snipe settings (defaults ← file ← env). */
+export interface SnipeSettings {
+  readonly folder: string | undefined;
+  /** Minimum profit margin (%) to alert on; null alerts on everything. */
+  readonly minMarginPct: number | null;
+  readonly mode: string | undefined;
+  readonly sound: boolean;
+  readonly autoTravelAcknowledged: boolean;
 }
 
 export interface CategorySpec {
@@ -45,6 +68,8 @@ export interface ExiliumConfig {
   /** Session cookie for live/stash (env EXILIUM_POESESSID or config file,
    * which `exilium setup` writes with 0600 permissions). */
   readonly poesessid: string | undefined;
+  /** `exilium snipe` settings. */
+  readonly snipe: SnipeSettings;
 }
 
 const ex = (name: string): CategorySpec => ({ name, source: 'exchange' });
@@ -66,6 +91,25 @@ export const CATEGORIES_BY_GAME: Readonly<Record<Game, readonly CategorySpec[]>>
 const BASE_USER_AGENT = 'Exilium/0.1.0 (+https://github.com/andrewli8/exilium)';
 
 const MIN_WATCH_INTERVAL_SEC = 300;
+
+function parseSnipeMinMargin(envRaw: string | undefined, fileValue: number | undefined): number | null {
+  if (envRaw !== undefined && envRaw !== '') {
+    const parsed = Number(envRaw);
+    if (Number.isNaN(parsed)) throw new Error(`EXILIUM_SNIPE_MIN_MARGIN must be a number (percent), got "${envRaw}"`);
+    return parsed;
+  }
+  return fileValue ?? null;
+}
+
+function loadSnipeSettings(env: NodeJS.ProcessEnv, file: SnipeFileConfig): SnipeSettings {
+  return {
+    folder: env['EXILIUM_BETTERTRADING'] ?? file.folder,
+    minMarginPct: parseSnipeMinMargin(env['EXILIUM_SNIPE_MIN_MARGIN'], file.minMarginPct),
+    mode: env['EXILIUM_SNIPE_MODE'] ?? file.mode,
+    sound: env['EXILIUM_SNIPE_SOUND'] === '1' || (env['EXILIUM_SNIPE_SOUND'] === undefined && file.sound === true),
+    autoTravelAcknowledged: file.autoTravelAcknowledged === true,
+  };
+}
 
 function parseGame(raw: string | undefined): Game {
   if (raw === undefined || raw === 'poe1') return 'poe1';
@@ -91,6 +135,7 @@ export function loadConfig(env: NodeJS.ProcessEnv, file: FileConfig = {}): Exili
     experimental: env['EXILIUM_EXPERIMENTAL'] === '1' || (env['EXILIUM_EXPERIMENTAL'] === undefined && file.experimental === true),
     account: env['EXILIUM_ACCOUNT'] ?? file.account,
     poesessid: env['EXILIUM_POESESSID'] ?? file.poesessid,
+    snipe: loadSnipeSettings(env, file.snipe ?? {}),
   };
 }
 
