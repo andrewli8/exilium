@@ -1,151 +1,109 @@
-# Snipe your BetterTrading folder
+# Interactive Better Trading snipe console
 
-`exilium snipe` runs every trade search you have saved, all at once, with a live
-profit margin on each hit. This walkthrough sets up a folder for a Valdo's
-Puzzle Box session — sniping underpriced foil uniques — but the flow is the
-same for any searches.
+`exilium snipe` loads searches from a Better Trading folder, asks which ones
+to enable for this run, and puts qualifying live listings in a terminal queue.
+It needs your POESESSID (`exilium setup`) for the authenticated live-search
+WebSockets.
 
-It needs your POESESSID cookie (`exilium setup` stores it) because the live
-websocket is authenticated, just like `exilium live`.
+## 1. Import the extension folder
 
-## 1. First run scaffolds the folder
+In Better Trading, export a folder and copy its `2:...` or `3:...` string.
+Then either paste it:
 
-```
-$ exilium snipe
-No BetterTrading folder yet — created /Users/you/.exilium/BetterTrading with a starter:
-  /Users/you/.exilium/BetterTrading/README.txt
-  /Users/you/.exilium/BetterTrading/my-snipes.txt
-Drop your trade links / Better Trading exports in there and rerun `exilium snipe`.
+```powershell
+exilium snipe import
 ```
 
-A `BetterTrading/` directory next to where you run the command works too, and
-`EXILIUM_BETTERTRADING` or `--folder` point anywhere else.
+or import a saved export file:
 
-## 2. Fill it with searches
-
-Three formats, mix freely:
-
-**Plain text** — one URL per line, `| label` optional:
-
-```
-# my-snipes.txt
-https://www.pathofexile.com/trade/search/Allflame/AbC123xyz | Foil Mageblood
-https://www.pathofexile.com/trade/search/Allflame/DeF456uvw | Valdo boxes under 30div
+```powershell
+exilium snipe import --file "$HOME\Downloads\better-trading.bt"
 ```
 
-**Better Trading extension exports** — in the extension, open a bookmark
-folder, Export, and paste the `3:...` string on its own line in any `.txt` or
-`.bt` file. Every trade in the folder becomes a target, labeled
-`Folder · Trade`.
+The validated source is saved under the configured Better Trading directory.
+You can instead point `EXILIUM_BETTERTRADING` or `--folder` at a directory of
+`.bt`, `.txt`, `.md`, or `.json` sources. A plain source may contain trade URLs;
+structured JSON can add `maxBuy` or `minMarginPct` per search.
 
-**Structured JSON** — when a search needs its own rules:
+## 2. Start the reusable Chrome profile
 
-```json
-{
-  "targets": [
-    {
-      "label": "Cheap Valdo boxes",
-      "url": "https://www.pathofexile.com/trade/search/Allflame/DeF456uvw",
-      "maxBuy": { "amount": 30, "currency": "divine" },
-      "minMarginPct": 25
-    }
-  ]
-}
+```powershell
+exilium chrome
 ```
 
-## 3. Run it
+Log into pathofexile.com in that window and clear any human verification once.
+Exilium attaches through the local CDP endpoint. It owns one page for the
+session and leaves the Chrome process running when the console exits.
 
-```
-$ exilium snipe --min-margin 15
-Exilium snipe — 2 searches · league Allflame · min margin 15 · mode ping
-Whispers are copied to your clipboard the moment a listing lands. Ctrl+C to stop.
-  · Foil Mageblood (AbC123xyz)
-  · Cheap Valdo boxes (DeF456uvw)
-Every alert is appended to /Users/you/.exilium/snipes.jsonl
-watching Foil Mageblood — Allflame/AbC123xyz
-watching Cheap Valdo boxes — Allflame/DeF456uvw
-```
+If Chrome is installed somewhere unusual, save `snipe.chromePath` in config or
+set `EXILIUM_CHROME`. `exilium chrome --print` shows the command without
+launching it.
 
-When something lists:
+## 3. Choose searches for this run
 
-```
-[2026-08-09T16:04:12.331Z] [Foil Mageblood] Mageblood · 150 divine · +10,000c (+25.0%) · seller Valdo_Enjoyer
-  ping: whisper copied — paste in game, or click Travel to Hideout on the trade site yourself
+```powershell
+exilium snipe --min-margin 15
 ```
 
-The desktop notification carries the same margin line. The whisper is already
-on your clipboard: alt-tab, paste, Enter. Add `--open` to also pop the search
-page in your browser so the listing's **Travel to Hideout** button is right
-there.
+The picker starts with nothing selected:
 
-What the margin line means:
+- Up/Down moves.
+- Space or `1`–`9` toggles a search.
+- `a` toggles all searches.
+- Enter enables the selected searches.
+- Escape cancels.
 
-- `+10,000c (+25.0%)` — poe.ninja values the item 10,000 chaos above the
-  asking price. The reference was fetched minutes ago; Exilium refreshes it in
-  the background so it stays under 10 minutes old.
-- `STALE >10m` — the refresh fell behind (rate limit, network); reprice before
-  you commit.
-- `no reference price` — a rare or unindexed item. It still alerts, because
-  judging those is why you saved the search.
+This selection is deliberately not written to config. After Enter, Exilium
+opens the first enabled search in its reusable Chrome tab and creates live
+WebSockets only for the selected searches (up to 20).
 
-Suppressed listings (over `maxBuy`, under the margin floor, duplicates) are
-logged to stderr with the reason, so you can tell "quiet" from "broken".
+For a non-interactive run, make the choice explicit:
 
-## 4. League handling
-
-Search ids are league-portable, so every PoE1 search runs under the current
-challenge league — **Allflame** — even if the bookmark URL says an older
-league. `--league Standard` overrides, `--keep-league` trusts each URL.
-
-## 5. Ping vs auto-travel
-
-The default `ping` mode never acts for you — that is the same line the rest
-of Exilium holds. There is an opt-in `auto` mode that drives a separate
-logged-in browser (Playwright) to click Travel to Hideout on qualifying
-snipes. It requires `--auto-travel` on the command line **and**
-`"snipe": { "autoTravelAcknowledged": true }` in `~/.exilium/config.json`,
-and it warns on every run: an automated click is a server action GGG did not
-get from your hand, and your account carries that risk. If any part fails —
-Playwright missing, browser closed, button gone — it degrades to a ping.
-
-## 6. Wire up your own actuator (optional)
-
-`EXILIUM_SNIPE_WEBHOOK=https://your-endpoint` POSTs a JSON payload per alert:
-
-```json
-{
-  "event": "snipe",
-  "ts": "2026-08-09T16:04:12.340Z",
-  "targetLabel": "Foil Mageblood",
-  "listingId": "…",
-  "itemName": "Mageblood Heavy Belt",
-  "priceText": "150 divine",
-  "whisper": "@Seller …",
-  "searchUrl": "https://www.pathofexile.com/trade/search/Allflame/AbC123xyz",
-  "marginPct": 25,
-  "action": "ping",
-  "detail": "whisper copied — …"
-}
+```powershell
+exilium snipe --all
+exilium snipe --search AbC123xyz --search DeF456uvw
 ```
 
-`searchUrl` + `listingId` are everything an external tool needs to find the
-listing's row on the trade site. That's the hook for driving your own
-response — for example a local listener that asks a Claude session with
-browser access to open the search and act, or anything else you trust with
-your account.
+Search IDs are league-portable for PoE1. `--league Standard` overrides the
+resolved challenge league; `--keep-league` trusts each source URL.
 
-## 7. Review the session
+## 4. Act on live hits
 
-```
-$ tail -1 ~/.exilium/snipes.jsonl | jq '{ts, targetLabel, itemName, priceText, marginText, action}'
-{
-  "ts": "2026-08-09T16:04:12.340Z",
-  "targetLabel": "Foil Mageblood",
-  "itemName": "Mageblood",
-  "priceText": "150 divine",
-  "marginText": "+10,000c (+25.0%)",
-  "action": "ping"
-}
-```
+New hits appear as `NEW` queue rows with search label, item, price, margin,
+freshness, seller, and age. New arrivals do not move your current selection.
 
-Every alert lands there, so a snipe missed while mapping is still reviewable.
+- Up/Down selects a row.
+- Enter clicks **Travel to Hideout** for that row.
+- `r` retries a `FAILED` row.
+- `d` dismisses a row.
+- `q` exits and closes only Exilium's page.
+
+An arrival only queues and notifies. It does not navigate the browser, click,
+send a whisper, or copy a whisper. Enter navigates the same owned page to the
+search, finds the matching listing row, reloads once for indexing lag, and
+clicks its Travel to Hideout button once. The row becomes `TRAVELED` only after
+that click succeeds.
+
+If Chrome cannot be reached, the row becomes `FAILED` with the recovery command
+`exilium chrome`; live hits continue to queue.
+
+## 5. Margin and history
+
+- `+10,000c (+25.0%)` means the local reference is 10,000 chaos above the ask.
+- `STALE >10m` means reference refresh fell behind; reprice before committing.
+- `no reference price` means the item cannot be valued from aggregate data.
+
+Suppressed listings are logged with their reason. Queued hits and later travel
+results are appended to `~/.exilium/snipes.jsonl`. Optional desktop, sound, and
+structured webhook notifications contain status information; the interactive
+console does not use a whisper/paste workflow.
+
+## Windows verification checklist
+
+1. `exilium chrome` opens the dedicated profile.
+2. The imported extension searches appear in the picker.
+3. Enabling a subset opens the first selected search in one Chrome tab.
+4. A hit appears as `NEW` without browser navigation or travel.
+5. Enter on that row performs one Travel to Hideout click.
+6. A second hit reuses the same tab.
+7. `q` leaves Chrome running and closes Exilium's owned page.

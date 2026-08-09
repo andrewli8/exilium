@@ -14,7 +14,7 @@ Covers PoE1 (default: 39 categories, ~35,000 markets including currency, uniques
 - **Price alerts.** Set a watch like "ping me if Mageblood drops below 100 div" and get a desktop notification or Discord message when it hits.
 - **Price anything.** `exilium price headhunter` returns the going rate in chaos and divine.
 - **Snipe live searches.** Point it at a pathofexile.com live search and it copies the trade whisper to your clipboard the moment a listing appears. You paste it in-game.
-- **Snipe your whole BetterTrading folder.** `exilium snipe` watches every saved search at once, prices each hit against poe.ninja (kept under 10 minutes old), and pings you with the profit margin the second something lists.
+- **Run selected Better Trading searches.** `exilium snipe` lets you multi-select searches for each run, opens the first enabled search in one reusable Chrome tab, and queues live hits with poe.ninja margins. Enter on a selected hit clicks Travel to Hideout; arrivals never act or copy a whisper.
 - **Value your stash.** See what a tab is worth and what changed since last time.
 - **Ask Claude.** Register the MCP server, then ask "what are the biggest movers right now?" or "find me a flip with 50%+ edge and write out the steps."
 
@@ -86,7 +86,7 @@ Run any of these as `exilium <command>` from anywhere after `npm link`.
 | `exilium watch` | Foreground alert loop (desktop and Discord) |
 | `exilium watches [add\|rm\|events]` | Manage saved watches, the same ones agents create |
 | `exilium live <trade-url>` | Watch a trade-site live search; whispers land on your clipboard |
-| `exilium snipe` | Watch every search in your BetterTrading folder with live profit margins. `--min-margin N` `--mode ping\|auto` |
+| `exilium snipe` | Pick Better Trading searches for this run, queue live hits, and press Enter to travel. `--min-margin N` `--all` `--search ID` |
 | `exilium stash --account "Name#1234"` | Value your stash, track net worth, see what changed |
 | `exilium sellsheet --file counts.txt` | Price a dump tab into a bulk WTS message. `--discount N` |
 | `exilium journal [add]` | Record trade outcomes and see your fill rate |
@@ -131,27 +131,36 @@ Build a search on pathofexile.com, copy the URL, and hand it to Exilium. When a 
 
 It copies the whisper, it does not send it. Auto-sending is the automation line GGG bans, and a paste is a single keypress like every other accepted tool. This needs your own POESESSID cookie (see [Your session cookie](#your-session-cookie) below); `exilium setup` can store it once.
 
-## Snipe your whole BetterTrading folder
+## Run the Better Trading snipe console
 
 ```bash
 exilium snipe
 ```
 
-One command, every saved search. The first run creates `~/.exilium/BetterTrading/` with a README; fill it with your searches in any mix of:
+The first run creates `~/.exilium/BetterTrading/` with a README. You can also import the folder export copied from the Better Trading extension:
+
+```bash
+exilium snipe import
+exilium snipe import --file C:\\Users\\you\\Downloads\\better-trading.bt
+```
+
+Sources can contain any mix of:
 
 - **Plain text** (`.txt`/`.md`): one trade URL per line, optional `| label`.
 - **Better Trading exports** (`.txt`/`.bt`): paste a folder export string (`3:...`) from the [Better Trading](https://github.com/exile-center/better-trading) browser extension.
 - **Structured JSON** (`.json`): per-search rules like `maxBuy` and `minMarginPct` (the folder README shows the shape).
 
-For every new listing, Exilium converts the asking price to chaos, looks the item up in your local poe.ninja data (refreshed in the background so the reference is under 10 minutes old — alerts say `STALE` when it is not), and shows the margin: `Mageblood · 150 divine · +10,000c (+25.0%)`. Set a floor with `--min-margin 20` (or `snipe.minMarginPct` in the config file) and only profitable hits ping you. Items with no aggregate price (rares) still alert, marked "no reference price", because pricing those is your judgement call.
+Every run starts with a multi-select. Use Up/Down, Space, `a`, or number keys to choose searches, then Enter to enable only those searches. The choice is not saved. For scripts and non-interactive terminals, use `--all` or repeat `--search ID`.
+
+Before starting, run `exilium chrome` and log into pathofexile.com in that dedicated browser profile. Once the selection is enabled, Exilium attaches to Chrome and opens the first selected search in one owned tab. All selected searches are watched through the trade site's live WebSockets; Exilium never creates one tab per search.
+
+For every new listing, Exilium converts the asking price to chaos, checks local poe.ninja data, and adds the hit to the terminal queue with its margin: `Mageblood · 150 divine · +10,000c (+25.0%)`. Set a floor with `--min-margin 20` (or `snipe.minMarginPct` in config). Items with no aggregate price still alert as `no reference price`.
 
 Searches run under the current challenge league — **Allflame** — no matter which league the bookmark URL mentions (search ids are league-portable). Override with `--league` or keep each URL's own league with `--keep-league`.
 
-On a hit you get the desktop notification (plus Discord webhook if configured, plus a sound with `EXILIUM_SNIPE_SOUND=1` on macOS and Windows), the whisper on your clipboard, and a line in `~/.exilium/snipes.jsonl` so you can review what fired while you were mapping. `--open` also opens the search page so the listing's **Travel to Hideout** button is one click away. That click is yours to make — this is the default `--mode ping`.
+On a hit you get the queue row, desktop notification, optional sound, and a `queued` entry in `~/.exilium/snipes.jsonl`. Nothing opens, travels, sends, or copies a whisper merely because the listing arrived. Select a queue row and press Enter: that one user action navigates the reusable tab to the listing, clicks **Travel to Hideout** once, and marks the row `TRAVELED` or `FAILED`. Use `r` to retry a failed row, `d` to dismiss, and `q` to stop.
 
-There is also `--mode auto`, which drives a separate logged-in browser to click Travel to Hideout for you (selectors verified against the live trade site: result rows carry the listing id, and the button is the site's own direct-whisper flow). It uses your installed Chrome when available, falling back to Playwright's bundled Chromium, and needs a from-source install (`npm i -D playwright`) — the standalone binary is ping-only. Be clear-eyed about auto mode: that is an automated server action, outside the one-action-per-click line GGG holds tools to, and it can risk your account. It therefore requires both `--auto-travel` on the command line **and** `"snipe": { "autoTravelAcknowledged": true }` in the config file, warns on every run, and falls back to ping when anything is off — browser closed, listing gone, button missing. Ping-only is the recommended mode and the default.
-
-For everything else there is `EXILIUM_SNIPE_WEBHOOK`: a machine-readable JSON POST per alert carrying the search URL, listing id, whisper, margin, and the action taken. Point it at any endpoint and let your own actuator react — a Claude session driving your browser, a hotkey daemon, a stream overlay. Exilium does the detection and pricing; what acts on it is your choice.
+`EXILIUM_SNIPE_WEBHOOK` remains an optional structured event feed for notifications and agent integrations. Travel authority stays in the local queue: the supported console flow does not send or copy a seller whisper.
 
 ## Use it from Claude
 
@@ -194,7 +203,6 @@ The server exposes 15 tools: `get_leagues`, `get_market_snapshot`, `get_pair_his
 | `EXILIUM_WEBHOOK` | none | Watch mode: Discord-compatible webhook URL |
 | `EXILIUM_BETTERTRADING` | `~/.exilium/BetterTrading` | Snipe: folder of saved trade searches (`./BetterTrading` wins when present) |
 | `EXILIUM_SNIPE_MIN_MARGIN` | none | Snipe: minimum profit margin (%) to alert on |
-| `EXILIUM_SNIPE_MODE` | `ping` | Snipe: `ping` or `auto` (auto also needs `--auto-travel` + config acknowledgment) |
 | `EXILIUM_SNIPE_SOUND` | off | Snipe: set `1` for an audible ping (macOS and Windows) |
 | `EXILIUM_SNIPE_WEBHOOK` | none | Snipe: URL receiving a structured JSON payload per alert (for external actuators) |
 | `EXILIUM_ASCII` | auto | Force plain-ASCII glyphs (set to `1`). Auto-on for the legacy Windows console; modern terminals keep the full look |
@@ -227,7 +235,7 @@ Two commands, `stash` and `live`, need your pathofexile.com session cookie (POES
 
 Read-only analytics from public community APIs, with a proper User-Agent. No trade execution, no game automation, no game-file access. Whispers are copied, never auto-sent. Stash reads are your own account only. Exilium caches aggressively and does not poll faster than every five minutes.
 
-The one deliberate exception is snipe's opt-in auto-travel mode, which clicks the trade site's own Travel to Hideout button for you. It is off by default, double-gated (a per-run flag plus a standing config acknowledgment), limited to one click per alert, and clearly labeled as automation GGG may act on. Everything else stays strictly look-don't-touch.
+The snipe console clicks the trade site's own Travel to Hideout button only after you press Enter on a selected queue row. A listing arrival alone never authorizes a click, and the console never sends or copies a seller whisper.
 
 When it does talk to the official trade site (price-check, live search, stash), it reads GGG's rate-limit headers and backs off before it would trip a limit, and it honors any Retry-After it gets back. That keeps your account in good standing. If you ever see a "backing off" message, it is Exilium protecting your access, not an error.
 

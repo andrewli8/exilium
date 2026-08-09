@@ -1,21 +1,22 @@
 /** Live end-to-end exercise of the snipe pipeline against the real trade
  * site, driven by the user's own BetterTrading folder and session cookie.
  *
- *   npx tsx scripts/e2e-snipe.ts [--target mageblood] [--listen 90]
- *                                [--headless] [--click]
+ *   exilium chrome
+ *   npx tsx scripts/e2e-snipe.ts [--target mageblood] [--listen 90] [--click]
  *
  * What it verifies, in order:
  *   1. The BetterTrading folder decodes and the chosen target exists.
  *   2. Reference prices ingest fresh from poe.ninja (targeted categories).
- *   3. A real logged-in browser loads the search: rows carry data-id and
- *      the first row has the "Travel to Hideout" button (screenshot saved).
+ *   3. One owned page in the configured debug Chrome loads the enabled
+ *      search; rows carry data-id and expose "Travel to Hideout".
  *   4. Real listings run the full pipeline: fetch → margin → decide → alert.
  *   5. --listen N: every folder search holds a live websocket for N seconds;
  *      any listing that arrives is alerted through the same pipeline.
  *   6. --click (opt-in, WARNING): actually clicks Travel to Hideout on the
  *      first row — your character travels if you are in game.
  *
- * Read-only against your account except --click. Exit 0 = all checks pass. */
+ * Read-only against your account except --click. The page is closed at the
+ * end while the user's Chrome process remains running. */
 
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -39,7 +40,6 @@ const flag = (name: string): string | undefined => {
 };
 const targetQuery = flag('--target') ?? 'mageblood';
 const listenSec = Number(flag('--listen') ?? 0);
-const headless = args.includes('--headless');
 const doClick = args.includes('--click');
 /** Comma-separated listing ids to pipeline-test directly, skipping the
  * browser (useful when listing ids were collected from a real session). */
@@ -119,12 +119,14 @@ if (directIds.length > 0) {
   process.exit(failedDirect.length === 0 ? 0 : 1);
 }
 const { chromium } = await import('playwright');
-const profileDir = join(homedir(), '.exilium', 'browser-profile');
-const context = await chromium
-  .launchPersistentContext(profileDir, { headless, viewport: null, channel: 'chrome' })
-  .catch(() => chromium.launchPersistentContext(profileDir, { headless, viewport: null }));
-await context.addCookies([{ name: 'POESESSID', value: sessionId, domain: '.pathofexile.com', path: '/' }]);
-const page = context.pages()[0] ?? (await context.newPage());
+const browser = await chromium.connectOverCDP(config.snipe.chromeCdpUrl, {
+  timeout: 5_000,
+}).catch((error: unknown) => {
+  throw new Error(`Could not attach to ${config.snipe.chromeCdpUrl}: ${error instanceof Error ? error.message : String(error)}. Run \`exilium chrome\`, log in, and retry.`);
+});
+const context = browser.contexts()[0];
+if (context === undefined) throw new Error('Attached Chrome has no browser context.');
+const page = await context.newPage();
 await page.goto(searchUrl, { waitUntil: 'domcontentloaded' });
 // Cloudflare may challenge fresh automation profiles. That checkbox is for a
 // human — this script never clicks it. Headed, we wait for the human (or for
@@ -135,10 +137,8 @@ const challenged = await page
   .isVisible()
   .catch(() => false);
 if (challenged) {
-  console.log(headless
-    ? '  Cloudflare challenge hit (headless is more suspicious) — rerun without --headless and click it once; the profile stays trusted afterwards.'
-    : '  Cloudflare challenge shown — click "Verify you are human" in the browser window; waiting up to 90s…');
-  if (!headless) await page.waitForSelector('.row[data-id]', { timeout: 90_000 }).catch(() => undefined);
+  console.log('  Cloudflare challenge shown — clear it in the Chrome window; waiting up to 90s…');
+  await page.waitForSelector('.row[data-id]', { timeout: 90_000 }).catch(() => undefined);
 }
 let listingIds: string[] = [];
 try {
@@ -240,7 +240,10 @@ if (doClick && listingIds[0] !== undefined && listingIds[0] !== '') {
   console.log(`  click result toast: ${toast}`);
 }
 
-await context.close();
+await page.close().catch(() => undefined);
+// For a CDP attachment Playwright's browser.close() disconnects this client;
+// it does not terminate the Chrome process launched by the user.
+await browser.close().catch(() => undefined);
 const failed = checks.filter((c) => !c.ok);
 console.log(`\n${failed.length === 0 ? 'ALL CHECKS PASSED' : `${failed.length} CHECK(S) FAILED`} (${checks.length} total)`);
 process.exit(failed.length === 0 ? 0 : 1);
