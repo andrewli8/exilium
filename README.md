@@ -147,9 +147,11 @@ For every new listing, Exilium converts the asking price to chaos, looks the ite
 
 Searches run under the current challenge league — **Allflame** — no matter which league the bookmark URL mentions (search ids are league-portable). Override with `--league` or keep each URL's own league with `--keep-league`.
 
-On a hit you get the desktop notification (plus Discord webhook if configured, plus a sound with `EXILIUM_SNIPE_SOUND=1` on macOS), the whisper on your clipboard, and a line in `~/.exilium/snipes.jsonl` so you can review what fired while you were mapping. `--open` also opens the search page so the listing's **Travel to Hideout** button is one click away. That click is yours to make — this is the default `--mode ping`.
+On a hit you get the desktop notification (plus Discord webhook if configured, plus a sound with `EXILIUM_SNIPE_SOUND=1` on macOS and Windows), the whisper on your clipboard, and a line in `~/.exilium/snipes.jsonl` so you can review what fired while you were mapping. `--open` also opens the search page so the listing's **Travel to Hideout** button is one click away. That click is yours to make — this is the default `--mode ping`.
 
-There is also `--mode auto`, which drives a separate logged-in browser (Playwright, dev-install only) to click Travel to Hideout for you. Be clear-eyed about it: that is an automated server action, outside the one-action-per-click line GGG holds tools to, and it can risk your account. It therefore requires both `--auto-travel` on the command line **and** `"snipe": { "autoTravelAcknowledged": true }` in the config file, warns on every run, and falls back to ping when anything is off. Ping-only is the recommended mode and the default.
+There is also `--mode auto`, which drives a separate logged-in browser to click Travel to Hideout for you (selectors verified against the live trade site: result rows carry the listing id, and the button is the site's own direct-whisper flow). It uses your installed Chrome when available, falling back to Playwright's bundled Chromium, and needs a from-source install (`npm i -D playwright`) — the standalone binary is ping-only. Be clear-eyed about auto mode: that is an automated server action, outside the one-action-per-click line GGG holds tools to, and it can risk your account. It therefore requires both `--auto-travel` on the command line **and** `"snipe": { "autoTravelAcknowledged": true }` in the config file, warns on every run, and falls back to ping when anything is off — browser closed, listing gone, button missing. Ping-only is the recommended mode and the default.
+
+For everything else there is `EXILIUM_SNIPE_WEBHOOK`: a machine-readable JSON POST per alert carrying the search URL, listing id, whisper, margin, and the action taken. Point it at any endpoint and let your own actuator react — a Claude session driving your browser, a hotkey daemon, a stream overlay. Exilium does the detection and pricing; what acts on it is your choice.
 
 ## Use it from Claude
 
@@ -193,7 +195,8 @@ The server exposes 15 tools: `get_leagues`, `get_market_snapshot`, `get_pair_his
 | `EXILIUM_BETTERTRADING` | `~/.exilium/BetterTrading` | Snipe: folder of saved trade searches (`./BetterTrading` wins when present) |
 | `EXILIUM_SNIPE_MIN_MARGIN` | none | Snipe: minimum profit margin (%) to alert on |
 | `EXILIUM_SNIPE_MODE` | `ping` | Snipe: `ping` or `auto` (auto also needs `--auto-travel` + config acknowledgment) |
-| `EXILIUM_SNIPE_SOUND` | off | Snipe: set `1` for an audible ping on macOS |
+| `EXILIUM_SNIPE_SOUND` | off | Snipe: set `1` for an audible ping (macOS and Windows) |
+| `EXILIUM_SNIPE_WEBHOOK` | none | Snipe: URL receiving a structured JSON payload per alert (for external actuators) |
 | `EXILIUM_ASCII` | auto | Force plain-ASCII glyphs (set to `1`). Auto-on for the legacy Windows console; modern terminals keep the full look |
 | `EXILIUM_UNICODE` | auto | Force the full Unicode look (set to `1`), overriding the ASCII fallback |
 

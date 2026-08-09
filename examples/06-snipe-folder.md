@@ -108,7 +108,33 @@ and it warns on every run: an automated click is a server action GGG did not
 get from your hand, and your account carries that risk. If any part fails —
 Playwright missing, browser closed, button gone — it degrades to a ping.
 
-## 6. Review the session
+## 6. Wire up your own actuator (optional)
+
+`EXILIUM_SNIPE_WEBHOOK=https://your-endpoint` POSTs a JSON payload per alert:
+
+```json
+{
+  "event": "snipe",
+  "ts": "2026-08-09T16:04:12.340Z",
+  "targetLabel": "Foil Mageblood",
+  "listingId": "…",
+  "itemName": "Mageblood Heavy Belt",
+  "priceText": "150 divine",
+  "whisper": "@Seller …",
+  "searchUrl": "https://www.pathofexile.com/trade/search/Allflame/AbC123xyz",
+  "marginPct": 25,
+  "action": "ping",
+  "detail": "whisper copied — …"
+}
+```
+
+`searchUrl` + `listingId` are everything an external tool needs to find the
+listing's row on the trade site. That's the hook for driving your own
+response — for example a local listener that asks a Claude session with
+browser access to open the search and act, or anything else you trust with
+your account.
+
+## 7. Review the session
 
 ```
 $ tail -1 ~/.exilium/snipes.jsonl | jq '{ts, targetLabel, itemName, priceText, marginText, action}'

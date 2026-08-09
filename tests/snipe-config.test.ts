@@ -8,15 +8,16 @@ describe('snipe settings', () => {
       minMarginPct: null,
       mode: undefined,
       sound: false,
+      webhookUrl: undefined,
       autoTravelAcknowledged: false,
     });
   });
 
   test('file values load and env overrides win', () => {
-    const file = { snipe: { folder: '/from-file', minMarginPct: 15, mode: 'ping', sound: true } };
-    expect(loadConfig({}, file).snipe).toMatchObject({ folder: '/from-file', minMarginPct: 15, sound: true });
-    const env = { EXILIUM_BETTERTRADING: '/from-env', EXILIUM_SNIPE_MIN_MARGIN: '30', EXILIUM_SNIPE_MODE: 'auto', EXILIUM_SNIPE_SOUND: '0' };
-    expect(loadConfig(env, file).snipe).toMatchObject({ folder: '/from-env', minMarginPct: 30, mode: 'auto', sound: false });
+    const file = { snipe: { folder: '/from-file', minMarginPct: 15, mode: 'ping', sound: true, webhookUrl: 'https://file.example/hook' } };
+    expect(loadConfig({}, file).snipe).toMatchObject({ folder: '/from-file', minMarginPct: 15, sound: true, webhookUrl: 'https://file.example/hook' });
+    const env = { EXILIUM_BETTERTRADING: '/from-env', EXILIUM_SNIPE_MIN_MARGIN: '30', EXILIUM_SNIPE_MODE: 'auto', EXILIUM_SNIPE_SOUND: '0', EXILIUM_SNIPE_WEBHOOK: 'https://env.example/hook' };
+    expect(loadConfig(env, file).snipe).toMatchObject({ folder: '/from-env', minMarginPct: 30, mode: 'auto', sound: false, webhookUrl: 'https://env.example/hook' });
   });
 
   test('auto-travel consent comes only from the config file, never the environment', () => {

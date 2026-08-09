@@ -18,6 +18,7 @@ import {
 import { assessMargin } from './margin.js';
 import { decideSnipe, formatAlert, type SnipeAlert } from './engine.js';
 import { dispatchTravel, resolveTravelMode, type TravelPage } from './travel.js';
+import { buildSnipeWebhookPayload, postSnipeWebhook } from './webhook.js';
 
 /** The `exilium snipe` session: every search in the BetterTrading folder on
  * a live websocket, margins from local poe.ninja snapshots kept fresh in the
@@ -64,8 +65,14 @@ function recordSnipe(alert: SnipeAlert, action: string, detail: string, log: (m:
 }
 
 function playSound(config: ExiliumConfig, execFn: (cmd: string, args: readonly string[]) => Promise<unknown>): void {
-  if (!config.snipe.sound || process.platform !== 'darwin') return;
-  execFn('afplay', ['/System/Library/Sounds/Glass.aiff']).catch(() => undefined);
+  if (!config.snipe.sound) return;
+  if (process.platform === 'darwin') {
+    execFn('afplay', ['/System/Library/Sounds/Glass.aiff']).catch(() => undefined);
+  } else if (process.platform === 'win32') {
+    // SystemSounds plays async; the brief sleep keeps the process alive
+    // long enough for the sound to actually come out.
+    execFn('powershell', ['-NoProfile', '-Command', '[System.Media.SystemSounds]::Asterisk.Play(); Start-Sleep -Milliseconds 400']).catch(() => undefined);
+  }
 }
 
 export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void> {
@@ -192,11 +199,18 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
       }
     }
     playSound(config, execFn);
-    await notifier.notify(rendered.title, rendered.body);
+    // Fire-and-forget: the Windows balloon toast blocks ~3s per call, and a
+    // burst of listings must not queue behind it (notify never throws — its
+    // channel failures are logged internally).
+    void notifier.notify(rendered.title, rendered.body);
     out(`[${new Date().toISOString()}] ${rendered.line}`);
     const result = await travelPromise;
     out(`  ${result.action}: ${result.detail}`);
     recordSnipe(alert, result.action, result.detail, log);
+    if (config.snipe.webhookUrl !== undefined) {
+      const payload = buildSnipeWebhookPayload(alert, result.action, result.detail, new Date().toISOString());
+      void postSnipeWebhook(config.snipe.webhookUrl, payload, (url, init) => fetch(url, init), log);
+    }
   };
 
   runnable.forEach((target, index) => {

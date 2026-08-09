@@ -22,6 +22,8 @@ export interface SnipeFileConfig {
   readonly minMarginPct?: number;
   readonly mode?: string;
   readonly sound?: boolean;
+  /** Machine-readable JSON webhook fired per snipe alert. */
+  readonly webhookUrl?: string;
   /** Standing consent for auto-travel. Deliberately file-only (no env var):
    * enabling automation should be an explicit edit, not an inherited shell
    * variable. */
@@ -35,6 +37,8 @@ export interface SnipeSettings {
   readonly minMarginPct: number | null;
   readonly mode: string | undefined;
   readonly sound: boolean;
+  /** JSON webhook per snipe alert (structured payload, not Discord format). */
+  readonly webhookUrl: string | undefined;
   readonly autoTravelAcknowledged: boolean;
 }
 
@@ -109,6 +113,7 @@ function loadSnipeSettings(env: NodeJS.ProcessEnv, file: SnipeFileConfig): Snipe
     minMarginPct: parseSnipeMinMargin(env['EXILIUM_SNIPE_MIN_MARGIN'], file.minMarginPct),
     mode: env['EXILIUM_SNIPE_MODE'] ?? file.mode,
     sound: env['EXILIUM_SNIPE_SOUND'] === '1' || (env['EXILIUM_SNIPE_SOUND'] === undefined && file.sound === true),
+    webhookUrl: env['EXILIUM_SNIPE_WEBHOOK'] ?? file.webhookUrl,
     autoTravelAcknowledged: file.autoTravelAcknowledged === true,
   };
 }
