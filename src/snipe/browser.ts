@@ -1,35 +1,36 @@
-import { rowSelector, type TravelPage } from './travel.js';
+import type { SnipeAlert } from './engine.js';
+import {
+  rowSelector,
+  travelSelectedAlert,
+  type TravelPage,
+  type TravelResult,
+} from './travel.js';
 
-/** Playwright adapter for auto-travel: a persistent, headed browser profile
- * the user logs into pathofexile.com once. Playwright is a dev-install, not
- * a shipped dependency — ping-only users never pay for it. The adapter
- * clicks the trade site's own "Travel to Hideout" button, once per alert. */
+/** Playwright adapter for manual, CLI-triggered travel. Two ways to get a page, in order of
+ * preference:
+ *
+ *   1. Attach over CDP to a Chrome the USER launched with a debugging port
+ *      (`exilium chrome`). That browser is a normal, human-driven Chrome —
+ *      already logged in and already past Cloudflare — so the trade site
+ *      treats it like any other tab. This is the reliable path.
+ *   2. Launch a fresh persistent Playwright profile. Works, but a brand-new
+ *      automation profile is what Cloudflare challenges, so the user has to
+ *      clear one captcha the first time.
+ *
+ * Either way the adapter only clicks the trade site's own "Travel to
+ * Hideout" button after an explicit console action. */
 
 /** Verified against the live trade site (Allflame, 2026-08): result rows are
  * `.row[data-id="<listingId>"]` and the travel button is
- * `button.direct-btn` labeled "Travel to Hideout" (the site's directWhisper
- * flow). A just-sniped listing appears in the static search results; on
- * price-sorted snipe searches an underpriced hit sits on page one, and one
- * reload-retry covers indexing lag. */
+ * `button.direct-btn` labeled "Travel to Hideout". A just-sniped listing
+ * appears in the static search results; on price-sorted snipe searches an
+ * underpriced hit sits on page one, and one reload-retry covers indexing lag. */
 const ROW_TIMEOUT_MS = 6_000;
 const TRAVEL_BUTTON = 'button.direct-btn';
 
 export interface TravelBrowser {
   readonly page: TravelPage;
   close(): Promise<void>;
-}
-
-interface PlaywrightLike {
-  chromium: {
-    launchPersistentContext(
-      dir: string,
-      opts: { headless: boolean; viewport: null; channel?: string },
-    ): Promise<{
-      pages(): Array<PlaywrightPage>;
-      newPage(): Promise<PlaywrightPage>;
-      close(): Promise<void>;
-    }>;
-  };
 }
 
 interface PlaywrightPage {
@@ -41,36 +42,42 @@ interface PlaywrightPage {
     count(): Promise<number>;
     first(): { click(opts: { timeout: number }): Promise<void> };
   };
+  close(): Promise<void>;
 }
 
-type PersistentContext = Awaited<ReturnType<PlaywrightLike['chromium']['launchPersistentContext']>>;
-
-/** Prefer the user's installed Chrome (no `npx playwright install` needed —
- * the common case on Windows); fall back to Playwright's bundled Chromium. */
-async function launchContext(playwright: PlaywrightLike, profileDir: string): Promise<PersistentContext> {
-  try {
-    return await playwright.chromium.launchPersistentContext(profileDir, { headless: false, viewport: null, channel: 'chrome' });
-  } catch {
-    return playwright.chromium.launchPersistentContext(profileDir, { headless: false, viewport: null });
-  }
+interface PlaywrightContext {
+  pages(): Array<PlaywrightPage>;
+  newPage(): Promise<PlaywrightPage>;
+  close(): Promise<void>;
 }
 
-export async function createTravelBrowser(profileDir: string, log: (message: string) => void): Promise<TravelBrowser> {
-  let playwright: PlaywrightLike;
+interface PlaywrightBrowser {
+  contexts(): Array<PlaywrightContext>;
+  close(): Promise<void>;
+}
+
+interface PlaywrightLike {
+  chromium: {
+    launchPersistentContext(dir: string, opts: { headless: boolean; viewport: null; channel?: string }): Promise<PlaywrightContext>;
+    connectOverCDP(url: string, opts?: { noDefaults?: boolean; timeout?: number }): Promise<PlaywrightBrowser>;
+  };
+}
+
+async function importPlaywright(): Promise<PlaywrightLike> {
   try {
     // Computed specifier: Playwright is an optional dev-install, and a
     // literal import would fail type-checking when it is absent.
     const moduleName = 'playwright';
-    playwright = (await import(moduleName)) as unknown as PlaywrightLike;
+    return (await import(moduleName)) as unknown as PlaywrightLike;
   } catch {
     throw new Error(
-      'Auto-travel needs Playwright, which is not installed. Run: npm i -D playwright && npx playwright install chromium — or drop --auto-travel to stay ping-only.',
+      'CLI-triggered travel needs Playwright, which is not installed. Run: npm i -D playwright.',
     );
   }
-  const context = await launchContext(playwright, profileDir);
-  const page = context.pages()[0] ?? (await context.newPage());
-  log('Auto-travel browser is open. Log into pathofexile.com in that window once; the session persists in the profile.');
+}
 
+/** Build the TravelPage behaviour over any Playwright page. */
+function travelPageFromPage(page: PlaywrightPage): TravelPage {
   const findRow = async (row: string): Promise<boolean> => {
     try {
       await page.waitForSelector(row, { timeout: ROW_TIMEOUT_MS });
@@ -79,8 +86,7 @@ export async function createTravelBrowser(profileDir: string, log: (message: str
       return false;
     }
   };
-
-  const travelPage: TravelPage = {
+  return {
     url: () => page.url(),
     goto: async (url: string) => {
       await page.goto(url, { waitUntil: 'domcontentloaded' });
@@ -99,5 +105,99 @@ export async function createTravelBrowser(profileDir: string, log: (message: str
       return true;
     },
   };
-  return { page: travelPage, close: () => context.close() };
+}
+
+export interface TravelBrowserOptions {
+  /** CDP endpoint of a user-launched Chrome (e.g. http://127.0.0.1:9222).
+   * Tried first; falls back to a fresh profile if nothing is listening. */
+  readonly cdpUrl?: string | undefined;
+  /** Persistent-profile directory for the fallback launch path. */
+  readonly profileDir: string;
+  readonly log: (message: string) => void;
+}
+
+async function attachOverCdp(playwright: PlaywrightLike, cdpUrl: string): Promise<TravelBrowser> {
+  // noDefaults: don't override the user's real browser context settings.
+  const browser = await playwright.chromium.connectOverCDP(cdpUrl, { noDefaults: true, timeout: 5_000 });
+  const context = browser.contexts()[0];
+  if (context === undefined) throw new Error('attached Chrome has no browser context');
+  // A dedicated tab so the snipe never hijacks whatever the user is viewing.
+  const page = await context.newPage();
+  return {
+    page: travelPageFromPage(page),
+    close: async () => {
+      await page.close().catch(() => undefined);
+      // Disconnects the CDP session; the user's Chrome keeps running.
+      await browser.close().catch(() => undefined);
+    },
+  };
+}
+
+async function launchPersistent(playwright: PlaywrightLike, profileDir: string, log: (m: string) => void): Promise<TravelBrowser> {
+  let context: PlaywrightContext;
+  try {
+    context = await playwright.chromium.launchPersistentContext(profileDir, { headless: false, viewport: null, channel: 'chrome' });
+  } catch {
+    context = await playwright.chromium.launchPersistentContext(profileDir, { headless: false, viewport: null });
+  }
+  const page = context.pages()[0] ?? (await context.newPage());
+  log('Travel browser opened with a fresh profile. Log into pathofexile.com in that window once; if a Cloudflare check appears, clear it once and the profile stays trusted.');
+  return { page: travelPageFromPage(page), close: () => context.close() };
+}
+
+async function createTravelBrowserWith(playwright: PlaywrightLike, opts: TravelBrowserOptions): Promise<TravelBrowser> {
+  if (opts.cdpUrl !== undefined && opts.cdpUrl !== '') {
+    try {
+      const attached = await attachOverCdp(playwright, opts.cdpUrl);
+      opts.log(`Travel controller attached to your Chrome at ${opts.cdpUrl} — using your logged-in session.`);
+      return attached;
+    } catch (err) {
+      opts.log(
+        `Could not attach to Chrome at ${opts.cdpUrl} (${err instanceof Error ? err.message : String(err)}). ` +
+          'Start one with `exilium chrome` for the reliable path — falling back to a fresh profile for now.',
+      );
+    }
+  }
+  return launchPersistent(playwright, opts.profileDir, opts.log);
+}
+
+export async function createTravelBrowser(opts: TravelBrowserOptions): Promise<TravelBrowser> {
+  return createTravelBrowserWith(await importPlaywright(), opts);
+}
+
+export interface TravelController {
+  travel(alert: SnipeAlert): Promise<TravelResult>;
+  close(): Promise<void>;
+}
+
+export interface TravelControllerOptions {
+  readonly cdpUrl: string;
+  readonly profileDir: string;
+  readonly log: (message: string) => void;
+  readonly loadPlaywright?: () => Promise<PlaywrightLike>;
+}
+
+/** One controller owns one page for its entire session. A promise tail
+ * serializes Enter actions so a second navigation cannot race the first. */
+export async function createTravelController(opts: TravelControllerOptions): Promise<TravelController> {
+  const playwright = await (opts.loadPlaywright ?? importPlaywright)();
+  const browser = await createTravelBrowserWith(playwright, {
+    cdpUrl: opts.cdpUrl,
+    profileDir: opts.profileDir,
+    log: opts.log,
+  });
+  let tail: Promise<unknown> = Promise.resolve();
+  let closePromise: Promise<void> | undefined;
+
+  return {
+    travel(alert) {
+      const result = tail.then(() => travelSelectedAlert(alert, browser.page));
+      tail = result.then(() => undefined, () => undefined);
+      return result;
+    },
+    close() {
+      closePromise ??= tail.then(() => browser.close());
+      return closePromise;
+    },
+  };
 }

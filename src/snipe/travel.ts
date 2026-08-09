@@ -84,7 +84,7 @@ export interface DispatchTravelOptions {
 }
 
 export interface TravelResult {
-  readonly action: 'ping' | 'auto-traveled' | 'auto-failed';
+  readonly action: 'ping' | 'auto-traveled' | 'auto-failed' | 'traveled' | 'failed';
   readonly detail: string;
 }
 
@@ -114,5 +114,27 @@ export async function dispatchTravel(alert: SnipeAlert, opts: DispatchTravelOpti
     return { action: 'auto-traveled', detail: `clicked Travel to Hideout for ${alert.itemName} — you should be loading into the seller's hideout` };
   } catch (err) {
     return { action: 'auto-failed', detail: `${err instanceof Error ? err.message : String(err)} — ${PING_DETAIL}` };
+  }
+}
+
+/** One human-triggered travel action. Merely receiving an alert never calls
+ * this function; the interactive console invokes it for the selected row on
+ * Enter. It never sends, copies, or falls back to a whisper. */
+export async function travelSelectedAlert(alert: SnipeAlert, page: TravelPage): Promise<TravelResult> {
+  try {
+    if (page.url() !== alert.searchUrl) await page.goto(alert.searchUrl);
+    const clicked = await page.clickTravelButton(alert.listingId);
+    if (!clicked) {
+      return {
+        action: 'failed',
+        detail: `Travel to Hideout button not found for listing ${alert.listingId}`,
+      };
+    }
+    return {
+      action: 'traveled',
+      detail: `clicked Travel to Hideout for ${alert.itemName}`,
+    };
+  } catch (err) {
+    return { action: 'failed', detail: err instanceof Error ? err.message : String(err) };
   }
 }

@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 import type { SnipeAlert } from '../src/snipe/engine.js';
-import { dispatchTravel, resolveTravelMode, rowSelector, type TravelPage } from '../src/snipe/travel.js';
+import { dispatchTravel, resolveTravelMode, rowSelector, travelSelectedAlert, type TravelPage } from '../src/snipe/travel.js';
 
 const ALERT: SnipeAlert = {
   targetLabel: 'MB',
@@ -115,5 +115,49 @@ describe('dispatchTravel', () => {
     const result = await dispatchTravel(ALERT, { mode: 'auto', openSearchPage: false, openUrl: async () => {} });
     expect(result.action).toBe('auto-failed');
     expect(result.detail).toMatch(/browser/i);
+  });
+});
+
+describe('travelSelectedAlert', () => {
+  function manualPage(clickResult: boolean | Error): TravelPage & { gotos: string[]; clicks: string[] } {
+    const gotos: string[] = [];
+    const clicks: string[] = [];
+    let current = '';
+    return {
+      gotos,
+      clicks,
+      url: () => current,
+      goto: async (url) => {
+        current = url;
+        gotos.push(url);
+      },
+      clickTravelButton: async (listingId) => {
+        clicks.push(listingId);
+        if (clickResult instanceof Error) throw clickResult;
+        return clickResult;
+      },
+    };
+  }
+
+  test('one explicit manual action navigates and clicks without whisper fallback text', async () => {
+    const page = manualPage(true);
+    const result = await travelSelectedAlert(ALERT, page);
+    expect(result).toEqual({
+      action: 'traveled',
+      detail: 'clicked Travel to Hideout for Mageblood',
+    });
+    expect(result.detail).not.toMatch(/whisper|paste/i);
+    expect(page.gotos).toEqual([ALERT.searchUrl]);
+    expect(page.clicks).toEqual([ALERT.listingId]);
+  });
+
+  test('a missing listing or browser error fails without claiming travel', async () => {
+    const missing = await travelSelectedAlert(ALERT, manualPage(false));
+    expect(missing.action).toBe('failed');
+    expect(missing.detail).toMatch(/not found|listing/i);
+    expect(missing.detail).not.toMatch(/whisper|paste/i);
+
+    const errored = await travelSelectedAlert(ALERT, manualPage(new Error('browser disconnected')));
+    expect(errored).toEqual({ action: 'failed', detail: 'browser disconnected' });
   });
 });
