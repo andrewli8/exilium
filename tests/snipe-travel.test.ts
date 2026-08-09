@@ -8,7 +8,7 @@ const ALERT: SnipeAlert = {
   itemName: 'Mageblood',
   priceText: '150 divine',
   seller: 'Seller',
-  whisper: '@Seller hi',
+  listedAt: null,
   searchUrl: 'https://www.pathofexile.com/trade/search/Allflame/AbC123',
   listedChaos: 30_000,
   marginChaos: 10_000,

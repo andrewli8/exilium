@@ -14,7 +14,7 @@ export interface SnipeAlert {
   readonly itemName: string;
   readonly priceText: string;
   readonly seller: string;
-  readonly whisper: string;
+  readonly listedAt: string | null;
   readonly searchUrl: string;
   readonly listedChaos: number | null;
   readonly marginChaos: number | null;
@@ -106,7 +106,7 @@ export function decideSnipe(opts: DecideSnipeOptions): SnipeDecision {
       itemName: listing.itemName,
       priceText: listing.priceText,
       seller: listing.seller,
-      whisper: listing.whisper,
+      listedAt: listing.listedAt,
       searchUrl: buildSearchPageUrl(target, opts.league),
       listedChaos: assessment.listedChaos,
       marginChaos: assessment.marginChaos,

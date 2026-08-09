@@ -53,7 +53,7 @@ describe('fetchListings', () => {
       new Response(JSON.stringify({ result: [{ id: 'bare1', listing: {} }] }), { status: 200 }),
     );
     const [l] = await fetchListings(['bare1'], search, 'S', { fetchFn, limiter: limiter() });
-    expect(l).toEqual({ id: 'bare1', itemName: 'bare1', referenceName: 'bare1', priceText: 'no price', price: null, seller: 'unknown', whisper: '' });
+    expect(l).toEqual({ id: 'bare1', itemName: 'bare1', referenceName: 'bare1', priceText: 'no price', price: null, listedAt: null, seller: 'unknown', whisper: '' });
   });
 
   test('uniques keep the display join but reference the unique name alone', async () => {
@@ -83,7 +83,7 @@ describe('fetchListings', () => {
   test('carries the structured price through for margin math', async () => {
     const fetchFn = vi.fn().mockResolvedValue(
       new Response(
-        JSON.stringify({ result: [{ id: 'p1', listing: { price: { amount: 150, currency: 'divine' } }, item: { name: 'Mageblood' } }] }),
+        JSON.stringify({ result: [{ id: 'p1', listing: { indexed: '2026-08-09T11:59:00Z', price: { amount: 150, currency: 'divine' } }, item: { name: 'Mageblood' } }] }),
         { status: 200 },
       ),
     );
@@ -91,6 +91,7 @@ describe('fetchListings', () => {
     expect(l!.price).toEqual({ amount: 150, currency: 'divine' });
     expect(l!.priceText).toBe('150 divine');
     expect(l!.itemName).toBe('Mageblood');
+    expect(l!.listedAt).toBe('2026-08-09T11:59:00Z');
   });
 
   test('surfaces a rate limit as a retryable error', async () => {

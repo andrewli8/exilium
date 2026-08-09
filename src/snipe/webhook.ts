@@ -1,10 +1,8 @@
 import type { SnipeAlert } from './engine.js';
 
 /** Structured JSON webhook fired per snipe alert (EXILIUM_SNIPE_WEBHOOK /
- * snipe.webhookUrl). Unlike the Discord-formatted notifier webhook, this
- * payload is machine-readable: it carries the search URL, listing id, and
- * whisper, so any external actuator — a Claude session driving a browser, a
- * hotkey daemon, a stream overlay — can react to the snipe. */
+ * snipe.webhookUrl). It carries click-flow identifiers and margin/status
+ * data, but deliberately excludes the seller whisper. */
 
 export interface SnipeWebhookPayload extends SnipeAlert {
   readonly event: 'snipe';

@@ -41,6 +41,7 @@ function listing(partial: Partial<LiveListing> = {}): LiveListing {
     referenceName: 'Mageblood',
     priceText: '150 divine',
     price: { amount: 150, currency: 'divine' },
+    listedAt: '2026-08-09T11:59:00Z',
     seller: 'Valdo_Enjoyer',
     whisper: '@Valdo_Enjoyer Hi, I would like to buy your Mageblood',
     ...partial,
@@ -74,6 +75,8 @@ describe('decideSnipe', () => {
     expect(result.alert.searchUrl).toBe('https://www.pathofexile.com/trade/search/Allflame/AbC123');
     expect(result.alert.freshnessText).toContain('4m ago');
     expect(result.alert.stale).toBe(false);
+    expect(result.alert.listedAt).toBe('2026-08-09T11:59:00Z');
+    expect(result.alert).not.toHaveProperty('whisper');
   });
 
   test('already-seen listings are suppressed', () => {

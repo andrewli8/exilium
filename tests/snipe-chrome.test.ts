@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { DEFAULT_CDP_PORT, parseCdpPort, resolveChromeLaunch } from '../src/snipe/chrome.js';
+import { DEFAULT_CDP_PORT, formatChromeLaunchCommand, parseCdpPort, resolveChromeLaunch } from '../src/snipe/chrome.js';
 
 describe('parseCdpPort', () => {
   test('defaults to the Exilium CDP port and accepts a valid integer', () => {
@@ -14,6 +14,15 @@ describe('parseCdpPort', () => {
 });
 
 describe('resolveChromeLaunch', () => {
+  test('formats a PowerShell-safe command when executable and profile paths contain spaces', () => {
+    expect(formatChromeLaunchCommand({
+      cmd: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+      args: ['--remote-debugging-port=9222', '--user-data-dir=C:\\Users\\Me User\\Exilium'],
+    }, 'win32')).toBe(
+      '& "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --remote-debugging-port=9222 "--user-data-dir=C:\\Users\\Me User\\Exilium"',
+    );
+  });
+
   test('uses Local App Data Chrome when Program Files copies do not exist', () => {
     const local = 'C:\\Users\\me\\AppData\\Local';
     const expected = `${local}\\Google\\Chrome\\Application\\chrome.exe`;

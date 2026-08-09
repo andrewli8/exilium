@@ -27,8 +27,9 @@ import {
   type SnipeConsoleOptions,
 } from './console.js';
 import { buildSearchPageUrl, decideSnipe, formatAlert, type SnipeAlert } from './engine.js';
-import { effectiveLeague, resolveSnipeLeague } from './league.js';
+import { effectiveLeague, resolveSnipeLeague, type FetchLeaguesFn } from './league.js';
 import { assessMargin } from './margin.js';
+import { persistSnipeImport } from './import.js';
 import { resolveRequestedTargets } from './selection.js';
 import type { TravelResult } from './travel.js';
 import { buildSnipeWebhookPayload, postSnipeWebhook } from './webhook.js';
@@ -59,6 +60,7 @@ type FetchSnipeListings = (
   ids: readonly string[],
   search: TradeSearch,
   sessionId: string,
+  signal?: AbortSignal,
 ) => Promise<readonly LiveListing[]>;
 
 export interface SnipeDeps {
@@ -68,15 +70,18 @@ export interface SnipeDeps {
   readonly log: (message: string) => void;
   readonly isTTY?: boolean;
   readonly promptTargets?: typeof promptSnipeTargets;
+  readonly promptImport?: () => Promise<string | null>;
   readonly makeConsole?: (options: SnipeConsoleOptions) => SnipeConsoleHandle;
   readonly makeTravelController?: typeof createTravelController;
   readonly openSocket?: OpenSnipeSocket;
   readonly fetchListings?: FetchSnipeListings;
-  readonly refreshPrices?: () => Promise<void>;
+  readonly refreshPrices?: (signal: AbortSignal) => Promise<void>;
   readonly notify?: (title: string, body: string) => Promise<void>;
   readonly recordAlert?: (alert: SnipeAlert, action: string, detail: string) => void;
   readonly now?: () => number;
   readonly connectStaggerMs?: number;
+  readonly fetchLeagues?: FetchLeaguesFn;
+  readonly shutdownTimeoutMs?: number;
 }
 
 export const MAX_SNIPE_SOCKETS = 20;
@@ -105,9 +110,15 @@ interface RunnableTarget {
   readonly search: TradeSearch;
 }
 
-function selectedLeagueFlag(config: ExiliumConfig, flag: string | undefined): string | undefined {
-  const requested = flag ?? config.snipe.league;
-  return requested?.toLowerCase() === 'current' ? undefined : requested;
+async function promptImportSource(): Promise<string | null> {
+  const { createInterface } = await import('node:readline/promises');
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const value = await rl.question('Paste a Better Trading folder export (blank to cancel):\n');
+    return value.trim() === '' ? null : value;
+  } finally {
+    rl.close();
+  }
 }
 
 export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void> {
@@ -121,18 +132,32 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     const written = scaffoldSnipeFolder(folder);
     out(`No BetterTrading folder yet — created ${folder} with a starter:`);
     for (const path of written) out(`  ${path}`);
-    out('Import a Better Trading folder export with `exilium snipe import`, then rerun.');
-    return;
+    out('Paste a Better Trading export now, or use `exilium snipe import` later.');
   }
 
-  const allTargets = loadSnipeFolder(readSnipeFolderFiles(folder), log);
+  let allTargets = loadSnipeFolder(readSnipeFolderFiles(folder), log);
+  const interactive = deps.isTTY ?? process.stdin.isTTY === true;
+  if (allTargets.length === 0 && interactive) {
+    const askImport = deps.promptImport ?? promptImportSource;
+    while (allTargets.length === 0) {
+      const source = await askImport();
+      if (source === null) break;
+      try {
+        const imported = persistSnipeImport({ folder, content: source, sourceName: 'startup paste' });
+        out(`Imported ${imported.targets.length} Better Trading search${imported.targets.length === 1 ? '' : 'es'} to ${imported.path}.`);
+        allTargets = loadSnipeFolder(readSnipeFolderFiles(folder), log);
+      } catch (error) {
+        out(`Import failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  }
   if (allTargets.length === 0) {
     out(`${folder} holds no usable trade searches. Add trade URLs or run \`exilium snipe import\`.`);
     return;
   }
 
   const requested = resolveRequestedTargets(allTargets, {
-    isTTY: deps.isTTY ?? process.stdin.isTTY === true,
+    isTTY: interactive,
     all: flags.all,
     searches: flags.searches,
   });
@@ -149,26 +174,35 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     );
   }
 
-  const league = await resolveSnipeLeague(config, selectedLeagueFlag(config, flags.league), log);
+  const leagueRequest = flags.league ?? config.snipe.league;
+  const wantsCurrentLeague = leagueRequest?.toLowerCase() === 'current';
+  const leagueConfig = wantsCurrentLeague ? { ...config, league: null } : config;
+  const league = await resolveSnipeLeague(
+    leagueConfig,
+    wantsCurrentLeague ? undefined : leagueRequest,
+    log,
+    deps.fetchLeagues,
+  );
   const minMarginPct = flags.minMargin === undefined ? config.snipe.minMarginPct : Number(flags.minMargin);
   if (minMarginPct !== null && Number.isNaN(minMarginPct)) {
     throw new Error('--min-margin must be a number (percent)');
   }
 
-  const runnable: RunnableTarget[] = [];
-  for (const target of selected.slice(0, MAX_SNIPE_SOCKETS)) {
+  const runnableCandidates: RunnableTarget[] = [];
+  for (const target of selected) {
     const targetLeague = effectiveLeague(target, league, flags.keepLeague);
     if (targetLeague === null) {
       log(`skipping "${target.label}": PoE2 search without a league in its source`);
       continue;
     }
-    runnable.push({
+    runnableCandidates.push({
       target,
       search: { realm: target.realm, league: targetLeague, searchId: target.searchId },
     });
   }
-  if (selected.length > MAX_SNIPE_SOCKETS) {
-    log(`Selected ${selected.length} searches; enabling the first ${MAX_SNIPE_SOCKETS} because the trade site caps live searches per account.`);
+  const runnable = runnableCandidates.slice(0, MAX_SNIPE_SOCKETS);
+  if (runnableCandidates.length > MAX_SNIPE_SOCKETS) {
+    log(`Selected ${runnableCandidates.length} runnable searches; enabling the first ${MAX_SNIPE_SOCKETS} because the trade site caps live searches per account.`);
   }
   if (runnable.length === 0) {
     out('None of the selected searches can run in the resolved league.');
@@ -202,6 +236,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
   }
 
   const makeController = deps.makeTravelController ?? createTravelController;
+  let shutdownRequested = false;
   let controllerPromise: Promise<TravelController> | undefined;
   const ensureController = (): Promise<TravelController> => {
     if (controllerPromise === undefined) {
@@ -209,6 +244,9 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
         cdpUrl: config.snipe.chromeCdpUrl,
         profileDir: config.snipe.chromeProfile ?? join(homedir(), '.exilium', 'browser-profile'),
         log,
+      }).then((controller) => {
+        if (shutdownRequested) void controller.close();
+        return controller;
       }).catch((error: unknown) => {
         controllerPromise = undefined;
         throw error;
@@ -238,8 +276,14 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     }
   };
 
-  let requestStop!: () => void;
-  const stopRequested = new Promise<void>((resolve) => { requestStop = resolve; });
+  let resolveStop!: () => void;
+  let stopIntent = false;
+  const stopRequested = new Promise<void>((resolve) => { resolveStop = resolve; });
+  const requestStop = (): void => {
+    stopIntent = true;
+    shutdownRequested = true;
+    resolveStop();
+  };
   const consoleHandle = (deps.makeConsole ?? ((options) => renderSnipeConsole(options)))({
     onTravel,
     onExit: requestStop,
@@ -252,9 +296,14 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
   const pending = new Set<Promise<void>>();
   let refreshTimer: ReturnType<typeof setInterval> | undefined;
 
-  const refresh = deps.refreshPrices ?? (async () => {
+  const refreshAbort = new AbortController();
+  const refresh = deps.refreshPrices ?? (async (signal: AbortSignal) => {
     try {
-      const result = await ingestLeague(new NinjaClient({ userAgent: config.userAgent }), repo, {
+      const client = new NinjaClient({
+        userAgent: config.userAgent,
+        fetchFn: (url, init) => fetch(url, { ...init, signal }),
+      });
+      const result = await ingestLeague(client, repo, {
         game: config.game,
         league,
         categories: config.categories,
@@ -266,14 +315,28 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
       log(`price refresh failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   });
+  let refreshTask: Promise<void> | undefined;
+  const startRefresh = (): void => {
+    if (refreshTask !== undefined) return;
+    const task = refresh(refreshAbort.signal).catch((error: unknown) => {
+      if (!shutdownRequested) log(`price refresh failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
+    refreshTask = task;
+    void task.finally(() => {
+      if (refreshTask === task) refreshTask = undefined;
+    });
+  };
 
   let openSocket = deps.openSocket;
   if (openSocket === undefined) {
     const { default: WebSocket } = await import('ws');
     openSocket = (search, headers) => new WebSocket(buildLiveWsUrl(search), { headers: { ...headers } }) as unknown as SnipeSocket;
   }
-  const fetchListings = deps.fetchListings ?? ((ids, search, sid) =>
-    fetchTradeListings(ids, search, sid, { fetchFn: (url, init) => fetch(url, init) }));
+  const networkAbort = new AbortController();
+  const fetchListings = deps.fetchListings ?? ((ids, search, sid, signal) =>
+    fetchTradeListings(ids, search, sid, {
+      fetchFn: (url, init) => fetch(url, { ...init, ...(signal === undefined ? {} : { signal }) }),
+    }));
 
   const headers = {
     Cookie: `POESESSID=${sessionId}`,
@@ -287,11 +350,11 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
   };
 
   const connectTarget = ({ target, search }: RunnableTarget): void => {
-    if (stopped) return;
+    if (stopped || stopIntent) return;
     const seen = new Set<string>();
     let consecutiveFailures = 0;
     const connect = (): void => {
-      if (stopped) return;
+      if (stopped || stopIntent) return;
       const socket = openSocket!(search, headers);
       sockets.add(socket);
       socket.on('open', () => {
@@ -305,9 +368,11 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
             const fresh = (message.new ?? []).filter((id) => !seen.has(id));
             if (fresh.length === 0) return;
             for (const id of fresh) seen.add(id);
-            const listings = await fetchListings(fresh, search, sessionId);
+            const listings = await fetchListings(fresh, search, sessionId, networkAbort.signal);
+            if (stopped || stopIntent) return;
             const snapshots = repo.latestAll(config.game, search.league);
             for (const listing of listings) {
+              if (stopped || stopIntent) return;
               const decision = decideSnipe({
                 listing,
                 target,
@@ -336,7 +401,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
       });
       socket.on('close', (code) => {
         sockets.delete(socket);
-        if (stopped) return;
+        if (stopped || stopIntent) return;
         consecutiveFailures += 1;
         if (consecutiveFailures >= 5) {
           log(`socket for "${target.label}" failed ${consecutiveFailures} times — giving up on this search`);
@@ -360,15 +425,32 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
   const cleanup = async (): Promise<void> => {
     if (stopped) return;
     stopped = true;
+    shutdownRequested = true;
+    networkAbort.abort();
+    refreshAbort.abort();
     for (const timer of timers) clearTimeout(timer);
     timers.clear();
     if (refreshTimer !== undefined) clearInterval(refreshTimer);
     for (const socket of sockets) socket.close();
     sockets.clear();
-    await Promise.allSettled([...pending]);
+    const settleWithin = async (
+      promise: Promise<unknown>,
+      milliseconds = deps.shutdownTimeoutMs ?? 2_000,
+    ): Promise<void> => {
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, milliseconds);
+        void promise.then(
+          () => { clearTimeout(timer); resolve(); },
+          () => { clearTimeout(timer); resolve(); },
+        );
+      });
+    };
+    await settleWithin(Promise.allSettled([...pending]));
+    if (refreshTask !== undefined) await settleWithin(refreshTask);
     if (controllerPromise !== undefined) {
-      const controller = await controllerPromise.catch(() => undefined);
-      await controller?.close();
+      let controller: TravelController | undefined;
+      await settleWithin(controllerPromise.then((resolved) => { controller = resolved; }));
+      if (controller !== undefined) await settleWithin(controller.close());
     }
     consoleHandle.close();
   };
@@ -382,15 +464,23 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
 
     // Visible confirmation of the enabled configuration: claim one page and
     // show the first selected search. Every later action reuses this page.
-    try {
-      const first = runnable[0]!;
-      await (await ensureController()).openSearch(buildSearchPageUrl(first.target, first.search.league));
-    } catch (error) {
-      log(`Could not open the enabled search in Chrome (${error instanceof Error ? error.message : String(error)}). Run \`exilium chrome\`; alerts will keep queuing.`);
-    }
+    const first = runnable[0]!;
+    const initialBrowserOpen = ensureController()
+      .then(async (controller) => {
+        if (!shutdownRequested) {
+          await controller.openSearch(buildSearchPageUrl(first.target, first.search.league));
+        }
+      })
+      .catch((error: unknown) => {
+        if (!shutdownRequested) {
+          log(`Could not open the enabled search in Chrome (${error instanceof Error ? error.message : String(error)}). Run \`exilium chrome\`; alerts will keep queuing.`);
+        }
+      });
+    await Promise.race([initialBrowserOpen, stopRequested]);
+    if (stopIntent) return;
 
-    void refresh();
-    refreshTimer = setInterval(() => void refresh(), config.refreshSec * 1_000);
+    startRefresh();
+    refreshTimer = setInterval(startRefresh, config.refreshSec * 1_000);
     const stagger = deps.connectStaggerMs ?? CONNECT_STAGGER_MS;
     runnable.forEach((entry, index) => {
       const delay = index * stagger;

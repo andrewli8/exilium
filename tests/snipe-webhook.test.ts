@@ -8,7 +8,7 @@ const ALERT: SnipeAlert = {
   itemName: 'Mageblood Heavy Belt',
   priceText: '150 divine',
   seller: 'Seller',
-  whisper: '@Seller hi',
+  listedAt: null,
   searchUrl: 'https://www.pathofexile.com/trade/search/Allflame/AbC123',
   listedChaos: 30_000,
   marginChaos: 10_000,
@@ -20,23 +20,23 @@ const ALERT: SnipeAlert = {
 };
 
 describe('buildSnipeWebhookPayload', () => {
-  test('carries everything an external actuator needs to act on the listing', () => {
-    const payload = buildSnipeWebhookPayload(ALERT, 'ping', 'whisper copied', '2026-08-09T12:00:00Z');
+  test('carries click-flow identifiers without forwarding a seller whisper', () => {
+    const payload = buildSnipeWebhookPayload(ALERT, 'queued', 'waiting for Enter', '2026-08-09T12:00:00Z');
     expect(payload).toMatchObject({
       event: 'snipe',
       ts: '2026-08-09T12:00:00Z',
       listingId: 'abc123',
       searchUrl: ALERT.searchUrl,
-      whisper: ALERT.whisper,
       marginPct: 25,
-      action: 'ping',
-      detail: 'whisper copied',
+      action: 'queued',
+      detail: 'waiting for Enter',
     });
+    expect(payload).not.toHaveProperty('whisper');
   });
 });
 
 describe('postSnipeWebhook', () => {
-  const payload = buildSnipeWebhookPayload(ALERT, 'ping', 'd', 'ts');
+  const payload = buildSnipeWebhookPayload(ALERT, 'queued', 'waiting for Enter', 'ts');
 
   test('POSTs JSON to the configured URL', async () => {
     const fetchFn = vi.fn().mockResolvedValue(new Response('ok', { status: 200 }));

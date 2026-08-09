@@ -46,6 +46,7 @@ const fetchResponseSchema = z.object({
       id: z.string(),
       listing: z.object({
         whisper: z.string().optional(),
+        indexed: z.string().optional(),
         price: z.object({ amount: z.number(), currency: z.string() }).nullish(),
         account: z.object({ name: z.string().optional(), lastCharacterName: z.string().optional() }).optional(),
       }),
@@ -64,6 +65,8 @@ export interface LiveListing {
   readonly priceText: string;
   /** Structured listing price when the seller set one (for margin math). */
   readonly price: { readonly amount: number; readonly currency: string } | null;
+  /** Trade API listing timestamp, when supplied. */
+  readonly listedAt: string | null;
   readonly seller: string;
   readonly whisper: string;
 }
@@ -117,6 +120,7 @@ export async function fetchListings(
         referenceName: r.item?.name || r.item?.typeLine || r.id,
         priceText: price,
         price: r.listing.price ?? null,
+        listedAt: r.listing.indexed ?? null,
         seller: r.listing.account?.lastCharacterName ?? r.listing.account?.name ?? 'unknown',
         whisper: r.listing.whisper ?? '',
       });

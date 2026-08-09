@@ -79,6 +79,8 @@ export interface SnipeQueueAppProps {
   readonly now?: () => number;
 }
 
+const MAX_INGESTED_LISTING_IDS = 1_000;
+
 function ageText(receivedAt: string, now: number): string {
   const seconds = Math.max(0, Math.floor((now - Date.parse(receivedAt)) / 1_000));
   if (seconds < 60) return `${seconds}s`;
@@ -90,23 +92,34 @@ function rowText(entry: SnipeQueueEntry, selected: boolean, now: number): string
   const { alert } = entry;
   const status = entry.status.toUpperCase().padEnd(9);
   const marker = selected ? glyphs.select : ' ';
-  const details = [alert.priceText, alert.marginText, alert.freshnessText, alert.seller, ageText(entry.receivedAt, now)]
+  const details = [alert.priceText, alert.marginText, alert.freshnessText, alert.seller, ageText(alert.listedAt ?? entry.receivedAt, now)]
     .filter((value) => value.length > 0)
     .join(` ${glyphs.sep} `);
-  return fold(`${marker} ${status} ${alert.itemName} (${alert.targetLabel}) ${glyphs.sep} ${details}`);
+  const failure = entry.detail === null ? '' : ` ${glyphs.sep} ${entry.detail}`;
+  return fold(`${marker} ${status} ${alert.itemName} (${alert.targetLabel}) ${glyphs.sep} ${details}${failure}`);
 }
 
 export function SnipeQueueApp({ alerts, onTravel, onExit, now }: SnipeQueueAppProps) {
   const [state, dispatch] = useReducer(queueReducer, undefined, () => createQueueState());
   const inFlight = useRef(new Set<string>());
+  const ingestedIds = useRef(new Set<string>());
+  const ingestedOrder = useRef<string[]>([]);
   const { exit } = useApp();
   const clock = now ?? Date.now;
+  const alertSignature = alerts.map((alert) => alert.listingId).join('\u0000');
 
   useEffect(() => {
     for (const alert of alerts) {
+      if (ingestedIds.current.has(alert.listingId)) continue;
+      ingestedIds.current.add(alert.listingId);
+      ingestedOrder.current.push(alert.listingId);
+      while (ingestedOrder.current.length > MAX_INGESTED_LISTING_IDS) {
+        const expired = ingestedOrder.current.shift();
+        if (expired !== undefined) ingestedIds.current.delete(expired);
+      }
       dispatch({ type: 'add', alert, receivedAt: new Date(clock()).toISOString() });
     }
-  }, [alerts, clock]);
+  }, [alertSignature, clock]);
 
   const beginTravel = (entry: SnipeQueueEntry): void => {
     const listingId = entry.alert.listingId;
@@ -175,17 +188,19 @@ export function renderSnipeConsole(
   options: SnipeConsoleOptions,
   renderOptions?: RenderOptions,
 ): SnipeConsoleHandle {
-  const alerts: SnipeAlert[] = [];
+  let alerts: readonly SnipeAlert[] = [];
   const props = {
     onTravel: options.onTravel,
     ...(options.onExit === undefined ? {} : { onExit: options.onExit }),
     ...(options.now === undefined ? {} : { now: options.now }),
   };
-  const view = () => <SnipeQueueApp alerts={alerts} {...props} />;
+  const view = () => <SnipeQueueApp alerts={[...alerts]} {...props} />;
   const instance = render(view(), renderOptions);
   return {
     addAlert(alert) {
-      alerts.push(alert);
+      // Props are an event batch, not a second unbounded queue. The component
+      // owns bounded history and keeps its reducer state across rerenders.
+      alerts = [alert];
       instance.rerender(view());
     },
     waitUntilExit: () => instance.waitUntilExit(),

@@ -558,7 +558,7 @@ async function cmdSnipe(): Promise<void> {
 }
 
 async function cmdChrome(): Promise<void> {
-  const { parseCdpPort, resolveChromeLaunch } = await import('./snipe/chrome.js');
+  const { formatChromeLaunchCommand, parseCdpPort, resolveChromeLaunch } = await import('./snipe/chrome.js');
   const port = parseCdpPort(flagValue('--port'));
   const requestedProfile = flagValue('--profile') ?? config.snipe.chromeProfile;
   const launch = resolveChromeLaunch({
@@ -569,13 +569,14 @@ async function cmdChrome(): Promise<void> {
     ...(config.snipe.chromePath === undefined ? {} : { configuredPath: config.snipe.chromePath }),
   });
   const profileDir = launch.args.find((arg) => arg.startsWith('--user-data-dir='))?.slice('--user-data-dir='.length) ?? '(unknown)';
+  const printableCommand = formatChromeLaunchCommand(launch, process.platform);
   if (process.argv.includes('--print')) {
-    console.log(`${launch.cmd} ${launch.args.map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ')}`);
+    console.log(printableCommand);
     return;
   }
   console.log(`Launching Chrome with a debugging port on ${port} (dedicated profile: ${profileDir}).`);
   console.log('Log into pathofexile.com in that window once and clear any Cloudflare check. `exilium snipe` reuses one tab and opens the first search you enable.');
-  console.log(`If Chrome does not open, run this yourself:\n  ${launch.cmd} ${launch.args.join(' ')}\n(${launch.note})`);
+  console.log(`If Chrome does not open, run this yourself:\n  ${printableCommand}\n(${launch.note})`);
   const { spawn } = await import('node:child_process');
   const child = spawn(launch.cmd, [...launch.args], { detached: true, stdio: 'ignore' });
   await new Promise<void>((resolve, reject) => {
@@ -583,6 +584,18 @@ async function cmdChrome(): Promise<void> {
     child.once('error', (err) => reject(new Error(
       `Could not launch Chrome automatically: ${err.message}. Run the command above manually, or set EXILIUM_CHROME to your browser's path.`,
     )));
+  });
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(resolve, 250);
+    child.once('exit', (code, signal) => {
+      clearTimeout(timer);
+      if (code === 0) resolve();
+      else reject(new Error(`Chrome exited during launch (${code ?? signal ?? 'unknown status'}). Run the printed command manually to see its error.`));
+    });
+    child.once('error', (error) => {
+      clearTimeout(timer);
+      reject(new Error(`Chrome failed just after launch: ${error.message}`));
+    });
   });
   child.unref();
 }

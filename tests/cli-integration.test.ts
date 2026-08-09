@@ -109,6 +109,7 @@ describe('CLI integration', () => {
       timeout: 30_000,
     });
     expect(printed.stdout).toContain('C:\\Portable Chrome\\chrome.exe');
+    expect(printed.stdout).toContain('"C:\\Portable Chrome\\chrome.exe"');
     expect(printed.stdout).toContain('--remote-debugging-port=9333');
 
     await expect(

@@ -205,6 +205,8 @@ The server exposes 15 tools: `get_leagues`, `get_market_snapshot`, `get_pair_his
 | `EXILIUM_SNIPE_MIN_MARGIN` | none | Snipe: minimum profit margin (%) to alert on |
 | `EXILIUM_SNIPE_SOUND` | off | Snipe: set `1` for an audible ping (macOS and Windows) |
 | `EXILIUM_SNIPE_WEBHOOK` | none | Snipe: URL receiving a structured JSON payload per alert (for external actuators) |
+| `EXILIUM_CHROME` | auto-detected | Snipe: Chrome/Edge executable used by `exilium chrome` |
+| `EXILIUM_CHROME_CDP` | `http://127.0.0.1:9222` | Snipe: debug Chrome endpoint for the reusable tab |
 | `EXILIUM_ASCII` | auto | Force plain-ASCII glyphs (set to `1`). Auto-on for the legacy Windows console; modern terminals keep the full look |
 | `EXILIUM_UNICODE` | auto | Force the full Unicode look (set to `1`), overriding the ASCII fallback |
 

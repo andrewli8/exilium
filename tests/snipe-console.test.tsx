@@ -19,7 +19,7 @@ function alert(id: string): SnipeAlert {
     itemName: `Item ${id}`,
     priceText: '10 divine',
     seller: `Seller ${id}`,
-    whisper: `@Seller ${id} hi`,
+    listedAt: '2026-08-09T12:00:00Z',
     searchUrl: `https://www.pathofexile.com/trade/search/Allflame/${id}`,
     listedChaos: 2_000,
     marginChaos: 500,
@@ -98,6 +98,59 @@ describe('SnipeTargetPicker', () => {
 });
 
 describe('SnipeQueueApp', () => {
+  test('ingests an externally accumulated alert when the backing array is reused', async () => {
+    const alerts: SnipeAlert[] = [];
+    const onTravel = async (): Promise<TravelResult> => ({ action: 'failed', detail: 'unused' });
+    const ui = render(<SnipeQueueApp alerts={alerts} onTravel={onTravel} />);
+    expect(ui.lastFrame()).toContain('No snipe alerts yet');
+    alerts.push(alert('one'));
+    ui.rerender(<SnipeQueueApp alerts={alerts} onTravel={onTravel} />);
+    await flush();
+    expect(ui.lastFrame()).toContain('Item one');
+  });
+
+  test('a dismissed alert is not replayed when a later cumulative snapshot arrives', async () => {
+    const onTravel = async (): Promise<TravelResult> => ({ action: 'failed', detail: 'unused' });
+    const ui = render(<SnipeQueueApp alerts={[alert('one')]} onTravel={onTravel} />);
+    await flush();
+    ui.stdin.write('d');
+    await flush();
+    ui.rerender(<SnipeQueueApp alerts={[alert('one'), alert('two')]} onTravel={onTravel} />);
+    await flush();
+    expect(ui.lastFrame()).not.toContain('Item one');
+    expect(ui.lastFrame()).toContain('Item two');
+  });
+
+  test('a dismissed listing is not re-added by a non-consecutive duplicate event', async () => {
+    const onTravel = async (): Promise<TravelResult> => ({ action: 'failed', detail: 'unused' });
+    const ui = render(<SnipeQueueApp alerts={[alert('one')]} onTravel={onTravel} />);
+    await flush();
+    ui.stdin.write('d');
+    await flush();
+    ui.rerender(<SnipeQueueApp alerts={[alert('two')]} onTravel={onTravel} />);
+    await flush();
+    ui.rerender(<SnipeQueueApp alerts={[alert('one')]} onTravel={onTravel} />);
+    await flush();
+    expect(ui.lastFrame()).not.toContain('Item one');
+    expect(ui.lastFrame()).toContain('Item two');
+  });
+
+  test('an entry evicted by the queue bound is not resurrected by the next snapshot', async () => {
+    const initial = [
+      alert('selected'),
+      alert('evicted'),
+      ...Array.from({ length: 199 }, (_, index) => alert(`row-${index}`)),
+    ];
+    const onTravel = async (): Promise<TravelResult> => ({ action: 'failed', detail: 'unused' });
+    const ui = render(<SnipeQueueApp alerts={initial} onTravel={onTravel} />);
+    await flush();
+    expect(ui.lastFrame()).not.toContain('Item evicted');
+    ui.rerender(<SnipeQueueApp alerts={[...initial, alert('newest')]} onTravel={onTravel} />);
+    await flush();
+    expect(ui.lastFrame()).not.toContain('Item evicted');
+    expect(ui.lastFrame()).toContain('Item newest');
+  });
+
   test('Enter travels only the selected row and duplicate Enter is suppressed while traveling', async () => {
     const gate = deferred<TravelResult>();
     const travelIds: string[] = [];
@@ -117,6 +170,7 @@ describe('SnipeQueueApp', () => {
     await flush();
     expect(travelIds).toEqual(['one']);
     expect(ui.lastFrame()).toContain('TRAVELING');
+    expect(ui.lastFrame()).toContain('5s');
     gate.resolve({ action: 'traveled', detail: 'clicked Travel to Hideout for Item one' });
     await flush();
     expect(ui.lastFrame()).toContain('TRAVELED');
@@ -142,6 +196,7 @@ describe('SnipeQueueApp', () => {
     ui.stdin.write('\r');
     await flush();
     expect(ui.lastFrame()).toContain('FAILED');
+    expect(ui.lastFrame()).toContain('listing vanished');
     ui.stdin.write('r');
     await flush();
     expect(calls).toBe(2);

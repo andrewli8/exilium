@@ -114,6 +114,8 @@ export interface TravelBrowserOptions {
   /** Persistent-profile directory for the fallback launch path. */
   readonly profileDir: string;
   readonly log: (message: string) => void;
+  /** Explicit opt-in for callers that own a separate persistent context. */
+  readonly allowPersistentFallback?: boolean;
 }
 
 async function attachOverCdp(playwright: PlaywrightLike, cdpUrl: string): Promise<TravelBrowser> {
@@ -151,10 +153,11 @@ async function createTravelBrowserWith(playwright: PlaywrightLike, opts: TravelB
       opts.log(`Travel controller attached to your Chrome at ${opts.cdpUrl} — using your logged-in session.`);
       return attached;
     } catch (err) {
-      opts.log(
-        `Could not attach to Chrome at ${opts.cdpUrl} (${err instanceof Error ? err.message : String(err)}). ` +
-          'Start one with `exilium chrome` for the reliable path — falling back to a fresh profile for now.',
-      );
+      const detail = err instanceof Error ? err.message : String(err);
+      if (opts.allowPersistentFallback !== true) {
+        throw new Error(`Could not attach to Chrome at ${opts.cdpUrl} (${detail})`);
+      }
+      opts.log(`Could not attach to Chrome at ${opts.cdpUrl} (${detail}); using the explicitly requested persistent fallback.`);
     }
   }
   return launchPersistent(playwright, opts.profileDir, opts.log);
@@ -206,7 +209,9 @@ export async function createTravelController(opts: TravelControllerOptions): Pro
       return enqueue(() => travelSelectedAlert(alert, browser.page));
     },
     close() {
-      closePromise ??= tail.then(() => browser.close());
+      // Closing the owned page interrupts a stalled navigation/click instead
+      // of waiting behind it, so q/Ctrl+C remains deterministic.
+      closePromise ??= browser.close();
       return closePromise;
     },
   };

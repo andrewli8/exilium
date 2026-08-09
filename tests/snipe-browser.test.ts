@@ -9,7 +9,7 @@ function alert(id: string): SnipeAlert {
     itemName: `Item ${id}`,
     priceText: '10 divine',
     seller: `Seller ${id}`,
-    whisper: `@Seller ${id} hi`,
+    listedAt: null,
     searchUrl: `https://www.pathofexile.com/trade/search/Allflame/${id}`,
     listedChaos: 2_000,
     marginChaos: 500,
@@ -177,20 +177,34 @@ describe('createTravelController', () => {
     expect(fake.state.chromeProcessAlive).toBe(true);
   });
 
-  test('persistent fallback reuses its first page and closes only its owned context', async () => {
-    const fake = fakePlaywright({ cdpError: new Error('not listening'), persistentExistingPage: true });
-    const logs: string[] = [];
+  test('close does not wait behind a stalled page navigation', async () => {
+    const fake = fakePlaywright();
     const controller = await createTravelController({
       cdpUrl: 'http://127.0.0.1:9222',
       profileDir: 'C:\\profile',
-      log: (message) => logs.push(message),
+      log: () => undefined,
       loadPlaywright: async () => fake.playwright,
     });
-    await controller.travel(alert('one'));
+    fake.state.blockNextGoto();
+    const traveling = controller.travel(alert('one'));
+    await Promise.resolve();
+    await Promise.resolve();
     await controller.close();
+    expect(fake.state.pageCloseCalls).toBe(1);
+    fake.state.releaseGoto();
+    await traveling;
+  });
+
+  test('CDP failure does not silently launch a different browser profile', async () => {
+    const fake = fakePlaywright({ cdpError: new Error('not listening'), persistentExistingPage: true });
+    await expect(createTravelController({
+      cdpUrl: 'http://127.0.0.1:9222',
+      profileDir: 'C:\\profile',
+      log: () => undefined,
+      loadPlaywright: async () => fake.playwright,
+    })).rejects.toThrow(/Could not attach.*not listening/i);
     expect(fake.state.newPageCalls).toBe(0);
-    expect(fake.state.contextCloseCalls).toBe(1);
+    expect(fake.state.contextCloseCalls).toBe(0);
     expect(fake.state.browserCloseCalls).toBe(0);
-    expect(logs.join(' ')).toMatch(/falling back/i);
   });
 });

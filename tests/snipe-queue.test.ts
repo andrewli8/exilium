@@ -16,7 +16,7 @@ function alert(id: string): SnipeAlert {
     itemName: `Item ${id}`,
     priceText: '10 divine',
     seller: `Seller ${id}`,
-    whisper: `@Seller ${id} hi`,
+    listedAt: null,
     searchUrl: `https://www.pathofexile.com/trade/search/Allflame/${id}`,
     listedChaos: 2_000,
     marginChaos: 500,

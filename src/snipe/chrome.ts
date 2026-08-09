@@ -14,6 +14,14 @@ export interface ChromeLaunch {
   readonly note: string;
 }
 
+export function formatChromeLaunchCommand(launch: Pick<ChromeLaunch, 'cmd' | 'args'>, platform: NodeJS.Platform): string {
+  const quote = (part: string): string => /[\s"]/u.test(part)
+    ? `"${part.replaceAll('"', platform === 'win32' ? '`"' : '\\"')}"`
+    : part;
+  const command = [launch.cmd, ...launch.args].map(quote).join(' ');
+  return platform === 'win32' ? `& ${command}` : command;
+}
+
 export interface ResolveChromeLaunchInput {
   readonly platform: NodeJS.Platform;
   readonly env: NodeJS.ProcessEnv;
