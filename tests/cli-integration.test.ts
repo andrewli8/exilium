@@ -103,6 +103,22 @@ describe('CLI integration', () => {
     }
   }, 40_000);
 
+  test('chrome --print validates the port and uses the configured executable without spawning', async () => {
+    const printed = await exec('npx', ['tsx', 'src/cli.ts', 'chrome', '--print', '--port', '9333'], {
+      env: { ...env, EXILIUM_CHROME: 'C:\\Portable Chrome\\chrome.exe' },
+      timeout: 30_000,
+    });
+    expect(printed.stdout).toContain('C:\\Portable Chrome\\chrome.exe');
+    expect(printed.stdout).toContain('--remote-debugging-port=9333');
+
+    await expect(
+      exec('npx', ['tsx', 'src/cli.ts', 'chrome', '--print', '--port', 'abc'], {
+        env,
+        timeout: 30_000,
+      }),
+    ).rejects.toMatchObject({ stderr: expect.stringMatching(/CDP port/) });
+  }, 80_000);
+
   test('setup writes a 600-permission config file from piped answers', async () => {
     const cfgPath = join(dir, 'config.json');
     const child = exec('npx', ['tsx', 'src/cli.ts', 'setup'], {

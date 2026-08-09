@@ -24,6 +24,14 @@ export interface SnipeFileConfig {
   readonly sound?: boolean;
   /** Machine-readable JSON webhook fired per snipe alert. */
   readonly webhookUrl?: string;
+  /** Optional snipe-specific league; "Current" uses challenge detection. */
+  readonly league?: string;
+  /** CDP endpoint of a user-launched Chrome for manual travel to attach to. */
+  readonly chromeCdpUrl?: string;
+  /** Saved Chrome/Chromium executable path. EXILIUM_CHROME still wins. */
+  readonly chromePath?: string;
+  /** Saved dedicated browser profile path. */
+  readonly chromeProfile?: string;
   /** Standing consent for auto-travel. Deliberately file-only (no env var):
    * enabling automation should be an explicit edit, not an inherited shell
    * variable. */
@@ -39,6 +47,11 @@ export interface SnipeSettings {
   readonly sound: boolean;
   /** JSON webhook per snipe alert (structured payload, not Discord format). */
   readonly webhookUrl: string | undefined;
+  readonly league: string | undefined;
+  /** Chrome CDP endpoint for manual travel; defaults to the local debug port. */
+  readonly chromeCdpUrl: string;
+  readonly chromePath: string | undefined;
+  readonly chromeProfile: string | undefined;
   readonly autoTravelAcknowledged: boolean;
 }
 
@@ -114,6 +127,10 @@ function loadSnipeSettings(env: NodeJS.ProcessEnv, file: SnipeFileConfig): Snipe
     mode: env['EXILIUM_SNIPE_MODE'] ?? file.mode,
     sound: env['EXILIUM_SNIPE_SOUND'] === '1' || (env['EXILIUM_SNIPE_SOUND'] === undefined && file.sound === true),
     webhookUrl: env['EXILIUM_SNIPE_WEBHOOK'] ?? file.webhookUrl,
+    league: file.league,
+    chromeCdpUrl: env['EXILIUM_CHROME_CDP'] ?? file.chromeCdpUrl ?? 'http://127.0.0.1:9222',
+    chromePath: env['EXILIUM_CHROME'] ?? file.chromePath,
+    chromeProfile: file.chromeProfile,
     autoTravelAcknowledged: file.autoTravelAcknowledged === true,
   };
 }

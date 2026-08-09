@@ -516,6 +516,36 @@ async function cmdSnipe(): Promise<void> {
   );
 }
 
+async function cmdChrome(): Promise<void> {
+  const { parseCdpPort, resolveChromeLaunch } = await import('./snipe/chrome.js');
+  const port = parseCdpPort(flagValue('--port'));
+  const requestedProfile = flagValue('--profile') ?? config.snipe.chromeProfile;
+  const launch = resolveChromeLaunch({
+    platform: process.platform,
+    env: process.env,
+    port,
+    ...(requestedProfile === undefined ? {} : { profileDir: requestedProfile }),
+    ...(config.snipe.chromePath === undefined ? {} : { configuredPath: config.snipe.chromePath }),
+  });
+  const profileDir = launch.args.find((arg) => arg.startsWith('--user-data-dir='))?.slice('--user-data-dir='.length) ?? '(unknown)';
+  if (process.argv.includes('--print')) {
+    console.log(`${launch.cmd} ${launch.args.map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ')}`);
+    return;
+  }
+  console.log(`Launching Chrome with a debugging port on ${port} (dedicated profile: ${profileDir}).`);
+  console.log('Log into pathofexile.com in that window once and clear any Cloudflare check. `exilium snipe` will attach when you choose an alert and press Enter.');
+  console.log(`If Chrome does not open, run this yourself:\n  ${launch.cmd} ${launch.args.join(' ')}\n(${launch.note})`);
+  const { spawn } = await import('node:child_process');
+  const child = spawn(launch.cmd, [...launch.args], { detached: true, stdio: 'ignore' });
+  await new Promise<void>((resolve, reject) => {
+    child.once('spawn', resolve);
+    child.once('error', (err) => reject(new Error(
+      `Could not launch Chrome automatically: ${err.message}. Run the command above manually, or set EXILIUM_CHROME to your browser's path.`,
+    )));
+  });
+  child.unref();
+}
+
 async function cmdBacktest(): Promise<void> {
   const horizon = Number(flagValue('--horizon') ?? 6);
   if (Number.isNaN(horizon) || horizon < 1) throw new Error('--horizon must be a positive number of hours');
@@ -680,6 +710,7 @@ Trading
   exilium snipe                 Snipe every search in your BetterTrading folder with poe.ninja margins
                                 [--folder DIR] [--min-margin PCT] [--mode ping|auto] [--auto-travel]
                                 [--league NAME] [--keep-league] [--open]
+  exilium chrome                Open a debug-enabled Chrome for CLI-triggered travel [--port N] [--profile DIR] [--print]
   exilium stash                 Value your stash, net worth, trade-check delta [--account NAME]
   exilium sellsheet --file F    Price a dump tab into a bulk WTS message [--discount N]
   exilium journal [add ...]     Record and review trade outcomes
@@ -983,6 +1014,7 @@ const commands: Record<string, () => Promise<void>> = {
   watches: cmdWatches,
   live: cmdLive,
   snipe: cmdSnipe,
+  chrome: cmdChrome,
   backtest: cmdBacktest,
   sellsheet: cmdSellsheet,
   rising: cmdRising,
