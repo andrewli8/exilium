@@ -496,6 +496,40 @@ async function cmdLive(): Promise<void> {
 }
 
 async function cmdSnipe(): Promise<void> {
+  if (process.argv[3] === 'import') {
+    const { persistSnipeImport } = await import('./snipe/import.js');
+    const { resolveSnipeFolder } = await import('./snipe/bettertrading.js');
+    const { homedir } = await import('node:os');
+    const folder = resolveSnipeFolder({
+      flagValue: flagValue('--folder') ?? config.snipe.folder,
+      cwd: process.cwd(),
+      home: homedir(),
+    });
+    const file = flagValue('--file');
+    let content: string;
+    let sourceName: string;
+    if (file !== undefined) {
+      content = readFileSync(file, 'utf8');
+      sourceName = file;
+    } else if (process.stdin.isTTY === true) {
+      const { createInterface } = await import('node:readline/promises');
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      try {
+        content = await rl.question('Paste the Better Trading folder export and press Enter:\n');
+      } finally {
+        rl.close();
+      }
+      sourceName = 'clipboard';
+    } else {
+      const chunks: Buffer[] = [];
+      for await (const chunk of process.stdin) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      content = Buffer.concat(chunks).toString('utf8');
+      sourceName = 'stdin';
+    }
+    const imported = persistSnipeImport({ folder, content, sourceName });
+    console.log(`Imported ${imported.targets.length} search${imported.targets.length === 1 ? '' : 'es'} to ${imported.path}${imported.created ? '' : ' (already present)'}.`);
+    return;
+  }
   const { runSnipe } = await import('./snipe/run.js');
   await runSnipe(
     {

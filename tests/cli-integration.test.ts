@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -118,6 +118,24 @@ describe('CLI integration', () => {
       }),
     ).rejects.toMatchObject({ stderr: expect.stringMatching(/CDP port/) });
   }, 80_000);
+
+  test('snipe import --file saves a Better Trading export without requiring POESESSID', async () => {
+    const folder = join(dir, 'BetterTrading-import');
+    const exportFile = join(dir, 'folder.bt');
+    const payload = { tit: 'Currency', ver: '1', trs: [{ tit: 'Divines', loc: '1:search:abc123' }] };
+    writeFileSync(exportFile, `3:${Buffer.from(JSON.stringify(payload)).toString('base64')}`);
+    const { stdout } = await exec('npx', ['tsx', 'src/cli.ts', 'snipe', 'import', '--file', exportFile], {
+      env: {
+        ...env,
+        EXILIUM_CONFIG: join(dir, 'no-session-config.json'),
+        EXILIUM_BETTERTRADING: folder,
+        EXILIUM_POESESSID: '',
+      },
+      timeout: 30_000,
+    });
+    expect(stdout).toMatch(/Imported 1 search/);
+    expect(readdirSync(folder)).toHaveLength(1);
+  }, 40_000);
 
   test('setup writes a 600-permission config file from piped answers', async () => {
     const cfgPath = join(dir, 'config.json');

@@ -8,6 +8,7 @@ import { afterAll, describe, expect, test, vi } from 'vitest';
 import {
   decodeBetterTradingExport,
   loadSnipeFolder,
+  parseSnipeSource,
   readSnipeFolderFiles,
   resolveSnipeFolder,
   targetsFromJson,
@@ -78,6 +79,23 @@ describe('targetsFromText', () => {
 
   test('ignores lines with neither URLs nor exports', () => {
     expect(targetsFromText('just notes\nmore notes', 'notes')).toEqual([]);
+  });
+});
+
+describe('parseSnipeSource', () => {
+  test('accepts a copied v3 folder export', () => {
+    const payload = Buffer.from(JSON.stringify({
+      tit: 'Currency',
+      ver: '1',
+      trs: [{ tit: 'Divines', loc: '1:search:abc123' }],
+    })).toString('base64');
+    expect(parseSnipeSource(`3:${payload}`, 'clipboard')).toEqual([
+      { label: 'Currency · Divines', realm: 'trade', searchId: 'abc123', league: null },
+    ]);
+  });
+
+  test('rejects a source that has no searches', () => {
+    expect(() => parseSnipeSource('just some notes', 'notes.txt')).toThrow(/No trade searches found in notes\.txt/);
   });
 });
 

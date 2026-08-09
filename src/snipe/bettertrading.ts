@@ -178,6 +178,20 @@ export function targetsFromJson(content: string, fileStem: string): readonly Sni
   });
 }
 
+/** Validate one import source with the same parsers used by folder loading.
+ * A lone extension export is decoded directly so its actionable error is not
+ * flattened into an empty text file. */
+export function parseSnipeSource(content: string, sourceName: string): readonly SnipeTarget[] {
+  const trimmed = content.trim();
+  const targets = EXPORT_PATTERN.test(trimmed)
+    ? decodeBetterTradingExport(trimmed)
+    : sourceName.toLowerCase().endsWith('.json')
+      ? targetsFromJson(content, fileStem(sourceName))
+      : targetsFromText(content, fileStem(sourceName));
+  if (targets.length === 0) throw new Error(`No trade searches found in ${sourceName}`);
+  return targets;
+}
+
 function fileStem(path: string): string {
   return basename(path, extname(path));
 }
