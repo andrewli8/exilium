@@ -1,6 +1,9 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 import { afterAll, describe, expect, test, vi } from 'vitest';
 import {
   decodeBetterTradingExport,
@@ -75,6 +78,18 @@ describe('targetsFromText', () => {
 
   test('ignores lines with neither URLs nor exports', () => {
     expect(targetsFromText('just notes\nmore notes', 'notes')).toEqual([]);
+  });
+});
+
+describe('real Better Trading export fixture', () => {
+  test('decodes the valdos folder export (19 searches, icn:null tolerated)', () => {
+    const raw = readFileSync(join(__dirname, 'fixtures', 'valdos-export.txt'), 'utf8');
+    const targets = targetsFromText(raw, 'valdos');
+    expect(targets).toHaveLength(19);
+    expect(targets[0]).toEqual({ label: 'valdos · sublime vision', realm: 'trade', searchId: '9zRjda6KHK', league: null });
+    const mageblood = targets.find((t) => t.label.includes('mageblood'));
+    expect(mageblood).toEqual({ label: 'valdos · mageblood', realm: 'trade', searchId: 'BgzY9rR3t8', league: null });
+    expect(new Set(targets.map((t) => t.searchId)).size).toBe(19);
   });
 });
 
