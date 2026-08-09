@@ -137,6 +137,27 @@ describe('CLI integration', () => {
     expect(readdirSync(folder)).toHaveLength(1);
   }, 40_000);
 
+  test('non-interactive snipe requires an explicit per-run search selection', async () => {
+    const folder = join(dir, 'BetterTrading-selection');
+    const { mkdirSync } = await import('node:fs');
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(join(folder, 'targets.json'), JSON.stringify({
+      targets: [{ label: 'Currency', slug: 'abc123' }],
+    }));
+    const snipeEnv = {
+      ...env,
+      EXILIUM_CONFIG: join(dir, 'no-snipe-config.json'),
+      EXILIUM_BETTERTRADING: folder,
+      EXILIUM_POESESSID: 'test-session',
+    };
+    await expect(
+      exec('npx', ['tsx', 'src/cli.ts', 'snipe'], { env: snipeEnv, timeout: 30_000 }),
+    ).rejects.toMatchObject({ stderr: expect.stringMatching(/--all|--search/) });
+    await expect(
+      exec('npx', ['tsx', 'src/cli.ts', 'snipe', '--search', 'missing'], { env: snipeEnv, timeout: 30_000 }),
+    ).rejects.toMatchObject({ stderr: expect.stringMatching(/Unknown snipe search selector/) });
+  }, 80_000);
+
   test('setup writes a 600-permission config file from piped answers', async () => {
     const cfgPath = join(dir, 'config.json');
     const child = exec('npx', ['tsx', 'src/cli.ts', 'setup'], {

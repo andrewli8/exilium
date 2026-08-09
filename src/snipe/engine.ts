@@ -130,7 +130,7 @@ export function formatAlert(alert: SnipeAlert): RenderedAlert {
   const staleTag = alert.stale ? ' · STALE >10m — reprice before you commit' : '';
   return {
     title: `Exilium snipe: ${alert.itemName} · ${alert.priceText}`,
-    body: `${alert.marginText} · ${alert.freshnessText}${staleTag} · whisper copied`,
+    body: `${alert.marginText} · ${alert.freshnessText}${staleTag} · queued — press Enter in Exilium to travel`,
     line: `[${alert.targetLabel}] ${alert.itemName} · ${alert.priceText} · ${alert.marginText} · seller ${alert.seller}`,
   };
 }

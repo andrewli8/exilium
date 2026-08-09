@@ -99,6 +99,22 @@ function fakePlaywright(options: FakeOptions = {}) {
 }
 
 describe('createTravelController', () => {
+  test('opens an enabled search in the same owned page before any listing action', async () => {
+    const fake = fakePlaywright();
+    const controller = await createTravelController({
+      cdpUrl: 'http://127.0.0.1:9222',
+      profileDir: 'C:\\profile',
+      log: () => undefined,
+      loadPlaywright: async () => fake.playwright,
+    });
+    await controller.openSearch('https://www.pathofexile.com/trade/search/Allflame/selected');
+    expect(fake.state.newPageCalls).toBe(1);
+    expect(fake.state.gotoUrls).toEqual([
+      'https://www.pathofexile.com/trade/search/Allflame/selected',
+    ]);
+    expect(fake.state.clickSelectors).toEqual([]);
+  });
+
   test('CDP creates one owned page and reuses it for multiple manual actions', async () => {
     const fake = fakePlaywright();
     const controller = await createTravelController({

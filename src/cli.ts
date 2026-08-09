@@ -241,6 +241,11 @@ function flagValue(name: string): string | undefined {
   return i === -1 ? undefined : process.argv[i + 1];
 }
 
+function flagValues(name: string): readonly string[] {
+  return process.argv.flatMap((argument, index) =>
+    argument === name && process.argv[index + 1] !== undefined ? [process.argv[index + 1]!] : []);
+}
+
 async function cmdPrice(): Promise<void> {
   const query = process.argv.slice(3).filter((a) => !a.startsWith('--')).join(' ');
   if (query === '') throw new Error('Usage: exilium price <item name>');
@@ -530,6 +535,9 @@ async function cmdSnipe(): Promise<void> {
     console.log(`Imported ${imported.targets.length} search${imported.targets.length === 1 ? '' : 'es'} to ${imported.path}${imported.created ? '' : ' (already present)'}.`);
     return;
   }
+  if (process.argv.includes('--auto-travel') || process.argv.includes('--mode') || process.argv.includes('--open')) {
+    throw new Error('The old --mode/--auto-travel/--open flow was retired. Select searches for this run; live hits queue without acting, and Enter clicks Travel to Hideout.');
+  }
   const { runSnipe } = await import('./snipe/run.js');
   await runSnipe(
     {
@@ -537,9 +545,8 @@ async function cmdSnipe(): Promise<void> {
       league: flagValue('--league'),
       keepLeague: process.argv.includes('--keep-league'),
       minMargin: flagValue('--min-margin'),
-      mode: flagValue('--mode'),
-      autoTravel: process.argv.includes('--auto-travel'),
-      open: process.argv.includes('--open'),
+      all: process.argv.includes('--all'),
+      searches: flagValues('--search'),
     },
     {
       config,
@@ -567,7 +574,7 @@ async function cmdChrome(): Promise<void> {
     return;
   }
   console.log(`Launching Chrome with a debugging port on ${port} (dedicated profile: ${profileDir}).`);
-  console.log('Log into pathofexile.com in that window once and clear any Cloudflare check. `exilium snipe` will attach when you choose an alert and press Enter.');
+  console.log('Log into pathofexile.com in that window once and clear any Cloudflare check. `exilium snipe` reuses one tab and opens the first search you enable.');
   console.log(`If Chrome does not open, run this yourself:\n  ${launch.cmd} ${launch.args.join(' ')}\n(${launch.note})`);
   const { spawn } = await import('node:child_process');
   const child = spawn(launch.cmd, [...launch.args], { detached: true, stdio: 'ignore' });
@@ -741,9 +748,11 @@ Trading
   exilium opps                  Detector signals    [--min-edge N] [--category C] [--experimental]
   exilium arb                   Cross-rate arbitrage table [--min-gap N] [--limit N]
   exilium live <trade-url>      Live-search monitor; whisper copied to clipboard
-  exilium snipe                 Snipe every search in your BetterTrading folder with poe.ninja margins
-                                [--folder DIR] [--min-margin PCT] [--mode ping|auto] [--auto-travel]
-                                [--league NAME] [--keep-league] [--open]
+  exilium snipe                 Choose Better Trading searches for this run; queue live hits
+                                [--folder DIR] [--min-margin PCT] [--all] [--search ID ...]
+                                [--league NAME] [--keep-league]
+                                Reuses one Chrome tab; Enter clicks Travel to Hideout; no whisper is sent/copied
+  exilium snipe import          Import a Better Trading folder export [--file FILE]
   exilium chrome                Open a debug-enabled Chrome for CLI-triggered travel [--port N] [--profile DIR] [--print]
   exilium stash                 Value your stash, net worth, trade-check delta [--account NAME]
   exilium sellsheet --file F    Price a dump tab into a bulk WTS message [--discount N]

@@ -128,6 +128,7 @@ describe('formatAlert', () => {
     expect(rendered.title).toContain('Mageblood');
     expect(rendered.title).toContain('150 divine');
     expect(rendered.body).toContain('+10,000c (+25.0%)');
+    expect(rendered.body).not.toMatch(/whisper|copied/i);
     expect(rendered.line).toContain('MB snipes');
     expect(rendered.line).toContain('Valdo_Enjoyer');
   });

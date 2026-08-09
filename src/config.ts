@@ -20,7 +20,6 @@ export interface FileConfig {
 export interface SnipeFileConfig {
   readonly folder?: string;
   readonly minMarginPct?: number;
-  readonly mode?: string;
   readonly sound?: boolean;
   /** Machine-readable JSON webhook fired per snipe alert. */
   readonly webhookUrl?: string;
@@ -32,10 +31,6 @@ export interface SnipeFileConfig {
   readonly chromePath?: string;
   /** Saved dedicated browser profile path. */
   readonly chromeProfile?: string;
-  /** Standing consent for auto-travel. Deliberately file-only (no env var):
-   * enabling automation should be an explicit edit, not an inherited shell
-   * variable. */
-  readonly autoTravelAcknowledged?: boolean;
 }
 
 /** Resolved snipe settings (defaults ← file ← env). */
@@ -43,7 +38,6 @@ export interface SnipeSettings {
   readonly folder: string | undefined;
   /** Minimum profit margin (%) to alert on; null alerts on everything. */
   readonly minMarginPct: number | null;
-  readonly mode: string | undefined;
   readonly sound: boolean;
   /** JSON webhook per snipe alert (structured payload, not Discord format). */
   readonly webhookUrl: string | undefined;
@@ -52,7 +46,6 @@ export interface SnipeSettings {
   readonly chromeCdpUrl: string;
   readonly chromePath: string | undefined;
   readonly chromeProfile: string | undefined;
-  readonly autoTravelAcknowledged: boolean;
 }
 
 export interface CategorySpec {
@@ -124,14 +117,12 @@ function loadSnipeSettings(env: NodeJS.ProcessEnv, file: SnipeFileConfig): Snipe
     // An empty env var means "unset", never "the empty path".
     folder: envFolder !== undefined && envFolder !== '' ? envFolder : file.folder,
     minMarginPct: parseSnipeMinMargin(env['EXILIUM_SNIPE_MIN_MARGIN'], file.minMarginPct),
-    mode: env['EXILIUM_SNIPE_MODE'] ?? file.mode,
     sound: env['EXILIUM_SNIPE_SOUND'] === '1' || (env['EXILIUM_SNIPE_SOUND'] === undefined && file.sound === true),
     webhookUrl: env['EXILIUM_SNIPE_WEBHOOK'] ?? file.webhookUrl,
     league: file.league,
     chromeCdpUrl: env['EXILIUM_CHROME_CDP'] ?? file.chromeCdpUrl ?? 'http://127.0.0.1:9222',
     chromePath: env['EXILIUM_CHROME'] ?? file.chromePath,
     chromeProfile: file.chromeProfile,
-    autoTravelAcknowledged: file.autoTravelAcknowledged === true,
   };
 }
 

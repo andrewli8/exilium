@@ -240,7 +240,7 @@ export function resolveSnipeFolder(opts: ResolveFolderOptions): string {
   return join(opts.home, '.exilium', 'BetterTrading');
 }
 
-const SCAFFOLD_README = `Your BetterTrading folder — every trade search saved here gets sniped by \`exilium snipe\`.
+const SCAFFOLD_README = `Your BetterTrading folder — searches saved here are available in the per-run \`exilium snipe\` picker.
 
 Three formats, mix freely (subfolders up to 3 deep are read too):
 

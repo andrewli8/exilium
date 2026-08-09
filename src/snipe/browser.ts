@@ -59,7 +59,7 @@ interface PlaywrightBrowser {
 interface PlaywrightLike {
   chromium: {
     launchPersistentContext(dir: string, opts: { headless: boolean; viewport: null; channel?: string }): Promise<PlaywrightContext>;
-    connectOverCDP(url: string, opts?: { noDefaults?: boolean; timeout?: number }): Promise<PlaywrightBrowser>;
+    connectOverCDP(url: string, opts?: { timeout?: number }): Promise<PlaywrightBrowser>;
   };
 }
 
@@ -117,8 +117,7 @@ export interface TravelBrowserOptions {
 }
 
 async function attachOverCdp(playwright: PlaywrightLike, cdpUrl: string): Promise<TravelBrowser> {
-  // noDefaults: don't override the user's real browser context settings.
-  const browser = await playwright.chromium.connectOverCDP(cdpUrl, { noDefaults: true, timeout: 5_000 });
+  const browser = await playwright.chromium.connectOverCDP(cdpUrl, { timeout: 5_000 });
   const context = browser.contexts()[0];
   if (context === undefined) throw new Error('attached Chrome has no browser context');
   // A dedicated tab so the snipe never hijacks whatever the user is viewing.
@@ -166,6 +165,8 @@ export async function createTravelBrowser(opts: TravelBrowserOptions): Promise<T
 }
 
 export interface TravelController {
+  /** Show an enabled Better Trading search without clicking any listing. */
+  openSearch(url: string): Promise<void>;
   travel(alert: SnipeAlert): Promise<TravelResult>;
   close(): Promise<void>;
 }
@@ -189,11 +190,20 @@ export async function createTravelController(opts: TravelControllerOptions): Pro
   let tail: Promise<unknown> = Promise.resolve();
   let closePromise: Promise<void> | undefined;
 
+  const enqueue = <T>(action: () => Promise<T>): Promise<T> => {
+    const result = tail.then(action);
+    tail = result.then(() => undefined, () => undefined);
+    return result;
+  };
+
   return {
+    openSearch(url) {
+      return enqueue(async () => {
+        if (browser.page.url() !== url) await browser.page.goto(url);
+      });
+    },
     travel(alert) {
-      const result = tail.then(() => travelSelectedAlert(alert, browser.page));
-      tail = result.then(() => undefined, () => undefined);
-      return result;
+      return enqueue(() => travelSelectedAlert(alert, browser.page));
     },
     close() {
       closePromise ??= tail.then(() => browser.close());

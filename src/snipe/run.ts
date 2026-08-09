@@ -5,85 +5,113 @@ import type { ExiliumConfig } from '../config.js';
 import { ingestLeague } from '../ingest/ingest.js';
 import { NinjaClient } from '../sources/ninja/client.js';
 import type { SnapshotRepository } from '../storage/snapshot-repository.js';
-import { buildLiveWsUrl, fetchListings, type TradeSearch } from '../trade/live-search.js';
-import { effectiveLeague, resolveSnipeLeague } from './league.js';
+import {
+  buildLiveWsUrl,
+  fetchListings as fetchTradeListings,
+  type LiveListing,
+  type TradeSearch,
+} from '../trade/live-search.js';
 import { createNotifier } from '../watch/notify.js';
-import { copyToClipboard, openUrl } from '../platform.js';
 import {
   loadSnipeFolder,
   readSnipeFolderFiles,
   resolveSnipeFolder,
   scaffoldSnipeFolder,
+  type SnipeTarget,
 } from './bettertrading.js';
+import { createTravelController, type TravelController } from './browser.js';
+import {
+  promptSnipeTargets,
+  renderSnipeConsole,
+  type SnipeConsoleHandle,
+  type SnipeConsoleOptions,
+} from './console.js';
+import { buildSearchPageUrl, decideSnipe, formatAlert, type SnipeAlert } from './engine.js';
+import { effectiveLeague, resolveSnipeLeague } from './league.js';
 import { assessMargin } from './margin.js';
-import { decideSnipe, formatAlert, type SnipeAlert } from './engine.js';
-import { dispatchTravel, resolveTravelMode, type TravelPage } from './travel.js';
+import { resolveRequestedTargets } from './selection.js';
+import type { TravelResult } from './travel.js';
 import { buildSnipeWebhookPayload, postSnipeWebhook } from './webhook.js';
-
-/** The `exilium snipe` session: every search in the BetterTrading folder on
- * a live websocket, margins from local poe.ninja snapshots kept fresh in the
- * background, instant notifications, ping-only or (double-gated) auto-travel.
- *
- * The decision core is pure and tested (engine/margin/travel); this file is
- * the plumbing: sockets, timers, notifier, and the browser handle. */
 
 export interface SnipeFlags {
   readonly folder: string | undefined;
   readonly league: string | undefined;
   readonly keepLeague: boolean;
   readonly minMargin: string | undefined;
-  readonly mode: string | undefined;
-  readonly autoTravel: boolean;
-  readonly open: boolean;
+  readonly all: boolean;
+  readonly searches: readonly string[];
 }
 
-/** GGG allows a bounded number of live-search sockets per account. */
-const MAX_SOCKETS = 20;
-const CONNECT_STAGGER_MS = 500;
-/** The socket loop dedupes ids at message time; the engine's own duplicate
- * check gets an empty prior set. */
-const NO_PRIOR_LISTINGS: ReadonlySet<string> = new Set();
+export interface SnipeSocket {
+  on(event: 'open', listener: () => void): this;
+  on(event: 'message', listener: (data: Buffer) => void): this;
+  on(event: 'close', listener: (code: number) => void): this;
+  on(event: 'error', listener: (error: Error) => void): this;
+  close(): void;
+}
 
-interface SnipeDeps {
+export type OpenSnipeSocket = (
+  search: TradeSearch,
+  headers: Readonly<Record<string, string>>,
+) => SnipeSocket;
+
+type FetchSnipeListings = (
+  ids: readonly string[],
+  search: TradeSearch,
+  sessionId: string,
+) => Promise<readonly LiveListing[]>;
+
+export interface SnipeDeps {
   readonly config: ExiliumConfig;
   readonly repo: SnapshotRepository;
   readonly out: (message: string) => void;
   readonly log: (message: string) => void;
+  readonly isTTY?: boolean;
+  readonly promptTargets?: typeof promptSnipeTargets;
+  readonly makeConsole?: (options: SnipeConsoleOptions) => SnipeConsoleHandle;
+  readonly makeTravelController?: typeof createTravelController;
+  readonly openSocket?: OpenSnipeSocket;
+  readonly fetchListings?: FetchSnipeListings;
+  readonly refreshPrices?: () => Promise<void>;
+  readonly notify?: (title: string, body: string) => Promise<void>;
+  readonly recordAlert?: (alert: SnipeAlert, action: string, detail: string) => void;
+  readonly now?: () => number;
+  readonly connectStaggerMs?: number;
 }
+
+export const MAX_SNIPE_SOCKETS = 20;
+const CONNECT_STAGGER_MS = 500;
+const NO_PRIOR_LISTINGS: ReadonlySet<string> = new Set();
 
 function snipeLogPath(): string {
   return join(homedir(), '.exilium', 'snipes.jsonl');
 }
 
-function recordSnipe(alert: SnipeAlert, action: string, detail: string, log: (m: string) => void): void {
+function recordSnipe(alert: SnipeAlert, action: string, detail: string, log: (message: string) => void): void {
   try {
-    const entry = { ts: new Date().toISOString(), ...alert, action, detail };
-    appendFileSync(snipeLogPath(), `${JSON.stringify(entry)}\n`);
-  } catch (err) {
-    log(`could not append to ${snipeLogPath()}: ${err instanceof Error ? err.message : err}`);
+    appendFileSync(snipeLogPath(), `${JSON.stringify({
+      ts: new Date().toISOString(),
+      ...alert,
+      action,
+      detail,
+    })}\n`);
+  } catch (error) {
+    log(`could not append to ${snipeLogPath()}: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
-function playSound(config: ExiliumConfig, execFn: (cmd: string, args: readonly string[]) => Promise<unknown>): void {
-  if (!config.snipe.sound) return;
-  if (process.platform === 'darwin') {
-    execFn('afplay', ['/System/Library/Sounds/Glass.aiff']).catch(() => undefined);
-  } else if (process.platform === 'win32') {
-    // SystemSounds plays async; the brief sleep keeps the process alive
-    // long enough for the sound to actually come out.
-    execFn('powershell', ['-NoProfile', '-Command', '[System.Media.SystemSounds]::Asterisk.Play(); Start-Sleep -Milliseconds 400']).catch(() => undefined);
-  }
+interface RunnableTarget {
+  readonly target: SnipeTarget;
+  readonly search: TradeSearch;
+}
+
+function selectedLeagueFlag(config: ExiliumConfig, flag: string | undefined): string | undefined {
+  const requested = flag ?? config.snipe.league;
+  return requested?.toLowerCase() === 'current' ? undefined : requested;
 }
 
 export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void> {
   const { config, repo, out, log } = deps;
-  const sessionId = config.poesessid;
-  if (sessionId === undefined || sessionId === '') {
-    throw new Error(
-      'No session cookie configured. Run `exilium setup` (stores it in ~/.exilium/config.json, chmod 600), or set EXILIUM_POESESSID for this run. The cookie stays on this machine and is sent only to pathofexile.com.',
-    );
-  }
-
   const folder = resolveSnipeFolder({
     flagValue: flags.folder ?? config.snipe.folder,
     cwd: process.cwd(),
@@ -92,202 +120,292 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
   if (!existsSync(folder)) {
     const written = scaffoldSnipeFolder(folder);
     out(`No BetterTrading folder yet — created ${folder} with a starter:`);
-    for (const p of written) out(`  ${p}`);
-    out('Drop your trade links / Better Trading exports in there and rerun `exilium snipe`.');
-    return;
-  }
-  const targets = loadSnipeFolder(readSnipeFolderFiles(folder), log);
-  if (targets.length === 0) {
-    out(`${folder} holds no usable trade searches yet. Add URLs (one per line in a .txt), Better Trading export strings, or a targets JSON — see its README.txt.`);
+    for (const path of written) out(`  ${path}`);
+    out('Import a Better Trading folder export with `exilium snipe import`, then rerun.');
     return;
   }
 
-  const league = await resolveSnipeLeague(config, flags.league, log);
-  const minMarginPct = flags.minMargin !== undefined ? Number(flags.minMargin) : config.snipe.minMarginPct;
-  if (minMarginPct !== null && Number.isNaN(minMarginPct)) throw new Error('--min-margin must be a number (percent)');
+  const allTargets = loadSnipeFolder(readSnipeFolderFiles(folder), log);
+  if (allTargets.length === 0) {
+    out(`${folder} holds no usable trade searches. Add trade URLs or run \`exilium snipe import\`.`);
+    return;
+  }
 
-  const travel = resolveTravelMode({
-    modeFlag: flags.mode,
-    autoTravelFlag: flags.autoTravel,
-    configuredMode: config.snipe.mode,
-    acknowledged: config.snipe.autoTravelAcknowledged,
+  const requested = resolveRequestedTargets(allTargets, {
+    isTTY: deps.isTTY ?? process.stdin.isTTY === true,
+    all: flags.all,
+    searches: flags.searches,
   });
-  if (travel.warning !== undefined) log(travel.warning);
+  const selected = requested ?? await (deps.promptTargets ?? promptSnipeTargets)(allTargets);
+  if (selected.length === 0) {
+    out('No Better Trading searches enabled for this run.');
+    return;
+  }
 
-  let page: TravelPage | undefined;
-  let closeBrowser: (() => Promise<void>) | undefined;
-  if (travel.mode === 'auto') {
-    const { createTravelBrowser } = await import('./browser.js');
-    const browser = await createTravelBrowser(join(homedir(), '.exilium', 'browser-profile'), log);
-    page = browser.page;
-    closeBrowser = browser.close;
-    process.once('SIGINT', () => {
-      void browser.close().finally(() => process.exit(130));
+  const sessionId = config.poesessid;
+  if (sessionId === undefined || sessionId === '') {
+    throw new Error(
+      'No session cookie configured. Run `exilium setup`, or set EXILIUM_POESESSID for this run. The cookie stays on this machine and is sent only to pathofexile.com.',
+    );
+  }
+
+  const league = await resolveSnipeLeague(config, selectedLeagueFlag(config, flags.league), log);
+  const minMarginPct = flags.minMargin === undefined ? config.snipe.minMarginPct : Number(flags.minMargin);
+  if (minMarginPct !== null && Number.isNaN(minMarginPct)) {
+    throw new Error('--min-margin must be a number (percent)');
+  }
+
+  const runnable: RunnableTarget[] = [];
+  for (const target of selected.slice(0, MAX_SNIPE_SOCKETS)) {
+    const targetLeague = effectiveLeague(target, league, flags.keepLeague);
+    if (targetLeague === null) {
+      log(`skipping "${target.label}": PoE2 search without a league in its source`);
+      continue;
+    }
+    runnable.push({
+      target,
+      search: { realm: target.realm, league: targetLeague, searchId: target.searchId },
     });
   }
+  if (selected.length > MAX_SNIPE_SOCKETS) {
+    log(`Selected ${selected.length} searches; enabling the first ${MAX_SNIPE_SOCKETS} because the trade site caps live searches per account.`);
+  }
+  if (runnable.length === 0) {
+    out('None of the selected searches can run in the resolved league.');
+    return;
+  }
 
-  // Reference prices stay inside the 10-minute freshness window: refresh on
-  // start and every refreshSec (floored at 300s; the DB-refereed min
-  // interval dedupes across processes). Item categories — the uniques being
-  // sniped — must ride the same cadence, not ingest's default hourly one.
-  // A failed or in-flight refresh never blocks alerts — they just carry a
-  // STALE marker, so the first refresh runs concurrently with the sockets
-  // instead of delaying them.
-  const client = new NinjaClient({ userAgent: config.userAgent });
-  const refresh = async (): Promise<void> => {
+  const now = deps.now ?? Date.now;
+  const record = deps.recordAlert ?? ((alert, action, detail) => recordSnipe(alert, action, detail, log));
+  let notify = deps.notify;
+  let sound = (): void => undefined;
+  if (notify === undefined || config.snipe.sound) {
+    const { execFile } = await import('node:child_process');
+    const { promisify } = await import('node:util');
+    const exec = promisify(execFile);
+    const execFn = async (command: string, args: readonly string[]): Promise<unknown> => exec(command, [...args]);
+    notify ??= createNotifier({
+      platform: process.platform,
+      execFn,
+      fetchFn: (url, init) => fetch(url, init),
+      webhookUrl: config.webhookUrl,
+      log,
+    }).notify;
+    if (config.snipe.sound) {
+      sound = () => {
+        if (process.platform === 'darwin') void execFn('afplay', ['/System/Library/Sounds/Glass.aiff']).catch(() => undefined);
+        else if (process.platform === 'win32') {
+          void execFn('powershell', ['-NoProfile', '-Command', '[System.Media.SystemSounds]::Asterisk.Play()']).catch(() => undefined);
+        }
+      };
+    }
+  }
+
+  const makeController = deps.makeTravelController ?? createTravelController;
+  let controllerPromise: Promise<TravelController> | undefined;
+  const ensureController = (): Promise<TravelController> => {
+    if (controllerPromise === undefined) {
+      controllerPromise = makeController({
+        cdpUrl: config.snipe.chromeCdpUrl,
+        profileDir: config.snipe.chromeProfile ?? join(homedir(), '.exilium', 'browser-profile'),
+        log,
+      }).catch((error: unknown) => {
+        controllerPromise = undefined;
+        throw error;
+      });
+    }
+    return controllerPromise;
+  };
+
+  const recordWebhook = (alert: SnipeAlert, action: string, detail: string): void => {
+    record(alert, action, detail);
+    if (config.snipe.webhookUrl !== undefined) {
+      const payload = buildSnipeWebhookPayload(alert, action, detail, new Date(now()).toISOString());
+      void postSnipeWebhook(config.snipe.webhookUrl, payload, (url, init) => fetch(url, init), log);
+    }
+  };
+
+  const onTravel = async (alert: SnipeAlert): Promise<TravelResult> => {
     try {
-      const result = await ingestLeague(client, repo, {
+      const result = await (await ensureController()).travel(alert);
+      recordWebhook(alert, result.action, result.detail);
+      return result;
+    } catch (error) {
+      const detail = `${error instanceof Error ? error.message : String(error)}. Run \`exilium chrome\`, log into pathofexile.com, then press r to retry.`;
+      const result: TravelResult = { action: 'failed', detail };
+      recordWebhook(alert, result.action, result.detail);
+      return result;
+    }
+  };
+
+  let requestStop!: () => void;
+  const stopRequested = new Promise<void>((resolve) => { requestStop = resolve; });
+  const consoleHandle = (deps.makeConsole ?? ((options) => renderSnipeConsole(options)))({
+    onTravel,
+    onExit: requestStop,
+    now,
+  });
+
+  let stopped = false;
+  const sockets = new Set<SnipeSocket>();
+  const timers = new Set<ReturnType<typeof setTimeout>>();
+  const pending = new Set<Promise<void>>();
+  let refreshTimer: ReturnType<typeof setInterval> | undefined;
+
+  const refresh = deps.refreshPrices ?? (async () => {
+    try {
+      const result = await ingestLeague(new NinjaClient({ userAgent: config.userAgent }), repo, {
         game: config.game,
         league,
         categories: config.categories,
-        now: () => new Date().toISOString(),
+        now: () => new Date(now()).toISOString(),
         itemsMinIntervalSec: Math.max(300, config.refreshSec),
       });
       if (result.saved.length > 0) log(`refreshed ${result.saved.length} categories`);
-    } catch (err) {
-      log(`price refresh failed: ${err instanceof Error ? err.message : err}`);
+    } catch (error) {
+      log(`price refresh failed: ${error instanceof Error ? error.message : String(error)}`);
     }
-  };
-  void refresh();
-  setInterval(() => void refresh(), config.refreshSec * 1000);
-
-  const { execFile } = await import('node:child_process');
-  const { promisify } = await import('node:util');
-  const exec = promisify(execFile);
-  const execFn = async (cmd: string, args: readonly string[]): Promise<unknown> => exec(cmd, [...args]);
-  const notifier = createNotifier({
-    platform: process.platform,
-    execFn,
-    fetchFn: (url, init) => fetch(url, init),
-    webhookUrl: config.webhookUrl,
-    log,
   });
 
-  const runnable = targets.slice(0, MAX_SOCKETS);
-  if (targets.length > MAX_SOCKETS) {
-    log(`folder holds ${targets.length} searches; watching the first ${MAX_SOCKETS} (the trade site caps live searches per account). Trim the folder to choose.`);
+  let openSocket = deps.openSocket;
+  if (openSocket === undefined) {
+    const { default: WebSocket } = await import('ws');
+    openSocket = (search, headers) => new WebSocket(buildLiveWsUrl(search), { headers: { ...headers } }) as unknown as SnipeSocket;
   }
+  const fetchListings = deps.fetchListings ?? ((ids, search, sid) =>
+    fetchTradeListings(ids, search, sid, { fetchFn: (url, init) => fetch(url, init) }));
 
-  out(`Exilium snipe — ${runnable.length} searches · league ${league} · min margin ${minMarginPct ?? 'off'} · mode ${travel.mode}`);
-  out('Whispers are copied to your clipboard the moment a listing lands. Ctrl+C to stop.');
-  for (const t of runnable) out(`  · ${t.label} (${t.searchId})`);
-
-  const { default: WebSocket } = await import('ws');
-  const wsHeaders = {
+  const headers = {
     Cookie: `POESESSID=${sessionId}`,
     'User-Agent': config.userAgent,
     Origin: 'https://www.pathofexile.com',
   };
 
-  const handleAlert = async (alert: SnipeAlert): Promise<void> => {
-    const rendered = formatAlert(alert);
-    // The travel action is the time-critical part of a snipe — start it
-    // first and let clipboard/sound/notification I/O overlap it.
-    const travelPromise = dispatchTravel(alert, {
-      mode: travel.mode,
-      openSearchPage: flags.open,
-      openUrl: async (url) => {
-        openUrl(url, { platform: process.platform });
-      },
-      ...(page === undefined ? {} : { page }),
-    });
-    if (alert.whisper !== '') {
-      try {
-        await copyToClipboard(alert.whisper, { platform: process.platform });
-      } catch (err) {
-        log(`clipboard copy failed (${err instanceof Error ? err.message : err}) — whisper: ${alert.whisper}`);
-      }
-    }
-    playSound(config, execFn);
-    // Fire-and-forget: the Windows balloon toast blocks ~3s per call, and a
-    // burst of listings must not queue behind it (notify never throws — its
-    // channel failures are logged internally).
-    void notifier.notify(rendered.title, rendered.body);
-    out(`[${new Date().toISOString()}] ${rendered.line}`);
-    const result = await travelPromise;
-    out(`  ${result.action}: ${result.detail}`);
-    recordSnipe(alert, result.action, result.detail, log);
-    if (config.snipe.webhookUrl !== undefined) {
-      const payload = buildSnipeWebhookPayload(alert, result.action, result.detail, new Date().toISOString());
-      void postSnipeWebhook(config.snipe.webhookUrl, payload, (url, init) => fetch(url, init), log);
-    }
+  const startTask = (task: Promise<void>): void => {
+    pending.add(task);
+    void task.finally(() => pending.delete(task));
   };
 
-  runnable.forEach((target, index) => {
-    const targetLeague = effectiveLeague(target, league, flags.keepLeague);
-    if (targetLeague === null) {
-      log(`skipping "${target.label}": PoE2 search without a league in its URL — snipe cannot guess one.`);
-      return;
-    }
-    const search: TradeSearch = { realm: target.realm, league: targetLeague, searchId: target.searchId };
+  const connectTarget = ({ target, search }: RunnableTarget): void => {
+    if (stopped) return;
     const seen = new Set<string>();
     let consecutiveFailures = 0;
     const connect = (): void => {
-      const ws = new WebSocket(buildLiveWsUrl(search), { headers: wsHeaders });
-      ws.on('open', () => {
+      if (stopped) return;
+      const socket = openSocket!(search, headers);
+      sockets.add(socket);
+      socket.on('open', () => {
         consecutiveFailures = 0;
         out(`watching ${target.label} — ${search.league}/${search.searchId}`);
       });
-      ws.on('message', (data: Buffer) => {
-        void (async () => {
+      socket.on('message', (data) => {
+        const task = (async () => {
           try {
-            const msg = JSON.parse(data.toString()) as { new?: string[] };
-            const fresh = (msg.new ?? []).filter((id) => !seen.has(id));
+            const message = JSON.parse(data.toString()) as { new?: string[] };
+            const fresh = (message.new ?? []).filter((id) => !seen.has(id));
             if (fresh.length === 0) return;
-            // Mark ids seen BEFORE the awaited fetch: a replayed/duplicate
-            // message arriving mid-await must not double-fire the alert (or
-            // an auto-travel click).
             for (const id of fresh) seen.add(id);
-            const listings = await fetchListings(fresh, search, sessionId, { fetchFn: (url, init) => fetch(url, init) });
-            // Reference prices must come from the league the search actually
-            // runs under — a --keep-league target in Standard must never be
-            // margined against Allflame prices. Off-league targets simply
-            // have no local data, so their alerts say "no reference price".
+            const listings = await fetchListings(fresh, search, sessionId);
             const snapshots = repo.latestAll(config.game, search.league);
-            const nowMs = Date.now();
             for (const listing of listings) {
               const decision = decideSnipe({
                 listing,
                 target,
-                // referenceName, not the joined display name — poe.ninja
-                // indexes "Mageblood", never "Mageblood Heavy Belt".
-                assessment: assessMargin({ itemName: listing.referenceName, price: listing.price, snapshots, nowMs }),
+                assessment: assessMargin({ itemName: listing.referenceName, price: listing.price, snapshots, nowMs: now() }),
                 snapshots,
                 globalMinMarginPct: minMarginPct,
                 league: search.league,
-                // Dedupe already happened at message time (ids marked seen
-                // before the await); the engine must not re-suppress them.
                 seen: NO_PRIOR_LISTINGS,
               });
               if (decision.kind === 'suppressed') {
                 log(`skip ${listing.itemName}: ${decision.reason}`);
-              } else {
-                await handleAlert(decision.alert);
+                continue;
               }
+              const alert = decision.alert;
+              const rendered = formatAlert(alert);
+              consoleHandle.addAlert(alert);
+              sound();
+              void notify!(rendered.title, rendered.body);
+              recordWebhook(alert, 'queued', 'waiting for Enter');
             }
-          } catch (err) {
-            log(err instanceof Error ? err.message : String(err));
+          } catch (error) {
+            log(error instanceof Error ? error.message : String(error));
           }
         })();
+        startTask(task);
       });
-      ws.on('close', (code: number) => {
+      socket.on('close', (code) => {
+        sockets.delete(socket);
+        if (stopped) return;
         consecutiveFailures += 1;
         if (consecutiveFailures >= 5) {
-          log(`socket for "${target.label}" failed ${consecutiveFailures} times in a row — giving up on this search. Check the URL and your POESESSID, then rerun.`);
+          log(`socket for "${target.label}" failed ${consecutiveFailures} times — giving up on this search`);
           return;
         }
         const delay = Math.min(300_000, 30_000 * 2 ** (consecutiveFailures - 1));
-        log(`socket for "${target.label}" closed (${code}) — reconnecting in ${Math.round(delay / 1000)}s`);
-        setTimeout(connect, delay);
+        log(`socket for "${target.label}" closed (${code}) — reconnecting in ${Math.round(delay / 1_000)}s`);
+        const timer = setTimeout(() => {
+          timers.delete(timer);
+          connect();
+        }, delay);
+        timers.add(timer);
       });
-      ws.on('error', (err: Error) => {
-        log(`socket error for "${target.label}": ${err.message}${err.message.includes('401') ? ' — check EXILIUM_POESESSID' : ''}`);
+      socket.on('error', (error) => {
+        log(`socket error for "${target.label}": ${error.message}${error.message.includes('401') ? ' — check EXILIUM_POESESSID' : ''}`);
       });
     };
-    setTimeout(connect, index * CONNECT_STAGGER_MS);
-  });
+    connect();
+  };
 
-  // Session summary location so missed toasts are reviewable later.
-  out(`Every alert is appended to ${snipeLogPath()}`);
-  if (closeBrowser !== undefined) out('Auto-travel browser stays open for the session; Ctrl+C closes it.');
+  const cleanup = async (): Promise<void> => {
+    if (stopped) return;
+    stopped = true;
+    for (const timer of timers) clearTimeout(timer);
+    timers.clear();
+    if (refreshTimer !== undefined) clearInterval(refreshTimer);
+    for (const socket of sockets) socket.close();
+    sockets.clear();
+    await Promise.allSettled([...pending]);
+    if (controllerPromise !== undefined) {
+      const controller = await controllerPromise.catch(() => undefined);
+      await controller?.close();
+    }
+    consoleHandle.close();
+  };
+
+  const onSigint = (): void => requestStop();
+  process.once('SIGINT', onSigint);
+  try {
+    out(`Exilium snipe — ${runnable.length} enabled search${runnable.length === 1 ? '' : 'es'} · league ${league} · min margin ${minMarginPct ?? 'off'}`);
+    out('Live hits enter the queue. Select one and press Enter to click Travel to Hideout; no whisper is sent or copied.');
+    for (const { target } of runnable) out(`  ${target.label} (${target.searchId})`);
+
+    // Visible confirmation of the enabled configuration: claim one page and
+    // show the first selected search. Every later action reuses this page.
+    try {
+      const first = runnable[0]!;
+      await (await ensureController()).openSearch(buildSearchPageUrl(first.target, first.search.league));
+    } catch (error) {
+      log(`Could not open the enabled search in Chrome (${error instanceof Error ? error.message : String(error)}). Run \`exilium chrome\`; alerts will keep queuing.`);
+    }
+
+    void refresh();
+    refreshTimer = setInterval(() => void refresh(), config.refreshSec * 1_000);
+    const stagger = deps.connectStaggerMs ?? CONNECT_STAGGER_MS;
+    runnable.forEach((entry, index) => {
+      const delay = index * stagger;
+      if (delay === 0) connectTarget(entry);
+      else {
+        const timer = setTimeout(() => {
+          timers.delete(timer);
+          connectTarget(entry);
+        }, delay);
+        timers.add(timer);
+      }
+    });
+    await Promise.race([consoleHandle.waitUntilExit().then(() => undefined), stopRequested]);
+  } finally {
+    process.removeListener('SIGINT', onSigint);
+    await cleanup();
+  }
 }
