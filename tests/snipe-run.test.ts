@@ -120,6 +120,7 @@ function makeHarness(options: {
   let controllerCreateCalls = 0;
   const notify = vi.fn().mockResolvedValue(undefined);
   const seedCalls: string[] = [];
+  const records: Array<{ listingId: string; action: string; detail: string }> = [];
 
   const openSocket: OpenSnipeSocket = (search) => {
     const socket = new FakeSocket();
@@ -146,7 +147,7 @@ function makeHarness(options: {
     },
     refreshPrices: async () => undefined,
     notify,
-    recordAlert: () => undefined,
+    recordAlert: (alert, action, detail) => records.push({ listingId: alert.listingId, action, detail }),
     now: () => NOW,
     connectStaggerMs: 0,
     fetchLeagues: async () => ['Standard', 'Allflame'],
@@ -182,6 +183,8 @@ function makeHarness(options: {
     openedPages,
     notify,
     seedCalls,
+    records,
+    get consoleOptions() { return consoleOptions; },
     get consoleCloseCalls() { return consoleCloseCalls; },
     get controllerCloseCalls() { return controllerCloseCalls; },
     get controllerCreateCalls() { return controllerCreateCalls; },
@@ -197,7 +200,7 @@ function makeHarness(options: {
       }
     },
     async pressTravel() {
-      await consoleOptions!.onTravel(consoleAlerts[0]!);
+      return consoleOptions!.onTravel(consoleAlerts[0]!);
     },
     exit() {
       consoleOptions?.onExit?.();
@@ -239,6 +242,15 @@ describe('runSnipe orchestration', () => {
     await harness.emitListing();
     await harness.pressTravel();
     expect(harness.controllerCreateCalls).toBe(1);
+    harness.exit();
+    await running;
+  });
+
+  test('passes compact board metadata to the console', async () => {
+    const harness = makeHarness();
+    const running = runSnipe(FLAGS, harness.deps);
+    await harness.started;
+    expect(harness.consoleOptions).toMatchObject({ searchCount: 1, minMarginPct: 20 });
     harness.exit();
     await running;
   });
@@ -437,5 +449,40 @@ describe('runSnipe orchestration', () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  test('Chrome errors return short UI guidance while recording full technical detail', async () => {
+    const technical = 'Chrome unavailable at http://127.0.0.1:9222: connect ECONNREFUSED';
+    const harness = makeHarness();
+    const running = runSnipe(FLAGS, {
+      ...harness.deps,
+      makeTravelController: async () => { throw new Error(technical); },
+    });
+    await harness.started;
+    await harness.emitListing();
+    const result = await harness.pressTravel();
+    expect(result).toEqual({
+      action: 'failed',
+      detail: 'Chrome unavailable — run `exilium chrome`, log into pathofexile.com, then press Enter again',
+      technicalDetail: technical,
+    });
+    expect(harness.records.at(-1)).toEqual({ listingId: 'listing-1', action: 'failed', detail: technical });
+    harness.exit();
+    await running;
+  });
+
+  test('shutdown is bounded when an injected listing fetch ignores AbortSignal forever', async () => {
+    const harness = makeHarness();
+    const never = new Promise<readonly LiveListing[]>(() => undefined);
+    const running = runSnipe(FLAGS, {
+      ...harness.deps,
+      shutdownTimeoutMs: 5,
+      fetchListings: async () => never,
+    });
+    await harness.started;
+    await harness.emitListing();
+    harness.exit();
+    await expect(running).resolves.toBeUndefined();
+    expect(harness.consoleAlerts).toEqual([]);
   });
 });

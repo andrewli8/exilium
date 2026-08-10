@@ -1,4 +1,4 @@
-import type { TravelPage } from './travel.js';
+import type { TravelClickResult, TravelPage } from './travel.js';
 
 export interface CdpSocket {
   on(event: 'open', listener: () => void): this;
@@ -33,10 +33,16 @@ interface PendingCommand {
   readonly timer: ReturnType<typeof setTimeout>;
 }
 
+interface EventWaiter {
+  readonly resolve: (params: unknown) => void;
+  readonly reject: (error: Error) => void;
+  readonly timer: ReturnType<typeof setTimeout>;
+}
+
 class CdpConnection {
   private nextId = 0;
   private readonly pending = new Map<number, PendingCommand>();
-  private readonly eventWaiters = new Map<string, Set<(params: unknown) => void>>();
+  private readonly eventWaiters = new Map<string, Set<EventWaiter>>();
   private closed = false;
 
   constructor(
@@ -70,17 +76,14 @@ class CdpConnection {
   waitFor(method: string): Promise<unknown> {
     if (this.closed) return Promise.reject(new Error('Chrome CDP page connection is closed'));
     return new Promise((resolve, reject) => {
+      const listeners = this.eventWaiters.get(method) ?? new Set<EventWaiter>();
+      let waiter: EventWaiter;
       const timer = setTimeout(() => {
-        listeners.delete(onEvent);
+        listeners.delete(waiter);
         reject(new Error(`Chrome CDP timed out after ${this.timeoutMs}ms waiting for ${method}`));
       }, this.timeoutMs);
-      const onEvent = (params: unknown): void => {
-        clearTimeout(timer);
-        listeners.delete(onEvent);
-        resolve(params);
-      };
-      const listeners = this.eventWaiters.get(method) ?? new Set();
-      listeners.add(onEvent);
+      waiter = { resolve, reject, timer };
+      listeners.add(waiter);
       this.eventWaiters.set(method, listeners);
     });
   }
@@ -93,6 +96,12 @@ class CdpConnection {
       pending.reject(error);
     }
     this.pending.clear();
+    for (const waiters of this.eventWaiters.values()) {
+      for (const waiter of waiters) {
+        clearTimeout(waiter.timer);
+        waiter.reject(error);
+      }
+    }
     this.eventWaiters.clear();
     try {
       this.socket.close();
@@ -121,7 +130,14 @@ class CdpConnection {
       return;
     }
     if (message.method !== undefined) {
-      for (const listener of this.eventWaiters.get(message.method) ?? []) listener(message.params);
+      const waiters = this.eventWaiters.get(message.method);
+      if (waiters === undefined) return;
+      for (const waiter of [...waiters]) {
+        clearTimeout(waiter.timer);
+        waiters.delete(waiter);
+        waiter.resolve(message.params);
+      }
+      if (waiters.size === 0) this.eventWaiters.delete(message.method);
     }
   }
 }
@@ -167,13 +183,13 @@ function clickExpression(listingId: string): string {
     const listingId = ${JSON.stringify(listingId)};
     const row = Array.from(document.querySelectorAll('[data-id]'))
       .find((element) => element.getAttribute('data-id') === listingId);
-    if (!row) return false;
+    if (!row) return 'gone';
     const direct = row.querySelector('button.direct-btn');
     const button = direct || Array.from(row.querySelectorAll('button'))
       .find((element) => element.textContent?.trim() === 'Travel to Hideout');
-    if (!(button instanceof HTMLElement)) return false;
+    if (!(button instanceof HTMLButtonElement) || button.disabled) return 'unavailable';
     button.click();
-    return true;
+    return 'clicked';
   })()`;
 }
 
@@ -205,14 +221,15 @@ export async function createCdpPage(options: CreateCdpPageOptions): Promise<CdpT
     const loaded = connection.waitFor('Page.loadEventFired');
     await Promise.all([command, loaded]);
   };
-  const evaluateClick = async (listingId: string): Promise<boolean> => {
+  const evaluateClick = async (listingId: string): Promise<TravelClickResult> => {
     const result = await connection.send('Runtime.evaluate', {
       expression: clickExpression(listingId),
       returnByValue: true,
       awaitPromise: true,
     }) as { result?: { value?: unknown }; exceptionDetails?: unknown };
     if (result.exceptionDetails !== undefined) throw new Error('Chrome could not inspect the trade listing row');
-    return result.result?.value === true;
+    const value = result.result?.value;
+    return value === 'clicked' || value === 'gone' || value === 'unavailable' ? value : 'unavailable';
   };
 
   options.log(`Travel controller attached directly to Chrome at ${options.cdpUrl}.`);
@@ -223,7 +240,8 @@ export async function createCdpPage(options: CreateCdpPageOptions): Promise<CdpT
       currentUrl = url;
     },
     async clickTravelButton(listingId: string) {
-      if (await evaluateClick(listingId)) return true;
+      const first = await evaluateClick(listingId);
+      if (first !== 'gone') return first;
       await waitForLoad(connection.send('Page.reload', { ignoreCache: true }));
       return evaluateClick(listingId);
     },

@@ -36,14 +36,14 @@ class FakeSocket implements CdpSocket {
   }
 }
 
-function harness(options: { evaluateValues?: boolean[]; stallMethod?: string } = {}) {
+function harness(options: { evaluateValues?: Array<'clicked' | 'gone' | 'unavailable'>; stallMethod?: string } = {}) {
   const socket = new FakeSocket();
-  const evaluateValues = [...(options.evaluateValues ?? [true])];
+  const evaluateValues = [...(options.evaluateValues ?? ['clicked'])];
   socket.onSend = (message) => {
     if (message.method === options.stallMethod) return;
     queueMicrotask(() => {
       if (message.method === 'Runtime.evaluate') {
-        socket.respond(message.id, { result: { type: 'boolean', value: evaluateValues.shift() ?? false } });
+        socket.respond(message.id, { result: { type: 'string', value: evaluateValues.shift() ?? 'gone' } });
       } else {
         socket.respond(message.id);
         if (message.method === 'Page.navigate' || message.method === 'Page.reload') {
@@ -77,7 +77,7 @@ function harness(options: { evaluateValues?: boolean[]; stallMethod?: string } =
 
 describe('direct CDP page control', () => {
   test('creates one native target, navigates, evaluates, reloads once, and clicks', async () => {
-    const testHarness = harness({ evaluateValues: [false, true] });
+    const testHarness = harness({ evaluateValues: ['gone', 'clicked'] });
     const page = await testHarness.create;
     expect(testHarness.fetchCalls).toEqual([{
       url: 'http://127.0.0.1:9222/json/new?about%3Ablank',
@@ -87,7 +87,7 @@ describe('direct CDP page control', () => {
 
     await page.goto('https://www.pathofexile.com/trade/search/Allflame/abc');
     expect(page.url()).toBe('https://www.pathofexile.com/trade/search/Allflame/abc');
-    expect(await page.clickTravelButton('listing-1')).toBe(true);
+    expect(await page.clickTravelButton('listing-1')).toBe('clicked');
     expect(testHarness.socket.sent.map((message) => message.method)).toEqual([
       'Page.enable',
       'Runtime.enable',

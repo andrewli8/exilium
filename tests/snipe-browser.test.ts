@@ -54,7 +54,7 @@ function fakePage() {
     },
     clickTravelButton: async (listingId) => {
       state.clickedIds.push(listingId);
-      return true;
+      return 'clicked';
     },
     close: async () => {
       state.closeCalls += 1;

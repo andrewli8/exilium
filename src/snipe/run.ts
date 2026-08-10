@@ -282,8 +282,8 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     return controllerPromise;
   };
 
-  const recordWebhook = (alert: SnipeAlert, action: string, detail: string): void => {
-    record(alert, action, detail);
+  const recordWebhook = (alert: SnipeAlert, action: string, detail: string, recordDetail = detail): void => {
+    record(alert, action, recordDetail);
     if (config.snipe.webhookUrl !== undefined) {
       const payload = buildSnipeWebhookPayload(alert, action, detail, new Date(now()).toISOString());
       void postSnipeWebhook(config.snipe.webhookUrl, payload, (url, init) => fetch(url, init), log);
@@ -293,12 +293,16 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
   const onTravel = async (alert: SnipeAlert): Promise<TravelResult> => {
     try {
       const result = await (await ensureController()).travel(alert);
-      recordWebhook(alert, result.action, result.detail);
+      recordWebhook(alert, result.action, result.detail, result.technicalDetail ?? result.detail);
       return result;
     } catch (error) {
-      const detail = `${error instanceof Error ? error.message : String(error)}. Run \`exilium chrome\`, log into pathofexile.com, then press r to retry.`;
-      const result: TravelResult = { action: 'failed', detail };
-      recordWebhook(alert, result.action, result.detail);
+      const technicalDetail = error instanceof Error ? error.message : String(error);
+      const result: TravelResult = {
+        action: 'failed',
+        detail: 'Chrome unavailable — run `exilium chrome`, log into pathofexile.com, then press Enter again',
+        technicalDetail,
+      };
+      recordWebhook(alert, result.action, result.detail, technicalDetail);
       return result;
     }
   };
@@ -315,6 +319,8 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     onTravel,
     onExit: requestStop,
     now,
+    searchCount: runnable.length,
+    ...(minMarginPct === null ? {} : { minMarginPct }),
   });
 
   let stopped = false;

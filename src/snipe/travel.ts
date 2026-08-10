@@ -9,8 +9,10 @@ export function rowSelector(listingId: string): string {
 export interface TravelPage {
   url(): string;
   goto(url: string): Promise<void>;
-  clickTravelButton(listingId: string): Promise<boolean>;
+  clickTravelButton(listingId: string): Promise<TravelClickResult>;
 }
+
+export type TravelClickResult = 'clicked' | 'gone' | 'unavailable';
 
 export interface TravelResult {
   readonly action: 'traveled' | 'gone' | 'failed';
@@ -24,11 +26,17 @@ export interface TravelResult {
 export async function travelSelectedAlert(alert: SnipeAlert, page: TravelPage): Promise<TravelResult> {
   try {
     if (page.url() !== alert.searchUrl) await page.goto(alert.searchUrl);
-    const clicked = await page.clickTravelButton(alert.listingId);
-    if (!clicked) {
+    const clickResult = await page.clickTravelButton(alert.listingId);
+    if (clickResult === 'gone') {
       return {
         action: 'gone',
         detail: `listing ${alert.listingId} was sold or removed`,
+      };
+    }
+    if (clickResult === 'unavailable') {
+      return {
+        action: 'failed',
+        detail: 'Travel to Hideout is unavailable — log into pathofexile.com in Exilium Chrome and retry',
       };
     }
     return {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { SnipeAlert } from '../src/snipe/engine.js';
-import { rowSelector, travelSelectedAlert, type TravelPage } from '../src/snipe/travel.js';
+import { rowSelector, travelSelectedAlert, type TravelClickResult, type TravelPage } from '../src/snipe/travel.js';
 
 const ALERT: SnipeAlert = {
   targetId: 'trade:AbC123',
@@ -31,7 +31,7 @@ describe('rowSelector', () => {
 });
 
 describe('travelSelectedAlert', () => {
-  function manualPage(clickResult: boolean | Error): TravelPage & { gotos: string[]; clicks: string[] } {
+  function manualPage(clickResult: TravelClickResult | Error): TravelPage & { gotos: string[]; clicks: string[] } {
     const gotos: string[] = [];
     const clicks: string[] = [];
     let current = '';
@@ -52,7 +52,7 @@ describe('travelSelectedAlert', () => {
   }
 
   test('one explicit manual action navigates and clicks without whisper fallback text', async () => {
-    const page = manualPage(true);
+    const page = manualPage('clicked');
     const result = await travelSelectedAlert(ALERT, page);
     expect(result).toEqual({
       action: 'traveled',
@@ -64,10 +64,14 @@ describe('travelSelectedAlert', () => {
   });
 
   test('a missing listing is gone while a browser error fails without claiming travel', async () => {
-    const missing = await travelSelectedAlert(ALERT, manualPage(false));
+    const missing = await travelSelectedAlert(ALERT, manualPage('gone'));
     expect(missing.action).toBe('gone');
     expect(missing.detail).toMatch(/sold|removed/i);
     expect(missing.detail).not.toMatch(/whisper|paste/i);
+
+    const unavailable = await travelSelectedAlert(ALERT, manualPage('unavailable'));
+    expect(unavailable.action).toBe('failed');
+    expect(unavailable.detail).toMatch(/unavailable|log in/i);
 
     const errored = await travelSelectedAlert(ALERT, manualPage(new Error('browser disconnected')));
     expect(errored).toEqual({ action: 'failed', detail: 'browser disconnected' });
