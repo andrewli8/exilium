@@ -135,28 +135,47 @@ export function loadSnipeCatalog(folder: string, warn: (message: string) => void
   return entries;
 }
 
-/** Delete one configure-UI folder. When the group is backed by its own
- * import subdirectory, the directory is removed from disk along with the
- * member overrides; a group living inside shared root files (which may hold
- * other searches and were often written by the user) is never deleted —
- * its searches are reversibly disabled instead. */
+/** Delete one configure-UI folder from disk. Removes the group's dedicated
+ * import subdirectory (if any) plus every source file whose searches ALL
+ * belong to the group; a file shared with other folders survives and only
+ * the member searches are disabled. Manifest overrides for removed searches
+ * are cleaned up, and Exilium-managed members are dropped. */
 export function deleteSnipeFolderGroup(folder: string, group: string): readonly CatalogEntry[] {
   const entries = loadSnipeCatalog(folder, () => undefined);
-  const members = entries.filter((entry) => entry.group === group);
+  const members = entries.filter((entry) => (entry.group ?? 'Ungrouped') === group);
   if (members.length === 0) throw new Error(`Unknown snipe folder "${group}"`);
   const manifest = loadSnipeManifest(folder);
   const overrides = { ...manifest.overrides };
+  const memberKeys = new Set(members.map((member) => member.key));
+
   // A payload title can contain anything; only a plain directory name may
   // ever be joined onto the folder path.
   const isPlainDirName = !group.includes('/') && !group.includes('\\') && group !== '.' && group !== '..';
   const dir = isPlainDirName ? join(folder, group) : null;
-  if (dir !== null && existsSync(dir)) {
-    rmSync(dir, { recursive: true, force: true });
-    for (const member of members) delete overrides[member.key];
-  } else {
-    for (const member of members) overrides[member.key] = { ...overrides[member.key], enabled: false };
+  if (dir !== null && existsSync(dir)) rmSync(dir, { recursive: true, force: true });
+
+  if (existsSync(folder)) {
+    for (const file of readSnipeFolderFiles(folder)) {
+      const targets = loadSnipeFolder([file], () => undefined, folder);
+      if (targets.length === 0) continue;
+      if (targets.every((target) => (target.group ?? 'Ungrouped') === group)) {
+        rmSync(file.path, { force: true });
+      }
+    }
   }
-  saveSnipeManifest(folder, { ...manifest, overrides });
+
+  const remaining = existsSync(folder)
+    ? new Set(loadSnipeFolder(readSnipeFolderFiles(folder), () => undefined, folder).map(targetKey))
+    : new Set<string>();
+  for (const member of members) {
+    if (remaining.has(member.key)) overrides[member.key] = { ...overrides[member.key], enabled: false };
+    else delete overrides[member.key];
+  }
+  saveSnipeManifest(folder, {
+    ...manifest,
+    managed: manifest.managed.filter((target) => !memberKeys.has(targetKey(target))),
+    overrides,
+  });
   return loadSnipeCatalog(folder, () => undefined);
 }
 

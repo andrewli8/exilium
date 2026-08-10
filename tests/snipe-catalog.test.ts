@@ -157,13 +157,29 @@ describe('snipe catalog', () => {
     expect(result.some((entry) => entry.key === 'trade:aaa111')).toBe(true);
   });
 
-  test('deleting a group backed by a shared root file disables its searches instead', () => {
+  test('deleting a group deletes root files that belong wholly to it', () => {
     const dir = folder();
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'saved.txt'), `${EXPORT_VALDOS}\n`);
+    writeImported(dir); // unrelated ungrouped file must survive
 
     const result = deleteSnipeFolderGroup(dir, 'valdos');
-    expect(existsSync(join(dir, 'saved.txt'))).toBe(true);
+    expect(existsSync(join(dir, 'saved.txt'))).toBe(false);
+    expect(result.some((entry) => entry.key === 'trade:DelDir1')).toBe(false);
+    expect(result.some((entry) => entry.key === 'trade:aaa111')).toBe(true);
+  });
+
+  test('a file shared with another folder survives; only the members are disabled', () => {
+    const dir = folder();
+    mkdirSync(dir, { recursive: true });
+    const other = `3:${Buffer.from(JSON.stringify({
+      tit: 'gambles', ver: '1', trs: [{ tit: 'unids', loc: '1:search:Mixed99' }],
+    })).toString('base64')}`;
+    writeFileSync(join(dir, 'mixed.txt'), `${EXPORT_VALDOS}\n${other}\n`);
+
+    const result = deleteSnipeFolderGroup(dir, 'valdos');
+    expect(existsSync(join(dir, 'mixed.txt'))).toBe(true);
     expect(result.find((entry) => entry.key === 'trade:DelDir1')).toMatchObject({ enabled: false });
+    expect(result.find((entry) => entry.key === 'trade:Mixed99')).toMatchObject({ enabled: true });
   });
 });

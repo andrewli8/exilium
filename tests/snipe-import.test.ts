@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
@@ -59,6 +59,23 @@ describe('persistSnipeImport', () => {
     const again = persistSnipeImport({ folder: dir, content: VALID_EXPORT, sourceName: 'clipboard' });
     expect(again.path).toBe(first.path);
     expect(again.created).toBe(false);
+  });
+
+  test('re-importing a legacy root-level import migrates it into its own folder', () => {
+    const dir = folder();
+    mkdirSync(dir, { recursive: true });
+    // Simulate an import made before folders existed: digest file at the root.
+    const flat = persistSnipeImport({ folder: dir, content: VALID_EXPORT, sourceName: 'clipboard' });
+    const digestName = flat.path.split('/').at(-1)!;
+    const rootPath = join(dir, digestName);
+    renameSync(flat.path, rootPath);
+    rmSync(join(dir, 'currency'), { recursive: true, force: true });
+
+    const migrated = persistSnipeImport({ folder: dir, content: VALID_EXPORT, sourceName: 'clipboard' });
+    expect(migrated.created).toBe(false);
+    expect(migrated.path).toBe(join(dir, 'currency', digestName));
+    expect(readFileSync(migrated.path, 'utf8')).toBe(`${VALID_EXPORT}\n`);
+    expect(readdirSync(dir).includes(digestName)).toBe(false);
   });
 
   test('an untitled export still gets its own folder', () => {

@@ -1,7 +1,12 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseSnipeSource, type SnipeTarget } from './bettertrading.js';
+import {
+  loadSnipeFolder,
+  parseSnipeSource,
+  readSnipeFolderFiles,
+  type SnipeTarget,
+} from './bettertrading.js';
 
 export interface PersistSnipeImportInput {
   readonly folder: string;
@@ -51,14 +56,39 @@ export function persistSnipeImport(input: PersistSnipeImportInput): ImportResult
   const digest = createHash('sha256').update(normalized, 'utf8').digest('hex');
   const fileName = `import-${digest.slice(0, 12)}.bt`;
 
-  const existing = findExistingImport(input.folder, fileName);
-  if (existing !== null) return { path: existing, created: false, targets };
+  // The new folder's name must dodge existing directories AND existing group
+  // names — root-level legacy files form payload-titled groups ("valdos"),
+  // and a same-named directory would silently merge with them.
+  const mintDir = (excludePath?: string): string => {
+    const takenGroups = new Set<string>();
+    if (existsSync(input.folder)) {
+      const files = readSnipeFolderFiles(input.folder).filter((file) => file.path !== excludePath);
+      for (const target of loadSnipeFolder(files, () => undefined, input.folder)) {
+        if (target.group !== undefined) takenGroups.add(target.group.toLowerCase());
+      }
+    }
+    const base = folderDirName(targets[0]?.group) ?? 'import';
+    let name = base;
+    let dir = join(input.folder, name);
+    for (let suffix = 2; existsSync(dir) || takenGroups.has(name.toLowerCase()); suffix += 1) {
+      name = `${base}-${suffix}`;
+      dir = join(input.folder, name);
+    }
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  };
 
-  const base = folderDirName(targets[0]?.group) ?? 'import';
-  let dir = join(input.folder, base);
-  for (let suffix = 2; existsSync(dir); suffix += 1) dir = join(input.folder, `${base}-${suffix}`);
-  const path = join(dir, fileName);
-  mkdirSync(dir, { recursive: true });
+  const existing = findExistingImport(input.folder, fileName);
+  if (existing !== null) {
+    if (existing !== join(input.folder, fileName)) return { path: existing, created: false, targets };
+    // A pre-folders import sits flat at the root: migrate it into its own
+    // folder so re-importing behaves like the user expects — a new folder.
+    const migrated = join(mintDir(existing), fileName);
+    renameSync(existing, migrated);
+    return { path: migrated, created: false, targets };
+  }
+
+  const path = join(mintDir(), fileName);
   let created = true;
   try {
     writeFileSync(path, `${normalized}\n`, { encoding: 'utf8', flag: 'wx' });

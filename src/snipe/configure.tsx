@@ -266,7 +266,7 @@ export function SnipeConfigureOverlay({ entries, onSave, onStart, onClose, onImp
       </>}
       {mode === 'confirm-delete' && deleteGroup !== null && <>
         <Text color="red">{fold(`Delete folder "${deleteGroup.group}" (${deleteGroup.count} search${deleteGroup.count === 1 ? '' : 'es'})?`)}</Text>
-        <Text dimColor>{fold('Imported folders are removed from disk; searches from shared files are disabled instead. y delete · n cancel')}</Text>
+        <Text dimColor>{fold('Deletes this folder and its files from disk; searches shared with other folders are disabled instead. y delete · n cancel')}</Text>
       </>}
       {mode === 'import' && <>
         <Text>Paste Better Trading export:</Text>
