@@ -397,6 +397,9 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
 
   useInput((input, key) => {
     if (snipeConfigOpen) return;
+    // The snipe threshold prompt owns the keyboard while it is open — its
+    // digits must never trigger the 1-4 tab switches, c, q, or Escape here.
+    if (view === 'watches' && watchesView === 'snipes' && snipe?.store.snapshot().keyboardCapture === true) return;
     // The price-check overlay owns the keyboard while it is open.
     if (pc.kind !== 'idle') {
       if (key.escape || input === 'q') { setPc({ kind: 'idle' }); return; }

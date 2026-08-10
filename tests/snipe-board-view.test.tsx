@@ -99,6 +99,18 @@ describe('SnipeBoardView', () => {
     expect(ui.lastFrame()).toContain('Threshold: +35% profit');
   });
 
+  test('the open threshold prompt claims keyboard capture on the store', async () => {
+    const store = new SnipeStore([target('one')], { minMarginPct: 20 });
+    const ui = render(<SnipeBoardView store={store} onTravel={async () => ({ action: 'failed', detail: 'unused' })} />);
+    expect(store.snapshot().keyboardCapture).toBe(false);
+    ui.stdin.write('t');
+    await flush();
+    expect(store.snapshot().keyboardCapture).toBe(true);
+    ui.stdin.write('');
+    await flush();
+    expect(store.snapshot().keyboardCapture).toBe(false);
+  });
+
   test('f still works as a threshold alias', async () => {
     const store = new SnipeStore([target('one')], { minMarginPct: 20 });
     const ui = render(<SnipeBoardView store={store} onTravel={async () => ({ action: 'failed', detail: 'unused' })} />);

@@ -1,4 +1,4 @@
-import React, { useState, useSyncExternalStore } from 'react';
+import React, { useEffect, useState, useSyncExternalStore } from 'react';
 import { Box, Text, useInput } from 'ink';
 import type { SnipeStore } from './store.js';
 import type { TravelResult } from './travel.js';
@@ -52,6 +52,10 @@ export function SnipeBoardView({ store, onTravel, active = true, embedded = fals
   const snapshot = useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot);
   const [notice, setNotice] = useState<string | null>(null);
   const [floorInput, setFloorInput] = useState<string | null>(null);
+  useEffect(() => {
+    store.setKeyboardCapture(floorInput !== null);
+    return () => store.setKeyboardCapture(false);
+  }, [floorInput, store]);
   const rows = snapshot.table.rows;
   const selectedRow = rows.find((row) => row.entry.alert.listingId === snapshot.queue.selectedListingId) ?? rows[0];
   const selectedGroup = snapshot.board.groups.find((group) => group.targetId === snapshot.queue.selectedTargetId);

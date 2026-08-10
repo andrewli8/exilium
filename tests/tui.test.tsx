@@ -162,6 +162,34 @@ describe('ExiliumTui', () => {
     await flush();
     expect(ui.lastFrame()).toContain('CONFIGURE SNIPES');
   });
+  test('typing digits into the snipe threshold prompt never switches tabs', async () => {
+    const workspace = snipeWorkspace();
+    const ui = render(<ExiliumTui service={makeService()} {...PROPS} snipe={workspace} />);
+    ui.stdin.write('4');
+    await flush();
+    ui.stdin.write('\t');
+    await flush();
+    expect(ui.lastFrame()).toContain('[SNIPES]');
+
+    ui.stdin.write('t');
+    await flush();
+    ui.stdin.write('1');
+    await flush();
+    ui.stdin.write('0');
+    await flush();
+    expect(ui.lastFrame()).toContain('[SNIPES]');
+    expect(ui.lastFrame()).toContain('Set threshold: 10');
+
+    ui.stdin.write('\r');
+    await flush();
+    expect(workspace.store.snapshot().floor).toBe(10);
+    expect(ui.lastFrame()).toContain('[SNIPES]');
+
+    ui.stdin.write('1');
+    await flush();
+    expect(ui.lastFrame()).toContain('Crashed Orb'); // movers view again once the prompt is closed
+  });
+
   test('Escape unwinds snipe detail before returning to Price Alerts', async () => {
     const workspace = snipeWorkspace();
     workspace.store.ingest(snipeAlert());

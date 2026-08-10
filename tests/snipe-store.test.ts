@@ -75,6 +75,15 @@ describe('SnipeStore', () => {
     expect(store.snapshot().queue.selectedTargetId).toBe('trade:one');
   });
 
+  test('publishes keyboard capture so the host TUI can mute its shortcuts', () => {
+    const store = new SnipeStore([target('one')]);
+    expect(store.snapshot().keyboardCapture).toBe(false);
+    store.setKeyboardCapture(true);
+    expect(store.snapshot().keyboardCapture).toBe(true);
+    store.setKeyboardCapture(false);
+    expect(store.snapshot().keyboardCapture).toBe(false);
+  });
+
   test('notifies subscribers with connection and seed progress state', () => {
     const store = new SnipeStore([target('one')], { minMarginPct: 20 });
     let notifications = 0;

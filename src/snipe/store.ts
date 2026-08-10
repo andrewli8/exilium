@@ -37,6 +37,9 @@ export interface SnipeSnapshot {
   readonly floor: number;
   readonly progress: { readonly seeded: number; readonly total: number };
   readonly status: string | null;
+  /** True while an inline prompt (threshold entry) owns the keyboard; a host
+   * TUI must mute its own shortcuts (tab switching, quit) while set. */
+  readonly keyboardCapture: boolean;
 }
 
 export interface SnipeStoreOptions {
@@ -51,6 +54,7 @@ export class SnipeStore {
   private floor: number;
   private progress: SnipeSnapshot['progress'];
   private status: string | null = null;
+  private keyboardCapture = false;
   private readonly listeners = new Set<() => void>();
   private readonly rememberedIds = new Set<string>();
   private readonly rememberedOrder: string[] = [];
@@ -143,6 +147,12 @@ export class SnipeStore {
     this.rebuild();
   }
 
+  setKeyboardCapture(capture: boolean): void {
+    if (this.keyboardCapture === capture) return;
+    this.keyboardCapture = capture;
+    this.rebuild();
+  }
+
   private remember(listingId: string): void {
     this.rememberedIds.add(listingId);
     this.rememberedOrder.push(listingId);
@@ -169,6 +179,7 @@ export class SnipeStore {
       floor: this.floor,
       progress: this.progress,
       status: this.status,
+      keyboardCapture: this.keyboardCapture,
     };
   }
 
