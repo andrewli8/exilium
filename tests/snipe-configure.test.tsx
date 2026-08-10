@@ -10,6 +10,10 @@ function entry(id: string, enabled = true): CatalogEntry {
   return { key: `trade:${id}`, label: `Target ${id}`, realm: 'trade', searchId: id, league: 'Allflame', enabled, source: 'Exilium' };
 }
 
+function grouped(id: string, group: string, enabled = true): CatalogEntry {
+  return { ...entry(id, enabled), group, label: `${group} · Target ${id}` };
+}
+
 describe('SnipeConfigureOverlay', () => {
   test('Space toggles a search and Enter saves then starts enabled keys', async () => {
     const onSave = vi.fn(async (entries: readonly CatalogEntry[]) => entries);
@@ -24,6 +28,68 @@ describe('SnipeConfigureOverlay', () => {
 
     expect(onSave.mock.calls[0]?.[0][0]).toMatchObject({ key: 'trade:one', enabled: false });
     expect(onStart).toHaveBeenCalledWith(['trade:two']);
+  });
+
+  test('grouped entries render as collapsed folders with enabled counts', async () => {
+    const ui = render(
+      <SnipeConfigureOverlay
+        entries={[grouped('one', 'valdos'), grouped('two', 'valdos', false), grouped('three', 'gambles')]}
+        onSave={async (entries) => entries}
+        onStart={async () => undefined}
+        onClose={() => undefined}
+      />,
+    );
+    const frame = ui.lastFrame()!;
+    expect(frame).toContain('valdos');
+    expect(frame).toContain('1/2 enabled');
+    expect(frame).toContain('gambles');
+    expect(frame).toContain('1/1 enabled');
+    expect(frame).not.toContain('Target one'); // collapsed by default
+  });
+
+  test('right arrow opens a folder and Space toggles a single search inside', async () => {
+    const onSave = vi.fn(async (entries: readonly CatalogEntry[]) => entries);
+    const onStart = vi.fn(async () => undefined);
+    const ui = render(
+      <SnipeConfigureOverlay
+        entries={[grouped('one', 'valdos'), grouped('two', 'valdos')]}
+        onSave={onSave}
+        onStart={onStart}
+        onClose={() => undefined}
+      />,
+    );
+    ui.stdin.write('[C'); // expand valdos
+    await flush();
+    expect(ui.lastFrame()).toContain('Target one');
+    ui.stdin.write('[B'); // onto first entry
+    await flush();
+    ui.stdin.write(' ');
+    await flush();
+    ui.stdin.write('\r');
+    await flush();
+    expect(onSave.mock.calls[0]?.[0][0]).toMatchObject({ key: 'trade:one', enabled: false });
+    expect(onStart).toHaveBeenCalledWith(['trade:two']);
+  });
+
+  test('Space on a folder row toggles the whole folder', async () => {
+    const onStart = vi.fn(async () => undefined);
+    const ui = render(
+      <SnipeConfigureOverlay
+        entries={[grouped('one', 'valdos'), grouped('two', 'valdos', false), grouped('three', 'gambles')]}
+        onSave={async (entries) => entries}
+        onStart={onStart}
+        onClose={() => undefined}
+      />,
+    );
+    ui.stdin.write(' '); // valdos has a disabled entry → enable all of it
+    await flush();
+    expect(ui.lastFrame()).toContain('2/2 enabled');
+    ui.stdin.write(' '); // now fully enabled → disable the folder
+    await flush();
+    expect(ui.lastFrame()).toContain('0/2 enabled');
+    ui.stdin.write('\r');
+    await flush();
+    expect(onStart).toHaveBeenCalledWith(['trade:three']);
   });
 
   test('invalid import remains open with an actionable error', async () => {

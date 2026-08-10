@@ -97,6 +97,7 @@ function applyOverride(
   const minMarginPct = override?.minMarginPct === undefined ? target.minMarginPct : override.minMarginPct;
   return {
     label: override?.label ?? target.label,
+    ...(target.group === undefined ? {} : { group: target.group }),
     realm: target.realm,
     searchId: target.searchId,
     league: override?.league === undefined ? target.league : override.league,

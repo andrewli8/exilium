@@ -171,6 +171,8 @@ exilium snipe remove 9zRjda6KHK
 
 Exilium stores additions and overrides in `.exilium-snipes.json` inside the BetterTrading folder. Extension exports are never rewritten: removing an imported search disables it reversibly, while removing an Exilium-added search deletes that managed entry.
 
+Imports keep their Better Trading folder identity: each pasted export lands in a subdirectory named after its folder title, and the configure overlay (`c`) groups searches under collapsible folder rows — `→`/`←` open and close a folder, Space on the folder row enables or disables every search inside it, and Space on an individual search toggles just that one. Sources with no folder (plain URL lists) keep the flat view.
+
 Every run starts with a multi-select. Use Up/Down, Space, `a`, or number keys to choose searches, then Enter to enable only those searches. The choice is not saved. For scripts and non-interactive terminals, use `--all` or repeat `--search ID`.
 
 Chrome is not required to monitor. Once selection is enabled, Exilium uses your locally saved POESESSID to load up to ten current results per search, then watches all selected searches through the trade site's live WebSockets. Current results seed the queue quietly; listings arriving afterward produce desktop notifications, optional sound, and webhooks. Multiple selected searches do not create browser tabs.

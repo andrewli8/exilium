@@ -16,6 +16,9 @@ export interface SnipeTarget {
   /** League from the source URL/JSON; null when league-agnostic (extension
    * slugs carry no league — the engine applies the configured one). */
   readonly league: string | null;
+  /** Better Trading folder title (or source file stem) this search came
+   * from — the configure UI groups searches by it. */
+  readonly group?: string;
   /** Skip listings priced above this (per-target override). */
   readonly maxBuy?: { readonly amount: number; readonly currency: string };
   /** Per-target minimum profit margin override, percent. */
@@ -84,6 +87,7 @@ function toTarget(trade: DecodedTrade): SnipeTarget {
     realm: trade.version === '2' ? 'trade2' : 'trade',
     searchId: trade.slug,
     league: null,
+    ...(trade.folderTitle === '' ? {} : { group: trade.folderTitle }),
   };
 }
 

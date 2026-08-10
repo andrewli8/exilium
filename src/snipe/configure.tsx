@@ -6,6 +6,10 @@ import { fold, glyphs } from '../tui/glyphs.js';
 
 type Mode = 'list' | 'import' | 'edit';
 
+type Row =
+  | { readonly kind: 'folder'; readonly group: string; readonly indices: readonly number[] }
+  | { readonly kind: 'entry'; readonly index: number };
+
 export interface SnipeConfigureOverlayProps {
   readonly entries: readonly CatalogEntry[];
   readonly onSave: (entries: readonly CatalogEntry[]) => Promise<readonly CatalogEntry[]>;
@@ -21,15 +25,54 @@ function tradeUrl(entry: CatalogEntry): string {
     : `https://www.pathofexile.com/trade/search/${league}/${entry.searchId}`;
 }
 
+/** Folder rows appear as soon as any entry carries a Better Trading folder
+ * title; plain URL lists with no groups keep the flat view. */
+function buildRows(drafts: readonly CatalogEntry[], expanded: ReadonlySet<string>): readonly Row[] {
+  if (!drafts.some((draft) => draft.group !== undefined)) {
+    return drafts.map((_, index) => ({ kind: 'entry', index }));
+  }
+  const order: string[] = [];
+  const byGroup = new Map<string, number[]>();
+  drafts.forEach((draft, index) => {
+    const group = draft.group ?? 'Ungrouped';
+    const indices = byGroup.get(group);
+    if (indices === undefined) {
+      byGroup.set(group, [index]);
+      order.push(group);
+    } else {
+      indices.push(index);
+    }
+  });
+  const rows: Row[] = [];
+  for (const group of order) {
+    const indices = byGroup.get(group)!;
+    rows.push({ kind: 'folder', group, indices });
+    if (expanded.has(group)) for (const index of indices) rows.push({ kind: 'entry', index });
+  }
+  return rows;
+}
+
+function entryDisplayLabel(entry: CatalogEntry): string {
+  const prefix = `${entry.group ?? ''} · `;
+  return entry.group !== undefined && entry.label.startsWith(prefix)
+    ? entry.label.slice(prefix.length)
+    : entry.label;
+}
+
 export function SnipeConfigureOverlay({ entries, onSave, onStart, onClose, onImport }: SnipeConfigureOverlayProps) {
   const [drafts, setDrafts] = useState<readonly CatalogEntry[]>(entries);
   const [cursor, setCursor] = useState(0);
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [mode, setMode] = useState<Mode>('list');
   const [input, setInput] = useState('');
   const [editField, setEditField] = useState(0);
+  const [editTarget, setEditTarget] = useState<number | null>(null);
   const [editValues, setEditValues] = useState<readonly [string, string, string]>(['', '', '']);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const rows = buildRows(drafts, expanded);
+  const selected = rows[Math.min(cursor, Math.max(0, rows.length - 1))];
 
   const save = async (start: boolean): Promise<void> => {
     if (busy) return;
@@ -73,15 +116,15 @@ export function SnipeConfigureOverlay({ entries, onSave, onStart, onClose, onImp
       if (key.escape) { setMode('list'); setError(null); return; }
       if (key.tab) { setEditField((field) => (field + (key.shift ? 2 : 1)) % 3); return; }
       if (key.return) {
-        const selected = drafts[cursor];
-        if (selected === undefined) { setMode('list'); return; }
+        const index = editTarget;
+        if (index === null || drafts[index] === undefined) { setMode('list'); return; }
         try {
           const parsed = parseTradeUrl(editValues[1]);
           const floor = editValues[2].trim() === '' ? undefined : Number(editValues[2]);
           if (editValues[0].trim() === '') throw new Error('Label cannot be empty');
           if (floor !== undefined && (!Number.isFinite(floor) || floor < 0)) throw new Error('Floor must be a non-negative number or blank');
-          setDrafts((current) => current.map((entry, index) => {
-            if (index !== cursor) return entry;
+          setDrafts((current) => current.map((entry, entryIndex) => {
+            if (entryIndex !== index) return entry;
             const { minMarginPct: _oldFloor, ...withoutFloor } = entry;
             return {
               ...withoutFloor,
@@ -113,9 +156,31 @@ export function SnipeConfigureOverlay({ entries, onSave, onStart, onClose, onImp
 
     if (key.escape) { void save(false); return; }
     if (key.upArrow) { setCursor((index) => Math.max(0, index - 1)); return; }
-    if (key.downArrow) { setCursor((index) => Math.min(Math.max(0, drafts.length - 1), index + 1)); return; }
+    if (key.downArrow) { setCursor((index) => Math.min(Math.max(0, rows.length - 1), index + 1)); return; }
+    if (key.rightArrow) {
+      if (selected?.kind === 'folder') setExpanded((current) => new Set([...current, selected.group]));
+      return;
+    }
+    if (key.leftArrow) {
+      const group = selected?.kind === 'folder'
+        ? selected.group
+        : selected?.kind === 'entry' ? drafts[selected.index]?.group : undefined;
+      if (group !== undefined) {
+        setExpanded((current) => new Set([...current].filter((name) => name !== group)));
+        const folderRow = rows.findIndex((row) => row.kind === 'folder' && row.group === group);
+        if (folderRow >= 0) setCursor(folderRow);
+      }
+      return;
+    }
     if (value === ' ') {
-      setDrafts((current) => current.map((entry, index) => index === cursor ? { ...entry, enabled: !entry.enabled } : entry));
+      if (selected?.kind === 'folder') {
+        const enable = selected.indices.some((index) => drafts[index]?.enabled === false);
+        const affected = new Set(selected.indices);
+        setDrafts((current) => current.map((entry, index) => affected.has(index) ? { ...entry, enabled: enable } : entry));
+      } else if (selected?.kind === 'entry') {
+        const index = selected.index;
+        setDrafts((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, enabled: !entry.enabled } : entry));
+      }
       return;
     }
     if (value.toLowerCase() === 'a') {
@@ -125,9 +190,11 @@ export function SnipeConfigureOverlay({ entries, onSave, onStart, onClose, onImp
     }
     if (value.toLowerCase() === 'i') { setMode('import'); setInput(''); setError(null); return; }
     if (value.toLowerCase() === 'e') {
-      const selected = drafts[cursor];
-      if (selected === undefined) return;
-      setEditValues([selected.label, tradeUrl(selected), selected.minMarginPct?.toString() ?? '']);
+      if (selected?.kind !== 'entry') return;
+      const entry = drafts[selected.index];
+      if (entry === undefined) return;
+      setEditTarget(selected.index);
+      setEditValues([entry.label, tradeUrl(entry), entry.minMarginPct?.toString() ?? '']);
       setEditField(0);
       setMode('edit');
       setError(null);
@@ -136,16 +203,33 @@ export function SnipeConfigureOverlay({ entries, onSave, onStart, onClose, onImp
     if (key.return) void save(true);
   });
 
+  const cursorIndex = Math.min(cursor, Math.max(0, rows.length - 1));
+
   return (
     <Box flexDirection="column" borderStyle={glyphs.border} borderColor="yellow" paddingX={1}>
       <Text bold color="yellow">CONFIGURE SNIPES</Text>
       {mode === 'list' && <>
-        <Text dimColor>{fold(`${glyphs.upDown} move ${glyphs.sep} Space toggle ${glyphs.sep} a all ${glyphs.sep} e edit ${glyphs.sep} i import ${glyphs.sep} Enter save/start ${glyphs.sep} Esc save`)}</Text>
-        {drafts.map((entry, index) => (
-          <Text key={entry.key} inverse={index === cursor}>
-            {index === cursor ? glyphs.select : ' '} {entry.enabled ? '[x]' : '[ ]'} {fold(entry.label)} <Text dimColor>{` ${entry.searchId} ${entry.minMarginPct === undefined ? 'default floor' : `floor ${entry.minMarginPct}%`}`}</Text>
-          </Text>
-        ))}
+        <Text dimColor>{fold(`${glyphs.upDown} move ${glyphs.sep} Space toggle ${glyphs.sep} ${glyphs.leftRight} close/open folder ${glyphs.sep} a all ${glyphs.sep} e edit ${glyphs.sep} i import ${glyphs.sep} Enter save/start ${glyphs.sep} Esc save`)}</Text>
+        {rows.map((row, index) => {
+          if (row.kind === 'folder') {
+            const enabledCount = row.indices.filter((entryIndex) => drafts[entryIndex]?.enabled === true).length;
+            const box = enabledCount === row.indices.length ? '[x]' : enabledCount === 0 ? '[ ]' : '[~]';
+            const arrow = expanded.has(row.group) ? '▼' : '▶';
+            return (
+              <Text key={`folder:${row.group}`} inverse={index === cursorIndex} bold>
+                {index === cursorIndex ? glyphs.select : ' '} {arrow} {box} {fold(row.group)} <Text dimColor>{` ${enabledCount}/${row.indices.length} enabled`}</Text>
+              </Text>
+            );
+          }
+          const entry = drafts[row.index];
+          if (entry === undefined) return null;
+          const indent = entry.group === undefined ? '' : '   ';
+          return (
+            <Text key={entry.key} inverse={index === cursorIndex}>
+              {index === cursorIndex ? glyphs.select : ' '} {indent}{entry.enabled ? '[x]' : '[ ]'} {fold(entryDisplayLabel(entry))} <Text dimColor>{` ${entry.searchId} ${entry.minMarginPct === undefined ? 'default floor' : `floor ${entry.minMarginPct}%`}`}</Text>
+            </Text>
+          );
+        })}
         {drafts.length === 0 && <Text dimColor>No snipes configured — press i to import Better Trading.</Text>}
       </>}
       {mode === 'import' && <>

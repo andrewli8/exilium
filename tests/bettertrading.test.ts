@@ -30,8 +30,8 @@ describe('decodeBetterTradingExport', () => {
     };
     const targets = decodeBetterTradingExport(`3:${b64(JSON.stringify(payload))}`);
     expect(targets).toEqual([
-      { label: 'Valdo snipes · Foil Mageblood', realm: 'trade', searchId: 'AbC123', league: null },
-      { label: 'Valdo snipes · Puzzle box maps', realm: 'trade', searchId: 'XyZ789', league: null },
+      { label: 'Valdo snipes · Foil Mageblood', realm: 'trade', searchId: 'AbC123', league: null, group: 'Valdo snipes' },
+      { label: 'Valdo snipes · Puzzle box maps', realm: 'trade', searchId: 'XyZ789', league: null, group: 'Valdo snipes' },
     ]);
   });
 
@@ -47,7 +47,7 @@ describe('decodeBetterTradingExport', () => {
       trades: [{ title: 'Belt', location: { type: 'search', slug: 'OldSlug1', version: '1' } }],
     };
     const targets = decodeBetterTradingExport(`2:${b64(JSON.stringify(payload))}`);
-    expect(targets).toEqual([{ label: 'Old folder · Belt', realm: 'trade', searchId: 'OldSlug1', league: null }]);
+    expect(targets).toEqual([{ label: 'Old folder · Belt', realm: 'trade', searchId: 'OldSlug1', league: null, group: 'Old folder' }]);
   });
 
   test('rejects strings that are not Better Trading exports, with guidance', () => {
@@ -73,7 +73,7 @@ describe('targetsFromText', () => {
     const payload = { tit: 'F', trs: [{ tit: 'T', loc: '1:search:Slug9' }] };
     const text = `3:${b64(JSON.stringify(payload))}\n`;
     expect(targetsFromText(text, 'bt')).toEqual([
-      { label: 'F · T', realm: 'trade', searchId: 'Slug9', league: null },
+      { label: 'F · T', realm: 'trade', searchId: 'Slug9', league: null, group: 'F' },
     ]);
   });
 
@@ -90,7 +90,7 @@ describe('parseSnipeSource', () => {
       trs: [{ tit: 'Divines', loc: '1:search:abc123' }],
     })).toString('base64');
     expect(parseSnipeSource(`3:${payload}`, 'clipboard')).toEqual([
-      { label: 'Currency · Divines', realm: 'trade', searchId: 'abc123', league: null },
+      { label: 'Currency · Divines', realm: 'trade', searchId: 'abc123', league: null, group: 'Currency' },
     ]);
   });
 
@@ -104,9 +104,9 @@ describe('real Better Trading export fixture', () => {
     const raw = readFileSync(join(__dirname, 'fixtures', 'valdos-export.txt'), 'utf8');
     const targets = targetsFromText(raw, 'valdos');
     expect(targets).toHaveLength(19);
-    expect(targets[0]).toEqual({ label: 'valdos · sublime vision', realm: 'trade', searchId: '9zRjda6KHK', league: null });
+    expect(targets[0]).toEqual({ label: 'valdos · sublime vision', realm: 'trade', searchId: '9zRjda6KHK', league: null, group: 'valdos' });
     const mageblood = targets.find((t) => t.label.includes('mageblood'));
-    expect(mageblood).toEqual({ label: 'valdos · mageblood', realm: 'trade', searchId: 'BgzY9rR3t8', league: null });
+    expect(mageblood).toEqual({ label: 'valdos · mageblood', realm: 'trade', searchId: 'BgzY9rR3t8', league: null, group: 'valdos' });
     expect(new Set(targets.map((t) => t.searchId)).size).toBe(19);
   });
 });

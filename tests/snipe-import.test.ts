@@ -37,6 +37,15 @@ describe('persistSnipeImport', () => {
     expect(loadSnipeFolder(readSnipeFolderFiles(dir), () => undefined)).toHaveLength(1);
   });
 
+  test('stores each import inside a subdirectory named after the export folder', () => {
+    const dir = folder();
+    const result = persistSnipeImport({ folder: dir, content: VALID_EXPORT, sourceName: 'clipboard' });
+    expect(result.path).toContain(join(dir, 'currency'));
+    expect(result.targets[0]?.group).toBe('Currency');
+    // The recursive folder loader still finds it.
+    expect(loadSnipeFolder(readSnipeFolderFiles(dir), () => undefined)).toHaveLength(1);
+  });
+
   test('invalid input does not create a folder or source file', () => {
     const dir = folder();
     expect(() => persistSnipeImport({ folder: dir, content: '3:not-json', sourceName: 'clipboard' })).toThrow(/decode|JSON/i);
