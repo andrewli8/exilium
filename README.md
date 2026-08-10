@@ -175,11 +175,13 @@ Chrome is not required to monitor. Once selection is enabled, Exilium uses your 
 
 The trade-search endpoints used by the Path of Exile website are not part of GGG's officially supported API surface and may change. Exilium reads and honors every returned rate-limit policy, staggering startup seeds instead of flooding six searches at once.
 
-For every new listing, Exilium converts the asking price to chaos, checks local poe.ninja data, and adds the hit to the terminal queue with its margin: `Mageblood · 150 divine · +10,000c (+25.0%)`. Set a floor with `--min-margin 20` (or `snipe.minMarginPct` in config). Items with no aggregate price still alert as `no reference price`.
+For every listing, Exilium converts the asking price to chaos and checks local poe.ninja data. The compact board groups results by Better Trading search and shows each search's best candidate, ordered by profit and then listing recency. The default floor is **+20%**; override it with `--min-margin N`, `snipe.minMarginPct`, or press `f` during a run. Below-floor and unknown-price listings are hidden but counted; press `u` to inspect them. Initial API results are marked `CURRENT`, while subsequent WebSocket hits are `LIVE`.
 
 Searches run under the current challenge league — **Allflame** — no matter which league the bookmark URL mentions (search ids are league-portable). Override with `--league` or keep each URL's own league with `--keep-league`.
 
-On a new live hit you get the queue row, desktop notification, optional sound, and a `queued` entry in `~/.exilium/snipes.jsonl`. Nothing opens, travels, sends, or copies a whisper merely because the listing arrived. Select a queue row and press Enter: Exilium then lazily attaches to the Chrome instance started by `exilium chrome`, navigates its reusable tab to the listing, clicks **Travel to Hideout** once, and marks the row `TRAVELED` or `FAILED`. If Chrome is unavailable, the row explains how to start it and remains retryable with `r`; monitoring never stops.
+On a qualifying new live hit you get a grouped candidate row, desktop notification, optional sound, and a `queued` entry in `~/.exilium/snipes.jsonl`. Nothing opens, travels, sends, or copies a whisper merely because the listing arrived. Press Enter on a search to revalidate and travel to its best candidate, or Shift+Enter to inspect that search's Valdo listings; Shift+Tab or Escape returns to the board. If a listing is sold, Exilium removes it and recalculates the group without automatically traveling to its replacement.
+
+Enter lazily connects to the Chrome instance started by `exilium chrome` through direct page-level CDP, navigates one reusable native trade tab, and clicks **Travel to Hideout** once. This path does not use Playwright browser-context attachment. If Chrome is unavailable, the candidate remains queued with short recovery guidance; press `?` for technical details. Monitoring never stops.
 
 `EXILIUM_SNIPE_WEBHOOK` remains an optional structured event feed for notifications and agent integrations. Travel authority stays in the local queue: the supported console flow does not send or copy a seller whisper.
 
@@ -223,7 +225,7 @@ The server exposes 15 tools: `get_leagues`, `get_market_snapshot`, `get_pair_his
 | `EXILIUM_WATCH_INTERVAL` | `600` | Watch mode: seconds between cycles (minimum 300) |
 | `EXILIUM_WEBHOOK` | none | Watch mode: Discord-compatible webhook URL |
 | `EXILIUM_BETTERTRADING` | `~/.exilium/BetterTrading` | Snipe: folder of saved trade searches (`./BetterTrading` wins when present) |
-| `EXILIUM_SNIPE_MIN_MARGIN` | none | Snipe: minimum profit margin (%) to alert on |
+| `EXILIUM_SNIPE_MIN_MARGIN` | `20` | Snipe: minimum profit margin (%) shown and notified |
 | `EXILIUM_SNIPE_SOUND` | off | Snipe: set `1` for an audible ping (macOS and Windows) |
 | `EXILIUM_SNIPE_WEBHOOK` | none | Snipe: URL receiving a structured JSON payload per alert (for external actuators) |
 | `EXILIUM_CHROME` | auto-detected | Snipe: Chrome/Edge executable used by `exilium chrome` |
