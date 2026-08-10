@@ -79,6 +79,8 @@ export interface FloorAssessOptions {
   readonly floorChaos: number;
   readonly snapshots: readonly MarketSnapshot[];
   readonly nowMs: number;
+  /** What the floor represents; defaults to 'search floor'. */
+  readonly referenceName?: string;
 }
 
 /** Margin against the search's own floor instead of poe.ninja. Used for
@@ -94,11 +96,30 @@ export function assessMarginAgainstFloor(opts: FloorAssessOptions): MarginAssess
   return {
     listedChaos,
     referenceChaos: opts.floorChaos,
-    referenceName: 'search floor',
+    referenceName: opts.referenceName ?? 'search floor',
     marginChaos,
     marginPct,
     referenceAsOf,
     freshness: assessFreshness(referenceAsOf, opts.nowMs),
+  };
+}
+
+/** Assessment for a listing whose identity is unknowable (unidentified —
+ * its name is just a base type, so any ninja match would be a lie): the
+ * listed price converts, every reference stays null, and the caller's
+ * floor fallbacks take over. */
+export function assessListingOnly(
+  price: ListingPrice | null,
+  snapshots: readonly MarketSnapshot[],
+): MarginAssessment {
+  return {
+    listedChaos: price === null ? null : toChaos(price, snapshots),
+    referenceChaos: null,
+    referenceName: null,
+    marginChaos: null,
+    marginPct: null,
+    referenceAsOf: null,
+    freshness: null,
   };
 }
 

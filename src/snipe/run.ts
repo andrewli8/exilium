@@ -40,7 +40,8 @@ import {
 } from './console.js';
 import { decideSnipe, formatAlert, type SnipeAlert } from './engine.js';
 import { effectiveLeague, resolveSnipeLeague, type FetchLeaguesFn } from './league.js';
-import { assessMargin, assessMarginAgainstFloor, toChaos } from './margin.js';
+import { assessListingOnly, assessMargin, assessMarginAgainstFloor, toChaos } from './margin.js';
+import { RewardFloorService, type PageEvaluate, type RewardFloorPrice } from './reward-floor.js';
 import { persistSnipeImport } from './import.js';
 import { resolveRequestedTargets } from './selection.js';
 import type { TravelResult } from './travel.js';
@@ -324,6 +325,16 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
   const unsubscribeScheduler = tradeScheduler.subscribe(publishSchedulerHealth);
 
   const now = deps.now ?? Date.now;
+  // Variant-lottery rewards (Sublime Vision, Forbidden jewels) have no
+  // honest ninja aggregate; their reference is the live unid market floor,
+  // fetched through an open browser-live tab and cached.
+  let floorEvaluate: PageEvaluate | null = null;
+  const rewardFloorService = new RewardFloorService({
+    league,
+    getEvaluate: () => floorEvaluate,
+    log,
+    now,
+  });
   const record = deps.recordAlert ?? ((alert, action, detail) => recordSnipe(alert, action, detail, log));
   let notify = deps.notify;
   let sound = (): void => undefined;
@@ -508,11 +519,27 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     void task.finally(() => pending.delete(task));
   };
 
+  const EMPTY_FLOORS: ReadonlyMap<string, RewardFloorPrice> = new Map();
+  const collectRewardFloors = async (
+    listings: readonly LiveListing[],
+  ): Promise<ReadonlyMap<string, RewardFloorPrice>> => {
+    const bases = [...new Set(listings
+      .map((listing) => listing.rewardBase)
+      .filter((base): base is string => base !== undefined))];
+    const floors = new Map<string, RewardFloorPrice>();
+    for (const base of bases) {
+      const price = await rewardFloorService.floorPrice(base);
+      if (price !== null) floors.set(base.toLowerCase(), price);
+    }
+    return floors;
+  };
+
   const processListings = (
     entry: RuntimeTarget,
     listings: readonly LiveListing[],
     source: 'seed' | 'live',
     dedupe: boolean,
+    rewardFloorPrices: ReadonlyMap<string, RewardFloorPrice> = EMPTY_FLOORS,
   ): number => {
     const fresh = dedupe ? listings.filter((listing) => !entry.seen.has(listing.id)) : listings;
     if (fresh.length === 0) return 0;
@@ -521,7 +548,23 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     let queued = 0;
     for (const listing of fresh) {
       if (stopped || stopIntent) return queued;
-      let assessment = assessMargin({ itemName: listing.referenceName, price: listing.price, snapshots, nowMs: now() });
+      const rewardFloor = listing.rewardBase === undefined
+        ? undefined
+        : rewardFloorPrices.get(listing.rewardBase.toLowerCase());
+      const rewardFloorChaos = rewardFloor === undefined ? null : toChaos(rewardFloor, snapshots);
+      let assessment = rewardFloorChaos !== null
+        ? assessMarginAgainstFloor({
+          price: listing.price,
+          floorChaos: rewardFloorChaos,
+          snapshots,
+          nowMs: now(),
+          referenceName: `${listing.rewardBase} (unid floor)`,
+        })
+        : listing.identified === false
+          // An unid listing's name is just a base type — a ninja match on it
+          // would price the wrong thing entirely. Fall through to the floors.
+          ? assessListingOnly(listing.price, snapshots)
+          : assessMargin({ itemName: listing.referenceName, price: listing.price, snapshots, nowMs: now() });
       if (assessment.referenceChaos === null) {
         // poe.ninja has no aggregate (unidentified unique, rare): fall back to
         // the cheapest other listing on this very search as the floor.
@@ -601,7 +644,13 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
         log,
         onListings: (listings, source) => {
           if (stopped || stopIntent) return;
-          processListings(entry, listings, source, true);
+          startTask((async () => {
+            const floors = await collectRewardFloors(listings);
+            if (stopped || stopIntent) return;
+            processListings(entry, listings, source, true, floors);
+          })().catch((error: unknown) => {
+            log(`browser-live listing processing failed: ${error instanceof Error ? error.message : String(error)}`);
+          }));
         },
         onDisconnect: () => {
           liveTabs.delete(targetId);
@@ -609,12 +658,16 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
           sharedStore.setSearchState(targetId, 'stopped', 'live tab lost — run exilium chrome, then restart snipe');
           log(`browser-live tab for "${entry.target.label}" disconnected`);
         },
+        onPage: (page) => {
+          if (page.evaluate !== undefined) floorEvaluate = page.evaluate.bind(page);
+        },
       });
       if (stopped || stopIntent) {
         void handle.close();
         return;
       }
       liveTabs.set(targetId, handle);
+      if (handle.page.evaluate !== undefined) floorEvaluate = handle.page.evaluate.bind(handle.page);
       liveTabsOpened += 1;
       sharedStore.setProgress(liveTabsOpened, runtimeTargets.length);
       sharedStore.setSearchState(targetId, 'live');

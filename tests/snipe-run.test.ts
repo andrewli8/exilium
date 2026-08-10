@@ -762,6 +762,55 @@ describe('runSnipe browser-live mode', () => {
     await running;
   });
 
+  test('variant-jewel rewards price against the live unid market floor', async () => {
+    const target: CatalogEntry = {
+      key: 'trade:aaa', label: 'Currency', realm: 'trade', searchId: 'aaa', league: null, enabled: true, source: 'Better Trading',
+    };
+    const store = new SnipeStore([target], { minMarginPct: 0 });
+    const harness = makeHarness({ store });
+    let emitListings: ((listings: readonly LiveListing[], source: 'seed' | 'live') => void) | undefined;
+    const evaluateCalls: string[] = [];
+    const openLiveSearch: NonNullable<SnipeDeps['openLiveSearch']> = async (options) => {
+      emitListings = options.onListings;
+      return {
+        page: {
+          url: () => 'about:blank',
+          goto: async () => undefined,
+          clickTravelButton: async () => 'clicked' as const,
+          evaluate: async (expression: string) => {
+            evaluateCalls.push(expression);
+            return { amount: 93, currency: 'divine' }; // live unid floor
+          },
+          close: async () => undefined,
+        },
+        close: async () => undefined,
+      };
+    };
+    const running = runSnipe({ ...FLAGS, browserLive: true }, { ...harness.deps, openLiveSearch });
+    await harness.consoleReady;
+    for (let i = 0; i < 20 && store.snapshot().searches[0]?.state !== 'live'; i += 1) await new Promise((r) => setTimeout(r, 0));
+
+    emitListings?.([{
+      ...LISTING,
+      id: 'sublime-map',
+      itemName: 'Foil Sublime Vision',
+      referenceName: 'Sublime Vision', // no ninja aggregate in SNAPSHOTS
+      rewardBase: 'Sublime Vision',
+      priceText: '90 divine',
+      price: { amount: 90, currency: 'divine' },
+    }], 'live');
+    await harness.waitForAlerts(1);
+
+    const alert = harness.consoleAlerts[0];
+    // floor 93 divine = 18,600c; listed 90 divine = 18,000c → +600c
+    expect(alert?.marginChaos).toBe(600);
+    expect(alert?.qualifiesMargin).toBe(true);
+    expect(evaluateCalls.some((expression) => expression.includes('Sublime Vision'))).toBe(true);
+
+    harness.exit();
+    await running;
+  });
+
   test('unpriceable listings are margined against the cheapest other listing on the search', async () => {
     const harness = browserLiveHarness();
     const unid = (id: string, amount: number): LiveListing => ({

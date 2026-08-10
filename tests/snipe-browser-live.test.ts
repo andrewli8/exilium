@@ -48,6 +48,7 @@ function harness(nowValues: { value: number }) {
     onListings: (parsed: readonly LiveListing[], source) => listings.push({ source, ids: parsed.map((l) => l.id) }),
     seedWindowMs: 5_000,
     seedCaptureWaitMs: 0,
+    seedSettleMs: 0,
     createPage,
     now: () => nowValues.value,
   });
@@ -106,6 +107,7 @@ describe('browser-live search', () => {
       onListings: (parsed, source) => listings.push({ source, ids: parsed.map((l) => l.id) }),
       seedWindowMs: 5_000,
       seedCaptureWaitMs: 60_000,
+      seedSettleMs: 0,
       createPage: async (options) => {
         captured = options.onTradeFetchBody;
         return {

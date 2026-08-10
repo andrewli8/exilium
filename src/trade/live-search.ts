@@ -234,6 +234,10 @@ export interface LiveListing {
   /** False for unidentified items (e.g. Forbidden Flame/Flesh gambles, which
    * list as a bare base type); absent means identified. */
   readonly identified?: boolean;
+  /** For Valdo map listings: the reward item's base name (foil/stack
+   * prefixes stripped) — the snipe engine prices it against the live unid
+   * market floor when one exists. */
+  readonly rewardBase?: string;
 }
 
 export interface LiveDeps {
@@ -290,6 +294,9 @@ export function parseFetchResponseBody(payload: unknown): readonly LiveListing[]
   if (!parsed.success) throw new Error('trade fetch response did not match the expected shape');
   return parsed.data.result.filter((r) => r !== null).map((r) => {
     const reward = r.item === undefined ? null : extractReward(r.item);
+    const rewardBase = reward === null
+      ? null
+      : reward.replace(REWARD_STACK_PREFIX, '').replace(REWARD_FOIL_PREFIX, '');
     const identified = r.item?.identified !== false;
     const baseReference = r.item?.name || r.item?.typeLine || r.id;
     const passive = r.item === undefined || !identified ? null : extractAllocatedPassive(r.item);
@@ -306,9 +313,8 @@ export function parseFetchResponseBody(payload: unknown): readonly LiveListing[]
       // lines, so "Foil Nimis" prices as "Nimis"; stack prefixes ("5x")
       // strip the same way. priceItem prefers the item's own variant lines,
       // so this never substring-matches back into a Valdo map line.
-      referenceName: reward !== null
-        ? reward.replace(REWARD_STACK_PREFIX, '').replace(REWARD_FOIL_PREFIX, '')
-        : variant ?? baseReference,
+      referenceName: rewardBase ?? variant ?? baseReference,
+      ...(rewardBase === null ? {} : { rewardBase }),
       priceText: price,
       price: r.listing.price ?? null,
       listedAt: r.listing.indexed ?? null,

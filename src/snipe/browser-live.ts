@@ -29,12 +29,19 @@ export interface BrowserLiveSearchOptions {
   readonly log: (message: string) => void;
   readonly onListings: (listings: readonly LiveListing[], source: BrowserLiveSource) => void;
   readonly onDisconnect?: () => void;
+  /** Called with the owned page as soon as it exists (before navigation), so
+   * hosts can use it for page-world work (e.g. reward floor lookups) while
+   * the seed captures are still streaming in. */
+  readonly onPage?: (page: CdpTravelPage) => void;
   /** Captures within this window after the tab reaches /live are still
    * treated as current results (seed), not fresh live hits. Default 10s. */
   readonly seedWindowMs?: number;
   /** How long to wait on the plain search page for current results before
    * switching to /live. Default 10s; tests shorten it. */
   readonly seedCaptureWaitMs?: number;
+  /** Grace between the first seed capture and the /live navigation.
+   * Default 4s; tests shorten it. */
+  readonly seedSettleMs?: number;
   readonly createPage?: (options: CreateCdpPageOptions) => Promise<CdpTravelPage>;
   readonly now?: () => number;
 }
@@ -55,6 +62,10 @@ const TAB_COMMAND_TIMEOUT_MS = 20_000;
 /** How long to wait on the plain search page for its auto-run search to
  * deliver current results before switching the tab to /live. */
 const SEED_CAPTURE_WAIT_MS = 10_000;
+/** Grace after the first capture before navigating to /live: later fetch
+ * batches finish arriving, and page-world work started against the plain
+ * page (reward floor lookups) is not yanked mid-flight by the navigation. */
+const SEED_SETTLE_MS = 4_000;
 
 export function liveSearchPageUrl(search: TradeSearch): string {
   return `${buildSearchPageUrl({ realm: search.realm, searchId: search.searchId }, search.league)}/live`;
@@ -107,6 +118,7 @@ export async function openBrowserLiveSearch(
     },
     ...(options.onDisconnect === undefined ? {} : { onDisconnect: options.onDisconnect }),
   });
+  options.onPage?.(page);
   try {
     // The /live page never loads the search's current results on its own
     // (verified against the live site) — but the plain search page auto-runs
@@ -114,6 +126,7 @@ export async function openBrowserLiveSearch(
     // the capture as seeds, then switch the same tab to /live for the stream.
     await page.goto(buildSearchPageUrl({ realm: options.search.realm, searchId: options.search.searchId }, options.search.league));
     await Promise.race([firstCapture, sleep(options.seedCaptureWaitMs ?? SEED_CAPTURE_WAIT_MS)]);
+    await sleep(options.seedSettleMs ?? SEED_SETTLE_MS);
     await page.goto(liveSearchPageUrl(options.search));
   } catch (error) {
     await page.close();
