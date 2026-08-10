@@ -20,6 +20,14 @@ function age(value: string | null, now = Date.now()): string {
   return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h`;
 }
 
+function shortFailure(detail: string): string {
+  if (/Could not attach|connectOverCDP|Browser\.setDownloadBehavior|Chrome unavailable/i.test(detail)) {
+    return 'Chrome unavailable — run exilium chrome, then press Enter again';
+  }
+  const firstLine = detail.split('\n', 1)[0]!.trim();
+  return firstLine.length <= 100 ? firstLine : `${firstLine.slice(0, 97)}…`;
+}
+
 export function SnipeBoardView({ store, onTravel, active = true, embedded = false, onExit }: SnipeBoardViewProps) {
   const snapshot = useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot);
   const [notice, setNotice] = useState<string | null>(null);
@@ -42,7 +50,12 @@ export function SnipeBoardView({ store, onTravel, active = true, embedded = fals
     if (input.toLowerCase() === 'q' && !embedded) onExit?.();
     else if (key.upArrow) store.dispatch({ type: 'move', delta: -1, minMarginPct: snapshot.floor });
     else if (key.downArrow) store.dispatch({ type: 'move', delta: 1, minMarginPct: snapshot.floor });
-    else if (key.return && key.shift) store.dispatch({ type: 'open-detail', minMarginPct: snapshot.floor });
+    else if (key.return && key.shift) {
+      if (selected?.best === null && selected.hiddenCount > 0 && !snapshot.queue.showHidden) {
+        store.dispatch({ type: 'toggle-hidden', minMarginPct: snapshot.floor });
+      }
+      store.dispatch({ type: 'open-detail', minMarginPct: snapshot.floor });
+    }
     else if (key.escape && snapshot.queue.view === 'detail') store.dispatch({ type: 'board' });
     else if (input.toLowerCase() === 'u') store.dispatch({ type: 'toggle-hidden', minMarginPct: snapshot.floor });
     else if (input.toLowerCase() === 'f') setFloorInput('');
@@ -60,9 +73,16 @@ export function SnipeBoardView({ store, onTravel, active = true, embedded = fals
   }, { isActive: active });
 
   const states = new Map(snapshot.searches.map((search) => [search.target.key, search]));
-  const headerStatus = snapshot.progress.seeded < snapshot.progress.total
+  const seeding = snapshot.searches.some((search) => search.state === 'seeding' || search.state === 'cooldown' || search.state === 'rate-limited');
+  const headerStatus = seeding
     ? `SEEDING ${snapshot.progress.seeded}/${snapshot.progress.total}`
     : `${snapshot.searches.filter((search) => search.state === 'live').length} LIVE`;
+  const selectedEntry = snapshot.queue.view === 'detail'
+    ? selected?.entries.find((entry) => entry.alert.listingId === snapshot.queue.selectedListingId) ?? selected?.best
+    : selected?.best;
+  const failure = selectedEntry?.status === 'failed' && selectedEntry.detail !== null
+    ? shortFailure(selectedEntry.detail)
+    : null;
 
   return (
     <Box flexDirection="column">
@@ -90,7 +110,7 @@ export function SnipeBoardView({ store, onTravel, active = true, embedded = fals
         {(selected?.entries.length ?? 0) === 0 && <Text dimColor>No listings for this search — press u on the board to reveal hidden listings.</Text>}
         <Text dimColor>Enter travel · Esc board</Text>
       </>}
-      {(notice ?? snapshot.status ?? snapshot.queue.notice) !== null && <Text color="yellow">{fold((notice ?? snapshot.status ?? snapshot.queue.notice)!)}</Text>}
+      {(failure ?? notice ?? snapshot.status ?? snapshot.queue.notice) !== null && <Text color={failure === null ? 'yellow' : 'red'}>{fold((failure ?? notice ?? snapshot.status ?? snapshot.queue.notice)!)}</Text>}
       {floorInput !== null && <Text color="yellow">{`Set session floor: ${floorInput}▌% · Enter apply · Esc cancel`}</Text>}
     </Box>
   );

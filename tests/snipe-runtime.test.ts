@@ -18,6 +18,23 @@ const ALERT: SnipeAlert = {
 const FLAGS: SnipeFlags = { folder: undefined, league: undefined, keepLeague: false, minMargin: undefined, all: true, searches: [] };
 
 describe('startSnipeRuntime', () => {
+  test('gone removes the best candidate and promotes the backup without auto-travel', async () => {
+    const store = new SnipeStore([TARGET], { minMarginPct: 20 });
+    const gone = vi.fn(async () => ({ action: 'gone' as const, detail: 'listing sold' }));
+    const run = async (_flags: SnipeFlags, deps: SnipeDeps): Promise<void> => {
+      const view = deps.makeConsole!({ onTravel: gone });
+      view.addAlert({ ...ALERT, listingId: 'backup', marginPct: 25 });
+      view.addAlert({ ...ALERT, listingId: 'best', marginPct: 35 });
+      await view.waitUntilExit();
+    };
+    const runtime = await startSnipeRuntime({ flags: FLAGS, store }, { run });
+
+    await runtime.travel('best');
+    expect(store.snapshot().board.groups[0]?.best?.alert.listingId).toBe('backup');
+    expect(gone).toHaveBeenCalledTimes(1);
+    expect(store.snapshot().queue.notice).toMatch(/sold|removed/i);
+    await runtime.stop();
+  });
   test('publishes alerts and travel lifecycle through a renderer-independent store', async () => {
     const store = new SnipeStore([TARGET], { minMarginPct: 20 });
     const travel = vi.fn(async () => ({ action: 'traveled' as const, detail: 'clicked Travel to Hideout' }));
