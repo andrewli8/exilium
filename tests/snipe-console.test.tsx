@@ -324,7 +324,7 @@ describe('SnipeQueueApp', () => {
     expect(ui.lastFrame()).toContain('Target candidate');
     ui.stdin.write('f');
     await flush();
-    expect(ui.lastFrame()).toContain('Set session floor');
+    expect(ui.lastFrame()).toContain('Set threshold');
     ui.stdin.write('3');
     await flush();
     ui.stdin.write('0');

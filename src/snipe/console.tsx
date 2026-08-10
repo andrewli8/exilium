@@ -202,7 +202,7 @@ export function SnipeQueueApp({ alerts, onTravel, onExit, now, searchCount, minM
         }
         setFloorInput(null);
       } else if (key.backspace || key.delete) setFloorInput((value) => value?.slice(0, -1) ?? null);
-      else if (/^[0-9.]$/.test(input) && !(input === '.' && floorInput.includes('.'))) setFloorInput(`${floorInput}${input}`);
+      else if (/^[0-9.]+$/.test(input) && !(input.includes('.') && floorInput.includes('.'))) setFloorInput(`${floorInput}${input}`);
       return;
     }
     if (key.upArrow) dispatch({ type: 'move', delta: -1, minMarginPct: floor });
@@ -212,7 +212,7 @@ export function SnipeQueueApp({ alerts, onTravel, onExit, now, searchCount, minM
     else if (key.tab) dispatch({ type: 'next-view', minMarginPct: floor });
     else if (key.escape) dispatch({ type: 'board' });
     else if (input.toLowerCase() === 'u') dispatch({ type: 'toggle-hidden', minMarginPct: floor });
-    else if (input.toLowerCase() === 'f') setFloorInput('');
+    else if (input.toLowerCase() === 't' || input.toLowerCase() === 'f') setFloorInput('');
     else if (input === '?') dispatch({ type: 'toggle-details' });
     else if (input.toLowerCase() === 'q') {
       onExit?.();
@@ -277,7 +277,7 @@ export function SnipeQueueApp({ alerts, onTravel, onExit, now, searchCount, minM
       )}
       <Text color={failureNotice === null ? 'green' : 'red'}>{fold(notice)}</Text>
       {floorInput === null ? null : (
-        <Text color="yellow">{fold(`Set session floor: ${floorInput === '' ? '▌' : `${floorInput}▌`}% ${glyphs.sep} Enter apply ${glyphs.sep} Esc cancel`)}</Text>
+        <Text color="yellow">{fold(`Set threshold: ${floorInput === '' ? '▌' : `${floorInput}▌`}% ${glyphs.sep} Enter apply ${glyphs.sep} Esc cancel`)}</Text>
       )}
       {state.showDetails && failed?.detail !== null && failed?.detail !== undefined ? (
         <Text dimColor>{fold(`Technical detail: ${failed.detail}`)}</Text>

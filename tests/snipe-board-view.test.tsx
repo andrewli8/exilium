@@ -84,6 +84,32 @@ describe('SnipeBoardView', () => {
     expect(store.snapshot().queue.view).toBe('detail');
   });
 
+  test('t opens the threshold prompt and Enter applies the new floor', async () => {
+    const store = new SnipeStore([target('one')], { minMarginPct: 20 });
+    const ui = render(<SnipeBoardView store={store} onTravel={async () => ({ action: 'failed', detail: 'unused' })} />);
+    ui.stdin.write('t');
+    await flush();
+    expect(ui.lastFrame()).toMatch(/set threshold/i);
+    ui.stdin.write('35');
+    await flush();
+    ui.stdin.write('\r');
+    await flush();
+    expect(store.snapshot().floor).toBe(35);
+    expect(ui.lastFrame()).toContain('Threshold: +35% profit');
+  });
+
+  test('f still works as a threshold alias', async () => {
+    const store = new SnipeStore([target('one')], { minMarginPct: 20 });
+    const ui = render(<SnipeBoardView store={store} onTravel={async () => ({ action: 'failed', detail: 'unused' })} />);
+    ui.stdin.write('f');
+    await flush();
+    ui.stdin.write('9');
+    await flush();
+    ui.stdin.write('\r');
+    await flush();
+    expect(store.snapshot().floor).toBe(9);
+  });
+
   test('collapses Chrome protocol traces into one recovery line', async () => {
     const store = new SnipeStore([target('one')]);
     store.ingest(alert('failed'));

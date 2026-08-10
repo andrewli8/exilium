@@ -66,7 +66,7 @@ export function SnipeBoardView({ store, onTravel, active = true, embedded = fals
         setFloorInput(null);
       } else if (key.delete) setFloorInput('');
       else if (key.backspace) setFloorInput((value) => value?.slice(0, -1) ?? null);
-      else if (/^[0-9.]$/.test(input)) setFloorInput((value) => `${value ?? ''}${input}`);
+      else if (/^[0-9.]+$/.test(input)) setFloorInput((value) => `${value ?? ''}${input}`);
       return;
     }
     if (input.toLowerCase() === 'q' && !embedded) onExit?.();
@@ -80,7 +80,7 @@ export function SnipeBoardView({ store, onTravel, active = true, embedded = fals
     }
     else if ((key.escape || (key.tab && key.shift)) && snapshot.queue.view === 'detail') store.dispatch({ type: 'board' });
     else if (input.toLowerCase() === 'u') store.dispatch({ type: 'toggle-hidden', minMarginPct: snapshot.floor });
-    else if (input.toLowerCase() === 'f') setFloorInput('');
+    else if (input.toLowerCase() === 't' || input.toLowerCase() === 'f') setFloorInput('');
     else if (key.return) {
       const listing = snapshot.queue.view === 'detail'
         ? selectedGroup?.entries.find((entry) => entry.alert.listingId === snapshot.queue.selectedListingId) ?? selectedGroup?.best
@@ -149,7 +149,7 @@ export function SnipeBoardView({ store, onTravel, active = true, embedded = fals
           {hiddenBelow > 0 && <Text dimColor>{`  ↓ ${hiddenBelow} older hidden`}</Text>}
           <Text dimColor>{fold(`${snapshot.table.qualifyingCount} above threshold ${glyphs.sep} ${snapshot.table.belowFloorCount} below ${glyphs.sep} ${snapshot.table.unknownCount} unknown`)}</Text>
         </>}
-        <Text dimColor>{fold(`${glyphs.upDown} select ${glyphs.sep} Enter travel ${glyphs.sep} Shift+Enter inspect ${glyphs.sep} f floor ${glyphs.sep} c configure`)}</Text>
+        <Text dimColor>{fold(`${glyphs.upDown} select ${glyphs.sep} Enter travel ${glyphs.sep} Shift+Enter inspect ${glyphs.sep} t threshold ${glyphs.sep} c configure`)}</Text>
       </> : <>
         <Text bold>{fold(selectedGroup?.targetLabel ?? 'SNIPE DETAILS')}</Text>
         {selectedGroup?.entries.map((entry) => (
@@ -160,7 +160,7 @@ export function SnipeBoardView({ store, onTravel, active = true, embedded = fals
         {(selectedGroup?.entries.length ?? 0) === 0 && <Text dimColor>No listings for this search — press u on the board to reveal hidden listings.</Text>}
         <Text dimColor>Enter travel · Esc board</Text>
       </>}
-      {floorInput !== null && <Text color="yellow">{`Set session floor: ${floorInput}▌% · Enter apply · Esc cancel`}</Text>}
+      {floorInput !== null && <Text color="yellow">{`Set threshold: ${floorInput}▌% · Enter apply · Esc cancel`}</Text>}
     </Box>
   );
 }
