@@ -124,7 +124,10 @@ function loadSnipeSettings(env: NodeJS.ProcessEnv, file: SnipeFileConfig): Snipe
     // An empty env var means "unset", never "the empty path".
     folder: envFolder !== undefined && envFolder !== '' ? envFolder : file.folder,
     minMarginPct: parseSnipeMinMargin(env['EXILIUM_SNIPE_MIN_MARGIN'], file.minMarginPct),
-    sound: env['EXILIUM_SNIPE_SOUND'] === '1' || (env['EXILIUM_SNIPE_SOUND'] === undefined && file.sound === true),
+    // Sound is on by default: a qualifying live hit should ping. Disable with
+    // EXILIUM_SNIPE_SOUND=0 or "sound": false in the config file.
+    sound: env['EXILIUM_SNIPE_SOUND'] === '1'
+      || (env['EXILIUM_SNIPE_SOUND'] === undefined && file.sound !== false),
     webhookUrl: env['EXILIUM_SNIPE_WEBHOOK'] ?? file.webhookUrl,
     league: file.league,
     chromeCdpUrl: env['EXILIUM_CHROME_CDP'] ?? file.chromeCdpUrl ?? 'http://127.0.0.1:9222',

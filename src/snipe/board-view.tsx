@@ -148,7 +148,7 @@ export function SnipeBoardView({ store, onTravel, active = true, embedded = fals
             const line = `${isSelected ? glyphs.select : ' '} ${rowText(row, Date.now())}`;
             if (row.entry.status === 'failed') return <Text key={row.entry.alert.listingId} inverse={isSelected} color="red">{line}</Text>;
             if (!row.qualifies) return <Text key={row.entry.alert.listingId} inverse={isSelected} dimColor>{line}</Text>;
-            return <Text key={row.entry.alert.listingId} inverse={isSelected} bold>{line}</Text>;
+            return <Text key={row.entry.alert.listingId} inverse={isSelected} bold color="green">{line}</Text>;
           })}
           {hiddenBelow > 0 && <Text dimColor>{`  ↓ ${hiddenBelow} older hidden`}</Text>}
           <Text dimColor>{fold(`${snapshot.table.qualifyingCount} above threshold ${glyphs.sep} ${snapshot.table.belowFloorCount} below ${glyphs.sep} ${snapshot.table.unknownCount} unknown`)}</Text>

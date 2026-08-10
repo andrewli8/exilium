@@ -106,6 +106,7 @@ function makeHarness(options: {
     poesessid: 'test-session',
     snipe: {
       folder,
+      sound: false, // a passing test suite must not beep
       chromeCdpUrl: 'http://127.0.0.1:9222',
       ...(options.snipeMinMargin === undefined ? {} : { minMarginPct: options.snipeMinMargin }),
       ...(options.snipeLeague === undefined ? {} : { league: options.snipeLeague }),

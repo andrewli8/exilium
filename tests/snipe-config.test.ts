@@ -6,7 +6,7 @@ describe('snipe settings', () => {
     expect(loadConfig({}).snipe).toEqual({
       folder: undefined,
       minMarginPct: 0,
-      sound: false,
+      sound: true,
       webhookUrl: undefined,
       league: undefined,
       chromeCdpUrl: 'http://127.0.0.1:9222',

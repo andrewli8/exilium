@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { createCdpPage, type CdpSocket } from '../src/snipe/cdp.js';
+import { clickExpression, createCdpPage, type CdpSocket } from '../src/snipe/cdp.js';
 
 class FakeSocket implements CdpSocket {
   readonly sent: Array<{ id: number; method: string; params?: unknown }> = [];
@@ -90,6 +90,17 @@ function harness(options: {
 }
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 10));
+
+describe('travel click script', () => {
+  test('clicks through the are-you-sure confirmation using only newly appeared buttons', () => {
+    const expression = clickExpression('listing-1');
+    // Snapshot existing buttons before the click so other rows' Travel
+    // buttons can never be mistaken for the confirmation dialog.
+    expect(expression).toContain('const before = new Set(document.querySelectorAll(\'button\'))');
+    expect(expression).toContain('!before.has(element)');
+    expect(expression).toContain('/travel|confirm|yes|ok/i');
+  });
+});
 
 describe('direct CDP page control', () => {
   test('creates one native target, navigates, evaluates, reloads once, and clicks', async () => {
