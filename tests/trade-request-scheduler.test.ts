@@ -92,13 +92,15 @@ describe('TradeRequestScheduler', () => {
         now += milliseconds;
       },
     });
-    const observed: string[] = [];
-    scheduler.subscribe((health) => observed.push(health.state));
+    const observed: number[] = [];
+    scheduler.subscribe((health) => {
+      if (health.state === 'cooldown') observed.push(health.cooldownRemainingSec);
+    });
 
     await scheduler.schedule('live', async () => response());
 
-    expect(waits).toEqual([5_000]);
-    expect(observed).toContain('cooldown');
+    expect(waits).toEqual([1_000, 1_000, 1_000, 1_000, 1_000]);
+    expect(observed).toEqual(expect.arrayContaining([5, 4, 3, 2, 1]));
     expect(scheduler.health()).toMatchObject({ state: 'ready', queued: 0, cooldownRemainingSec: 0 });
   });
 });

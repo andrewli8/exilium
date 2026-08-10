@@ -13,6 +13,11 @@ import {
   type TradeSearch,
 } from '../trade/live-search.js';
 import { RateLimitError } from '../trade/rate-limit.js';
+import {
+  sharedTradeRequestScheduler,
+  type TradeRequestScheduler,
+  type TradeSchedulerHealth,
+} from '../trade/request-scheduler.js';
 import { createNotifier } from '../watch/notify.js';
 import {
   resolveSnipeFolder,
@@ -92,6 +97,7 @@ export interface SnipeDeps {
   readonly fetchLeagues?: FetchLeaguesFn;
   readonly shutdownTimeoutMs?: number;
   readonly store?: SnipeStore;
+  readonly scheduler?: TradeRequestScheduler;
 }
 
 export const MAX_SNIPE_SOCKETS = 20;
@@ -243,6 +249,21 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     enabled: true,
     source: 'Better Trading' as const,
   })), { minMarginPct: minMarginPct ?? 20 });
+  const tradeScheduler = deps.scheduler ?? sharedTradeRequestScheduler;
+  let lastSchedulerStatus: string | null | undefined;
+  const publishSchedulerHealth = (health: TradeSchedulerHealth): void => {
+    const status = health.state === 'ready'
+      ? null
+      : health.state === 'rate-limited'
+        ? `RATE LIMITED ${health.cooldownRemainingSec}s`
+        : `COOLDOWN ${health.cooldownRemainingSec}s`;
+    if (status !== lastSchedulerStatus) {
+      lastSchedulerStatus = status;
+      sharedStore.setStatus(status);
+    }
+  };
+  publishSchedulerHealth(tradeScheduler.health());
+  const unsubscribeScheduler = tradeScheduler.subscribe(publishSchedulerHealth);
 
   const now = deps.now ?? Date.now;
   const record = deps.recordAlert ?? ((alert, action, detail) => recordSnipe(alert, action, detail, log));
@@ -323,20 +344,14 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     shutdownRequested = true;
     resolveStop();
   };
-  const consoleHandle = (deps.makeConsole ?? ((options) => renderSnipeConsole(options)))({
-    onTravel,
-    onExit: requestStop,
-    now,
-    searchCount: runnable.length,
-    store: sharedStore,
-    ...(minMarginPct === null ? {} : { minMarginPct }),
-  });
+  let consoleHandle: SnipeConsoleHandle | undefined;
 
   let stopped = false;
   const sockets = new Set<SnipeSocket>();
   const timers = new Set<ReturnType<typeof setTimeout>>();
   const pending = new Set<Promise<void>>();
   let refreshTimer: ReturnType<typeof setInterval> | undefined;
+  let rateHealthTimer: ReturnType<typeof setInterval> | undefined;
 
   const refreshAbort = new AbortController();
   const refresh = deps.refreshPrices ?? (async (signal: AbortSignal) => {
@@ -378,10 +393,12 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
   const fetchListings = deps.fetchListings ?? ((ids, search, sid, signal) =>
     fetchTradeListings(ids, search, sid, {
       fetchFn: (url, init) => fetch(url, { ...init, ...(signal === undefined ? {} : { signal }) }),
+      scheduler: tradeScheduler,
     }));
   const fetchCurrentResultIds = deps.fetchCurrentResultIds ?? ((search, sid, signal) =>
     fetchTradeCurrentResultIds(search, sid, {
       fetchFn: (url, init) => fetch(url, init),
+      scheduler: tradeScheduler,
       ...(signal === undefined ? {} : { signal }),
     }));
   const runtimeTargets: readonly RuntimeTarget[] = runnable.map((entry) => ({
@@ -433,7 +450,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
           continue;
         }
         const alert = decision.alert;
-        consoleHandle.addAlert(alert);
+        consoleHandle?.addAlert(alert);
         sharedStore.ingest(alert);
         queued += 1;
         if (source === 'live' && alert.qualifiesMargin) {
@@ -464,7 +481,6 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
       socket.on('open', () => {
         consecutiveFailures = 0;
         sharedStore.setSearchState(`${target.realm}:${target.searchId}`, 'live');
-        out(`watching ${target.label} — ${search.league}/${search.searchId}`);
       });
       socket.on('message', (data) => {
         const task = (async () => {
@@ -559,12 +575,14 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
   const cleanup = async (): Promise<void> => {
     if (stopped) return;
     stopped = true;
+    unsubscribeScheduler();
     shutdownRequested = true;
     networkAbort.abort();
     refreshAbort.abort();
     for (const timer of timers) clearTimeout(timer);
     timers.clear();
     if (refreshTimer !== undefined) clearInterval(refreshTimer);
+    if (rateHealthTimer !== undefined) clearInterval(rateHealthTimer);
     for (const socket of sockets) socket.close();
     sockets.clear();
     const settleWithin = async (
@@ -586,7 +604,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
       await settleWithin(controllerPromise.then((resolved) => { controller = resolved; }));
       if (controller !== undefined) await settleWithin(controller.close());
     }
-    consoleHandle.close();
+    consoleHandle?.close();
   };
 
   const onSigint = (): void => requestStop();
@@ -594,6 +612,16 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
   try {
     for (const message of snipeStartupMessages(runnable.length, league, minMarginPct)) out(message);
     for (const { target } of runnable) out(`  ${target.label} (${target.searchId})`);
+
+    consoleHandle = (deps.makeConsole ?? ((options) => renderSnipeConsole(options)))({
+      onTravel,
+      onExit: requestStop,
+      now,
+      searchCount: runnable.length,
+      store: sharedStore,
+      ...(minMarginPct === null ? {} : { minMarginPct }),
+    });
+    rateHealthTimer = setInterval(() => publishSchedulerHealth(tradeScheduler.health()), 1_000);
 
     startRefresh();
     refreshTimer = setInterval(startRefresh, config.refreshSec * 1_000);

@@ -1,5 +1,6 @@
 import {
   RateLimitError,
+  sharedTradeRateLimiter,
   TradeRateLimiter,
   type RateLimitHealth,
 } from './rate-limit.js';
@@ -125,7 +126,7 @@ export class TradeRequestScheduler {
       } catch (error) {
         if (!(error instanceof RateLimitError)) throw error;
         this.publish();
-        await this.wait(error.retryAfterSec * 1_000, signal);
+        await this.wait(Math.min(1_000, error.retryAfterSec * 1_000), signal);
       }
     }
   }
@@ -160,7 +161,9 @@ export class TradeRequestScheduler {
   }
 }
 
-export const sharedTradeRequestScheduler = new TradeRequestScheduler();
+export const sharedTradeRequestScheduler = new TradeRequestScheduler({
+  limiter: sharedTradeRateLimiter,
+});
 
 export function resolveTradeRequestScheduler(
   scheduler: TradeRequestScheduler | undefined,

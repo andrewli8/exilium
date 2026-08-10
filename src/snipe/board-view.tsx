@@ -56,7 +56,7 @@ export function SnipeBoardView({ store, onTravel, active = true, embedded = fals
       }
       store.dispatch({ type: 'open-detail', minMarginPct: snapshot.floor });
     }
-    else if (key.escape && snapshot.queue.view === 'detail') store.dispatch({ type: 'board' });
+    else if ((key.escape || (key.tab && key.shift)) && snapshot.queue.view === 'detail') store.dispatch({ type: 'board' });
     else if (input.toLowerCase() === 'u') store.dispatch({ type: 'toggle-hidden', minMarginPct: snapshot.floor });
     else if (input.toLowerCase() === 'f') setFloorInput('');
     else if (key.return) {
@@ -74,9 +74,12 @@ export function SnipeBoardView({ store, onTravel, active = true, embedded = fals
 
   const states = new Map(snapshot.searches.map((search) => [search.target.key, search]));
   const seeding = snapshot.searches.some((search) => search.state === 'seeding' || search.state === 'cooldown' || search.state === 'rate-limited');
-  const headerStatus = seeding
+  const limiterStatus = snapshot.status !== null && /^(?:COOLDOWN|RATE LIMITED)\b/.test(snapshot.status)
+    ? snapshot.status
+    : null;
+  const headerStatus = limiterStatus ?? (seeding
     ? `SEEDING ${snapshot.progress.seeded}/${snapshot.progress.total}`
-    : `${snapshot.searches.filter((search) => search.state === 'live').length} LIVE`;
+    : `${snapshot.searches.filter((search) => search.state === 'live').length} LIVE`);
   const selectedEntry = snapshot.queue.view === 'detail'
     ? selected?.entries.find((entry) => entry.alert.listingId === snapshot.queue.selectedListingId) ?? selected?.best
     : selected?.best;

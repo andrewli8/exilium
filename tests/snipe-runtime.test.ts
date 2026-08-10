@@ -18,6 +18,28 @@ const ALERT: SnipeAlert = {
 const FLAGS: SnipeFlags = { folder: undefined, league: undefined, keepLeague: false, minMargin: undefined, all: true, searches: [] };
 
 describe('startSnipeRuntime', () => {
+  test('suppresses duplicate Enter while travel is in flight', async () => {
+    const store = new SnipeStore([TARGET]);
+    let resolve!: (result: { action: 'traveled'; detail: string }) => void;
+    const pending = new Promise<{ action: 'traveled'; detail: string }>((done) => { resolve = done; });
+    const travel = vi.fn(() => pending);
+    const run = async (_flags: SnipeFlags, deps: SnipeDeps): Promise<void> => {
+      const view = deps.makeConsole!({ onTravel: travel });
+      view.addAlert(ALERT);
+      await view.waitUntilExit();
+    };
+    const runtime = await startSnipeRuntime({ flags: FLAGS, store }, { run });
+
+    const first = runtime.travel(ALERT.listingId);
+    const second = await runtime.travel(ALERT.listingId);
+    expect(second).toMatchObject({ action: 'failed', detail: expect.stringMatching(/already/i) });
+    expect(travel).toHaveBeenCalledTimes(1);
+
+    resolve({ action: 'traveled', detail: 'clicked' });
+    await first;
+    await runtime.stop();
+  });
+
   test('gone removes the best candidate and promotes the backup without auto-travel', async () => {
     const store = new SnipeStore([TARGET], { minMarginPct: 20 });
     const gone = vi.fn(async () => ({ action: 'gone' as const, detail: 'listing sold' }));

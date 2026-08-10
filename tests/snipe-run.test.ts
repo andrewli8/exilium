@@ -12,6 +12,8 @@ import type { SnipeAlert } from '../src/snipe/engine.js';
 import { runSnipe, snipeStartupMessages, type OpenSnipeSocket, type SnipeDeps, type SnipeFlags } from '../src/snipe/run.js';
 import type { LiveListing, TradeSearch } from '../src/trade/live-search.js';
 import { RateLimitError } from '../src/trade/rate-limit.js';
+import { TradeRateLimiter } from '../src/trade/rate-limit.js';
+import { TradeRequestScheduler } from '../src/trade/request-scheduler.js';
 
 const NOW = Date.parse('2026-08-09T12:00:00Z');
 const SNAPSHOTS: readonly MarketSnapshot[] = [{
@@ -88,6 +90,7 @@ function makeHarness(options: {
   readonly seedIds?: readonly string[];
   readonly manifest?: SnipeManifest;
   readonly store?: SnipeStore;
+  readonly scheduler?: TradeRequestScheduler;
 } = {}) {
   const folder = mkdtempSync(join(tmpdir(), 'exilium-run-'));
   if (options.emptyFolder !== true) {
@@ -124,6 +127,7 @@ function makeHarness(options: {
   const notify = vi.fn().mockResolvedValue(undefined);
   const seedCalls: string[] = [];
   const records: Array<{ listingId: string; action: string; detail: string }> = [];
+  const events: string[] = [];
 
   const openSocket: OpenSnipeSocket = (search) => {
     const socket = new FakeSocket();
@@ -138,7 +142,7 @@ function makeHarness(options: {
   const deps: SnipeDeps = {
     config,
     repo: { latestAll: () => SNAPSHOTS } as SnipeDeps['repo'],
-    out: () => undefined,
+    out: (message) => events.push(`out:${message}`),
     log: () => undefined,
     isTTY: options.emptyFolder === true,
     ...(options.promptImport === undefined ? {} : { promptImport: options.promptImport }),
@@ -155,6 +159,7 @@ function makeHarness(options: {
     connectStaggerMs: 0,
     fetchLeagues: async () => ['Standard', 'Allflame'],
     makeConsole: (options) => {
+      events.push('console');
       consoleOptions = options;
       consoleReady.resolve();
       return {
@@ -175,6 +180,7 @@ function makeHarness(options: {
       };
     },
     ...(options.store === undefined ? {} : { store: options.store }),
+    ...(options.scheduler === undefined ? {} : { scheduler: options.scheduler }),
   };
 
   return {
@@ -188,6 +194,7 @@ function makeHarness(options: {
     notify,
     seedCalls,
     records,
+    events,
     get consoleOptions() { return consoleOptions; },
     get consoleCloseCalls() { return consoleCloseCalls; },
     get controllerCloseCalls() { return controllerCloseCalls; },
@@ -238,6 +245,27 @@ describe('runSnipe orchestration', () => {
     harness.exit();
     await running;
   });
+  test('publishes shared trade cooldown health into the snipe store', async () => {
+    const limiter = new TradeRateLimiter(() => 0);
+    limiter.observe(new Response('{}', { status: 200, headers: {
+      'X-Rate-Limit-Rules': 'Ip',
+      'X-Rate-Limit-Ip': '1:5:60',
+      'X-Rate-Limit-Ip-State': '1:5:0',
+    } }));
+    const scheduler = new TradeRequestScheduler({ limiter, wait: async () => undefined });
+    const target: CatalogEntry = {
+      key: 'trade:aaa', label: 'Currency', realm: 'trade', searchId: 'aaa', league: null, enabled: true, source: 'Better Trading',
+    };
+    const store = new SnipeStore([target]);
+    const harness = makeHarness({ store, scheduler });
+
+    const running = runSnipe(FLAGS, harness.deps);
+    await harness.consoleReady;
+
+    expect(store.snapshot().status).toBe('COOLDOWN 5s');
+    harness.exit();
+    await running;
+  });
   test('runtime excludes disabled imports and includes enabled managed targets', async () => {
     const harness = makeHarness({
       manifest: {
@@ -259,6 +287,20 @@ describe('runSnipe orchestration', () => {
       'Monitoring is headless. Current results seed quietly; new live hits notify.',
       'Chrome is only needed after you press Enter to travel; no whisper is sent or copied.',
     ]);
+  });
+
+  test('prints startup guidance before rendering and keeps socket status inside Ink', async () => {
+    const harness = makeHarness();
+    const running = runSnipe(FLAGS, harness.deps);
+    await harness.started;
+
+    const consoleIndex = harness.events.indexOf('console');
+    expect(consoleIndex).toBeGreaterThan(0);
+    expect(harness.events.slice(0, consoleIndex).every((event) => event.startsWith('out:'))).toBe(true);
+    expect(harness.events.slice(consoleIndex + 1)).toEqual([]);
+
+    harness.exit();
+    await running;
   });
 
   test('starts monitoring headlessly and creates Chrome only after Enter', async () => {

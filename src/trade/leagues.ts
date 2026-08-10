@@ -1,5 +1,9 @@
 import { z } from 'zod';
 import type { Game } from '../domain/types.js';
+import {
+  sharedTradeRequestScheduler,
+  type TradeRequestScheduler,
+} from './request-scheduler.js';
 
 /** Fetch the leagues the pathofexile.com trade search currently accepts.
  *
@@ -13,16 +17,26 @@ import type { Game } from '../domain/types.js';
 
 export type LeagueFetch = (url: string, init: { headers: Record<string, string> }) => Promise<Response>;
 
+export interface FetchTradeLeaguesOptions {
+  readonly scheduler?: TradeRequestScheduler;
+  readonly signal?: AbortSignal;
+}
+
 const schema = z.object({
   result: z.array(z.object({ id: z.string(), realm: z.string().optional() })),
 });
 
-export async function fetchTradeLeagues(game: Game, fetchFn: LeagueFetch): Promise<readonly string[]> {
+export async function fetchTradeLeagues(
+  game: Game,
+  fetchFn: LeagueFetch,
+  options: FetchTradeLeaguesOptions = {},
+): Promise<readonly string[]> {
   const api = game === 'poe2' ? 'trade2' : 'trade';
   const url = `https://www.pathofexile.com/api/${api}/data/leagues`;
-  const res = await fetchFn(url, {
+  const scheduler = options.scheduler ?? sharedTradeRequestScheduler;
+  const res = await scheduler.schedule('interactive', () => fetchFn(url, {
     headers: { 'User-Agent': 'Exilium/0.1.0 (+https://github.com/andrewli8/exilium)' },
-  });
+  }), options.signal);
   if (!res.ok) throw new Error(`could not fetch trade leagues (${res.status})`);
   const parsed = schema.safeParse(await res.json());
   if (!parsed.success) throw new Error('trade leagues response did not match the expected shape');

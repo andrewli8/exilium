@@ -538,7 +538,13 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
       return;
     }
     if (view === 'watches' && key.tab) {
+      if (watchesView === 'snipes' && key.shift && snipe?.store.snapshot().queue.view === 'detail') return;
       setWatchesView((current) => current === 'price-alerts' ? 'snipes' : 'price-alerts');
+      return;
+    }
+    if (view === 'watches' && watchesView === 'snipes' && key.escape) {
+      if (snipe?.store.snapshot().queue.view === 'detail') return;
+      setWatchesView('price-alerts');
       return;
     }
     if (view === 'watches' && input.toLowerCase() === 'c' && snipe !== undefined) {

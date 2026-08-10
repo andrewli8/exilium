@@ -17,7 +17,7 @@ import { JournalRepository } from './storage/journal-repository.js';
 import { OpportunityLogRepository } from './storage/opportunity-log-repository.js';
 import { OUTCOMES } from './storage/journal-repository.js';
 import type { Outcome } from './storage/journal-repository.js';
-import { readFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { runBacktest } from './backtest/backtest.js';
 import { buildSellSheet, parseCounts } from './trade/sellsheet.js';
 import { buildLiveWsUrl, handleNewListings, parseTradeUrl } from './trade/live-search.js';
@@ -39,6 +39,17 @@ import { readFileSync as readFileSyncForConfig, writeFileSync, chmodSync, statSy
 import { isPermissionSafe } from './config.js';
 const configPath = configFilePath(process.env);
 const fileConfig = readFileConfig(configPath, (p) => readFileSyncForConfig(p, 'utf8'));
+const snipeRuntimeLogDir = joinPath(homedirForStats(), '.exilium');
+const snipeRuntimeLogPath = joinPath(snipeRuntimeLogDir, 'snipe-runtime.log');
+
+function logSnipeRuntime(message: string): void {
+  try {
+    mkdirSync(snipeRuntimeLogDir, { recursive: true });
+    appendFileSync(snipeRuntimeLogPath, `${new Date().toISOString()} ${message}\n`);
+  } catch (error) {
+    console.error(`Could not write ${snipeRuntimeLogPath}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
 // A config file holding a session cookie must never be group/other readable.
 // If it drifted (copied, restored from backup), fix it and say so.
 if (fileConfig.poesessid !== undefined && process.platform !== 'win32') {
@@ -408,7 +419,7 @@ async function cmdTui(): Promise<void> {
               config,
               repo,
               out: () => undefined,
-              log: (message) => console.error(message),
+              log: logSnipeRuntime,
               isTTY: false,
             },
           });
@@ -710,7 +721,7 @@ async function cmdSnipe(): Promise<void> {
       config,
       repo,
       out: (m) => console.log(m),
-      log: (m) => console.error(m),
+      log: logSnipeRuntime,
     },
   );
 }

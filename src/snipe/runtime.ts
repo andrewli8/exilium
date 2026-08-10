@@ -1,6 +1,6 @@
 import type { SnipeAlert } from './engine.js';
 import { runSnipe, type SnipeDeps, type SnipeFlags } from './run.js';
-import type { SnipeConsoleOptions } from './console.js';
+import { travelStoreListing, type SnipeConsoleOptions } from './console.js';
 import type { SnipeStore } from './store.js';
 import type { TravelResult } from './travel.js';
 
@@ -56,24 +56,7 @@ export async function startSnipeRuntime(
   return {
     store: options.store,
     async travel(listingId) {
-      const entry = options.store.snapshot().queue.entries.find((candidate) => candidate.alert.listingId === listingId);
-      if (entry === undefined) return { action: 'gone', detail: 'listing is no longer in the queue' };
-      options.store.dispatch({ type: 'travel-start', listingId });
-      try {
-        const result = await consoleOptions!.onTravel(entry.alert);
-        if (result.action === 'traveled') {
-          options.store.dispatch({ type: 'travel-success', listingId, detail: result.detail });
-        } else if (result.action === 'gone') {
-          options.store.dispatch({ type: 'remove-gone', listingId });
-        } else {
-          options.store.dispatch({ type: 'travel-failure', listingId, detail: result.technicalDetail ?? result.detail });
-        }
-        return result;
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
-        options.store.dispatch({ type: 'travel-failure', listingId, detail });
-        return { action: 'failed', detail, technicalDetail: detail };
-      }
+      return travelStoreListing(options.store, listingId, consoleOptions!.onTravel);
     },
     async stop() {
       if (!stopped) {

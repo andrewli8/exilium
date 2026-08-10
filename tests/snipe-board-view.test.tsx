@@ -57,4 +57,12 @@ describe('SnipeBoardView', () => {
     expect(ui.lastFrame()).toContain('Chrome unavailable — run exilium chrome, then press Enter again');
     expect(ui.lastFrame()).not.toContain('Call log:');
   });
+
+  test('shows scheduler cooldown in the board header', () => {
+    const store = new SnipeStore([target('one')]);
+    store.setStatus('COOLDOWN 4s');
+    const ui = render(<SnipeBoardView store={store} onTravel={async () => ({ action: 'failed', detail: 'unused' })} />);
+    expect(ui.lastFrame()).toContain('COOLDOWN 4s');
+    expect(ui.lastFrame()).not.toContain('SEEDING 0/1');
+  });
 });

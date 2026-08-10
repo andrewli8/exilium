@@ -127,7 +127,7 @@ describe('fetchCurrentResultIds', () => {
 
     await expect(fetchCurrentResultIds(poe1, 'S', { fetchFn, limiter, scheduler }))
       .resolves.toEqual(['ready']);
-    expect(waits).toEqual([5_000]);
+    expect(waits).toEqual([1_000, 1_000, 1_000, 1_000, 1_000]);
   });
 });
 

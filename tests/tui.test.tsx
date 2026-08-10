@@ -10,6 +10,7 @@ import type { MarketSnapshot } from '../src/domain/types.js';
 import type { CatalogEntry } from '../src/snipe/catalog.js';
 import { SnipeStore } from '../src/snipe/store.js';
 import type { SnipeWorkspaceAdapter } from '../src/tui/app.js';
+import type { SnipeAlert } from '../src/snipe/engine.js';
 
 const SNAP: MarketSnapshot = {
   game: 'poe1',
@@ -122,6 +123,16 @@ function snipeWorkspace(): SnipeWorkspaceAdapter {
   };
 }
 
+function snipeAlert(): SnipeAlert {
+  return {
+    targetId: 'trade:one', targetLabel: 'Sublime Vision', source: 'live', listingId: 'listing-one',
+    itemName: 'Valdo Map', priceText: '10 divine', seller: 'seller', listedAt: new Date().toISOString(),
+    searchUrl: 'https://www.pathofexile.com/trade/search/Allflame/one', listedChaos: 1_000,
+    marginChaos: 300, marginPct: 30, marginText: '+300c (+30%)', freshnessText: 'ref just now',
+    stale: false, unknownMargin: false, minMarginPct: 20, qualifiesMargin: true,
+  };
+}
+
 describe('ExiliumTui', () => {
   test('tab 4 switches between PRICE ALERTS and persistent SNIPES rows', async () => {
     const ui = render(<ExiliumTui service={makeService()} {...PROPS} snipe={snipeWorkspace()} />);
@@ -133,6 +144,9 @@ describe('ExiliumTui', () => {
     expect(ui.lastFrame()).toContain('SNIPES');
     expect(ui.lastFrame()).toContain('Sublime Vision');
     expect(ui.lastFrame()).toContain('Mageblood');
+    ui.stdin.write('\u001b');
+    await flush();
+    expect(ui.lastFrame()).toContain('[PRICE ALERTS]');
   });
 
   test('c opens snipe configuration only inside WATCHES', async () => {
@@ -147,6 +161,34 @@ describe('ExiliumTui', () => {
     ui.stdin.write('c');
     await flush();
     expect(ui.lastFrame()).toContain('CONFIGURE SNIPES');
+  });
+  test('Escape unwinds snipe detail before returning to Price Alerts', async () => {
+    const workspace = snipeWorkspace();
+    workspace.store.ingest(snipeAlert());
+    const ui = render(<ExiliumTui service={makeService()} {...PROPS} snipe={workspace} />);
+    ui.stdin.write('4');
+    await flush();
+    ui.stdin.write('\t');
+    await flush();
+    ui.stdin.write('\u001b[13;2u');
+    await flush();
+    expect(ui.lastFrame()).toContain('Enter travel · Esc board');
+
+    ui.stdin.write('\u001b');
+    await flush();
+    expect(ui.lastFrame()).toContain('[SNIPES]');
+    expect(ui.lastFrame()).toContain('BEST');
+
+    ui.stdin.write('\u001b[13;2u');
+    await flush();
+    ui.stdin.write('\u001b[Z');
+    await flush();
+    expect(ui.lastFrame()).toContain('[SNIPES]');
+    expect(ui.lastFrame()).toContain('BEST');
+
+    ui.stdin.write('\u001b');
+    await flush();
+    expect(ui.lastFrame()).toContain('[PRICE ALERTS]');
   });
   test('renders header with league, primary currency, and the movers view by default', () => {
     const { lastFrame } = render(<ExiliumTui service={makeService()} {...PROPS} />);

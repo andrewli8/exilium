@@ -301,6 +301,30 @@ export interface SnipeConsoleHandle {
   close(): void;
 }
 
+export async function travelStoreListing(
+  store: SnipeStore,
+  listingId: string,
+  travel: (alert: SnipeAlert) => Promise<TravelResult>,
+): Promise<TravelResult> {
+  const entry = store.snapshot().queue.entries.find((candidate) => candidate.alert.listingId === listingId);
+  if (entry === undefined) return { action: 'gone', detail: 'listing is no longer in the queue' };
+  if (entry.status !== 'new' && entry.status !== 'failed') {
+    return { action: 'failed', detail: 'travel is already in progress or complete' };
+  }
+  store.dispatch({ type: 'travel-start', listingId });
+  try {
+    const result = await travel(entry.alert);
+    if (result.action === 'traveled') store.dispatch({ type: 'travel-success', listingId, detail: result.detail });
+    else if (result.action === 'gone') store.dispatch({ type: 'remove-gone', listingId });
+    else store.dispatch({ type: 'travel-failure', listingId, detail: result.technicalDetail ?? result.detail });
+    return result;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    store.dispatch({ type: 'travel-failure', listingId, detail });
+    return { action: 'failed', detail, technicalDetail: detail };
+  }
+}
+
 export function renderSnipeConsole(
   options: SnipeConsoleOptions,
   renderOptions?: RenderOptions,
@@ -310,12 +334,7 @@ export function renderSnipeConsole(
     const instance = render(
       <SnipeBoardView
         store={store}
-        onTravel={async (listingId) => {
-          const entry = store.snapshot().queue.entries.find((candidate) => candidate.alert.listingId === listingId);
-          return entry === undefined
-            ? { action: 'gone', detail: 'listing is no longer in the queue' }
-            : options.onTravel(entry.alert);
-        }}
+        onTravel={(listingId) => travelStoreListing(store, listingId, options.onTravel)}
         {...(options.onExit === undefined ? {} : { onExit: options.onExit })}
       />,
       renderOptions,

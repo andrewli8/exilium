@@ -41,7 +41,7 @@ describe('fetchAllStashItems', () => {
 
     await expect(fetchAllStashItems('acct', 'Mirage', 'S', { fetchFn, delayMs: 0, limiter, scheduler }))
       .resolves.toEqual([]);
-    expect(waits).toEqual([2_000]);
+    expect(waits).toEqual([1_000, 1_000]);
   });
   test('walks every tab and aggregates stackable items', async () => {
     const tab = (items: unknown[]) => new Response(JSON.stringify({ numTabs: 2, items }), { status: 200 });

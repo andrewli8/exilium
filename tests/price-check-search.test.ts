@@ -53,7 +53,7 @@ describe('searchListings', () => {
 
     await expect(searchListings(payload, 'poe1', 'Standard', 10, { fetchFn, sessionId: 'OK', limiter, scheduler }))
       .resolves.toEqual([]);
-    expect(waits).toEqual([3_000]);
+    expect(waits).toEqual([1_000, 1_000, 1_000]);
   });
 
   test('a 429 from the API surfaces as a RateLimitError and records the cooldown', async () => {

@@ -1,4 +1,8 @@
 import type { ItemMod, ModKind } from './parse-item.js';
+import {
+  sharedTradeRequestScheduler,
+  type TradeRequestScheduler,
+} from './request-scheduler.js';
 
 /** GGG's trade stats dataset maps mod text (numbers shown as "#") to the stat
  * ids the trade API filters on. We index it, then match a parsed mod line by
@@ -69,6 +73,7 @@ export async function loadStatIndex(
   cachePath: string,
   fetchFn: (url: string, init: { headers: Record<string, string> }) => Promise<Response>,
   nowMs: number,
+  options: { readonly scheduler?: TradeRequestScheduler; readonly signal?: AbortSignal } = {},
 ): Promise<StatIndex> {
   let cached: { fetchedAt: number; raw: unknown } | null = null;
   try {
@@ -81,9 +86,10 @@ export async function loadStatIndex(
   }
   const api = game === 'poe2' ? 'trade2' : 'trade';
   try {
-    const res = await fetchFn(`https://www.pathofexile.com/api/${api}/data/stats`, {
+    const scheduler = options.scheduler ?? sharedTradeRequestScheduler;
+    const res = await scheduler.schedule('interactive', () => fetchFn(`https://www.pathofexile.com/api/${api}/data/stats`, {
       headers: { 'User-Agent': 'Exilium/0.1.0 (+https://github.com/andrewli8/exilium)' },
-    });
+    }), options.signal);
     if (!res.ok) throw new Error(String(res.status));
     const raw = await res.json();
     try {
