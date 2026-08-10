@@ -40,6 +40,88 @@ export function buildFetchUrl(ids: readonly string[], searchId: string, realm: T
   return `https://www.pathofexile.com/api/${api}/fetch/${ids.join(',')}?query=${searchId}`;
 }
 
+function tradeSearchApiBase(search: TradeSearch): string {
+  const api = search.realm === 'trade2' ? 'trade2' : 'trade';
+  return `https://www.pathofexile.com/api/${api}/search/${encodeURIComponent(search.league)}`;
+}
+
+const savedSearchSchema = z.object({
+  query: z.record(z.string(), z.unknown()),
+});
+
+const searchResultSchema = z.object({
+  result: z.array(z.string()),
+});
+
+export interface CurrentResultDeps {
+  readonly fetchFn: (url: string, init: {
+    readonly method?: string;
+    readonly headers: Record<string, string>;
+    readonly body?: string;
+    readonly signal?: AbortSignal;
+  }) => Promise<Response>;
+  readonly limiter?: TradeRateLimiter;
+  readonly signal?: AbortSignal;
+}
+
+function checkTradeResponse(res: Response, limiter: TradeRateLimiter): void {
+  limiter.observe(res);
+  if (res.status === 401 || res.status === 403) {
+    throw new Error('pathofexile.com rejected the session — your POESESSID is missing or expired. Log into the trade site and update it with `exilium setup`.');
+  }
+  if (res.status === 429) throw new RateLimitError(limiter.health().cooldownRemainingSec || 60);
+  if (!res.ok) throw new Error(`trade search request failed (${res.status})`);
+}
+
+/** Resolve the current result ids for one saved trade search. This is a
+ * startup seed, not a replacement for the live WebSocket: the first request
+ * loads the saved query and the second executes it sorted newest-first. */
+export async function fetchCurrentResultIds(
+  search: TradeSearch,
+  sessionId: string,
+  deps: CurrentResultDeps,
+): Promise<readonly string[]> {
+  const limiter = deps.limiter ?? sharedTradeRateLimiter;
+  const headers = {
+    Cookie: `POESESSID=${sessionId}`,
+    'User-Agent': 'Exilium/0.1.0 (+https://github.com/andrewli8/exilium)',
+  };
+  const base = tradeSearchApiBase(search);
+
+  limiter.gate();
+  const savedResponse = await deps.fetchFn(`${base}/${search.searchId}`, {
+    headers,
+    ...(deps.signal === undefined ? {} : { signal: deps.signal }),
+  });
+  checkTradeResponse(savedResponse, limiter);
+  let savedJson: unknown;
+  try {
+    savedJson = await savedResponse.json();
+  } catch {
+    throw new Error('saved search response was not valid JSON');
+  }
+  const saved = savedSearchSchema.safeParse(savedJson);
+  if (!saved.success) throw new Error('saved search response did not contain a query');
+
+  limiter.gate();
+  const searchResponse = await deps.fetchFn(base, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query: saved.data.query, sort: { indexed: 'desc' } }),
+    ...(deps.signal === undefined ? {} : { signal: deps.signal }),
+  });
+  checkTradeResponse(searchResponse, limiter);
+  let resultJson: unknown;
+  try {
+    resultJson = await searchResponse.json();
+  } catch {
+    throw new Error('trade search result was not valid JSON');
+  }
+  const result = searchResultSchema.safeParse(resultJson);
+  if (!result.success) throw new Error('trade search response did not contain result ids');
+  return result.data.result;
+}
+
 const fetchResponseSchema = z.object({
   result: z.array(
     z.object({

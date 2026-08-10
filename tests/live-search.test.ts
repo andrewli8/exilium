@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest';
-import { buildFetchUrl, buildLiveWsUrl, fetchListings, handleNewListings, parseTradeUrl } from '../src/trade/live-search.js';
+import { buildFetchUrl, buildLiveWsUrl, fetchCurrentResultIds, fetchListings, handleNewListings, parseTradeUrl } from '../src/trade/live-search.js';
 import { TradeRateLimiter } from '../src/trade/rate-limit.js';
 
 describe('parseTradeUrl', () => {
@@ -39,6 +39,79 @@ describe('URL builders', () => {
 
   test('trade2 fetch URL hits the trade2 API', () => {
     expect(buildFetchUrl(['a'], 'abc', 'trade2')).toBe('https://www.pathofexile.com/api/trade2/fetch/a?query=abc');
+  });
+});
+
+describe('fetchCurrentResultIds', () => {
+  const poe1 = { realm: 'trade' as const, league: 'Allflame', searchId: 'saved123' };
+
+  test('loads a saved query and submits it sorted by newest listing', async () => {
+    const query = { status: { option: 'online' }, stats: [] };
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'saved123', query }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'fresh', result: ['one', 'two'], total: 2 }), { status: 200 }));
+
+    await expect(fetchCurrentResultIds(poe1, 'SECRET', { fetchFn, limiter: new TradeRateLimiter() }))
+      .resolves.toEqual(['one', 'two']);
+
+    expect(fetchFn).toHaveBeenNthCalledWith(1,
+      'https://www.pathofexile.com/api/trade/search/Allflame/saved123',
+      expect.objectContaining({ headers: expect.objectContaining({ Cookie: 'POESESSID=SECRET' }) }),
+    );
+    expect(fetchFn).toHaveBeenNthCalledWith(2,
+      'https://www.pathofexile.com/api/trade/search/Allflame',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ query, sort: { indexed: 'desc' } }),
+      }),
+    );
+  });
+
+  test('uses the trade2 saved-query and search endpoints', async () => {
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ query: { stats: [] } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: [] }), { status: 200 }));
+    await fetchCurrentResultIds(
+      { realm: 'trade2', league: 'Runes of Aldur', searchId: 'poe2saved' },
+      'S',
+      { fetchFn, limiter: new TradeRateLimiter() },
+    );
+    expect(String(fetchFn.mock.calls[0]![0])).toContain('/api/trade2/search/Runes%20of%20Aldur/poe2saved');
+    expect(String(fetchFn.mock.calls[1]![0])).toContain('/api/trade2/search/Runes%20of%20Aldur');
+  });
+
+  test('explains authentication and malformed saved-search responses', async () => {
+    const denied = vi.fn().mockResolvedValue(new Response('denied', { status: 403 }));
+    await expect(fetchCurrentResultIds(poe1, 'BAD', { fetchFn: denied, limiter: new TradeRateLimiter() }))
+      .rejects.toThrow(/POESESSID|session/i);
+
+    const malformed = vi.fn().mockResolvedValue(new Response(JSON.stringify({ nope: true }), { status: 200 }));
+    await expect(fetchCurrentResultIds(poe1, 'S', { fetchFn: malformed, limiter: new TradeRateLimiter() }))
+      .rejects.toThrow(/saved search/i);
+  });
+
+  test('observes rate headers between requests and surfaces 429 responses', async () => {
+    const limiter = new TradeRateLimiter(() => 0);
+    const fullBucket = vi.fn().mockResolvedValue(new Response(JSON.stringify({ query: { stats: [] } }), {
+      status: 200,
+      headers: {
+        'X-Rate-Limit-Rules': 'Account',
+        'X-Rate-Limit-Account': '1:5:60',
+        'X-Rate-Limit-Account-State': '1:5:0',
+      },
+    }));
+    await expect(fetchCurrentResultIds(poe1, 'S', { fetchFn: fullBucket, limiter }))
+      .rejects.toThrow(/backing off|limit/i);
+    expect(fullBucket).toHaveBeenCalledTimes(1);
+
+    const rateLimited = vi.fn().mockResolvedValue(new Response('slow down', {
+      status: 429,
+      headers: { 'Retry-After': '7' },
+    }));
+    await expect(fetchCurrentResultIds(poe1, 'S', { fetchFn: rateLimited, limiter: new TradeRateLimiter(() => 0) }))
+      .rejects.toThrow(/limit/i);
   });
 });
 
