@@ -337,15 +337,31 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
   };
 
   const liveTabs = new Map<string, BrowserLiveSearchHandle>();
+  // The user closing the travel tab (or Chrome restarting) kills the cached
+  // CDP page; every later Enter would fail with "connection is closed".
+  // Detect that and rebuild once on the same keypress.
+  const closedPagePattern = /connection is closed|connection closed|Target closed|Session closed|controller is closed/i;
+  const staleTravel = (result: TravelResult): boolean =>
+    result.action === 'failed' && closedPagePattern.test(result.technicalDetail ?? result.detail);
   const onTravel = async (alert: SnipeAlert): Promise<TravelResult> => {
     const liveTab = liveTabs.get(alert.targetId);
     if (liveTab !== undefined) {
       const result = await travelSelectedAlert(alert, liveTabTravelPage(liveTab.page, alert.searchUrl));
-      recordWebhook(alert, result.action, result.detail, result.technicalDetail ?? result.detail);
-      return result;
+      if (!staleTravel(result)) {
+        recordWebhook(alert, result.action, result.detail, result.technicalDetail ?? result.detail);
+        return result;
+      }
+      liveTabs.delete(alert.targetId);
+      log(`browser-live tab for ${alert.targetLabel} is gone — traveling via a fresh tab`);
     }
     try {
-      const result = await (await ensureController()).travel(alert);
+      let result = await (await ensureController()).travel(alert);
+      if (staleTravel(result)) {
+        const stale = controllerPromise;
+        controllerPromise = undefined;
+        if (stale !== undefined) void stale.then((controller) => controller.close()).catch(() => undefined);
+        result = await (await ensureController()).travel(alert);
+      }
       recordWebhook(alert, result.action, result.detail, result.technicalDetail ?? result.detail);
       return result;
     } catch (error) {

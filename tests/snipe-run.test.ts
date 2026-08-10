@@ -557,6 +557,39 @@ describe('runSnipe orchestration', () => {
   });
 });
 
+describe('runSnipe travel recovery', () => {
+  test('a dead cached travel tab is replaced with a fresh one on the same Enter', async () => {
+    const harness = makeHarness();
+    let controllers = 0;
+    const travels: string[] = [];
+    const running = runSnipe(FLAGS, {
+      ...harness.deps,
+      makeTravelController: async () => {
+        controllers += 1;
+        const stale = controllers === 1;
+        return {
+          openSearch: async () => undefined,
+          travel: async (alert) => {
+            travels.push(`${controllers}:${alert.listingId}`);
+            return stale
+              ? { action: 'failed', detail: 'Chrome CDP page connection is closed' }
+              : { action: 'traveled', detail: `clicked Travel to Hideout for ${alert.itemName}` };
+          },
+          close: async () => undefined,
+        };
+      },
+    });
+    await harness.started;
+    await harness.emitListing();
+    const result = await harness.pressTravel();
+    expect(result.action).toBe('traveled');
+    expect(controllers).toBe(2);
+    expect(travels).toEqual(['1:listing-1', '2:listing-1']);
+    harness.exit();
+    await running;
+  });
+});
+
 describe('runSnipe browser-live mode', () => {
   function browserLiveHarness() {
     const target: CatalogEntry = {

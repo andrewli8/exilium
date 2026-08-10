@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest';
-import { buildFetchUrl, buildLiveWsUrl, fetchCurrentResultIds, fetchListings, handleNewListings, parseTradeUrl } from '../src/trade/live-search.js';
+import { buildFetchUrl, buildLiveWsUrl, fetchCurrentResultIds, fetchListings, handleNewListings, parseFetchResponseBody, parseTradeUrl } from '../src/trade/live-search.js';
 import { TradeRateLimiter } from '../src/trade/rate-limit.js';
 import { TradeRequestScheduler } from '../src/trade/request-scheduler.js';
 
@@ -193,6 +193,38 @@ describe('fetchListings', () => {
     await expect(fetchListings(['x'], search, 'S', { fetchFn: boom, limiter: limiter() })).rejects.toThrow(/500/);
     const weird = vi.fn().mockResolvedValue(new Response(JSON.stringify({ nope: [] }), { status: 200 }));
     await expect(fetchListings(['x'], search, 'S', { fetchFn: weird, limiter: limiter() })).rejects.toThrow(/shape/i);
+  });
+});
+
+describe('parseFetchResponseBody Valdo rewards', () => {
+  const valdoResult = (extra: Record<string, unknown>) => ({
+    result: [{
+      id: 'valdo-1',
+      listing: { price: { amount: 42, currency: 'divine' }, account: { name: 'Seller' } },
+      item: { name: 'Squandered Highlands', typeLine: 'Valdo Map', ...extra },
+    }],
+  });
+
+  test('surfaces the Reward line as the item and reference name', () => {
+    const [listing] = parseFetchResponseBody(valdoResult({
+      explicitMods: ['Area is influenced by something', 'Reward: Mageblood (Foil)'],
+    }));
+    expect(listing?.itemName).toBe('Mageblood (Foil)');
+    expect(listing?.referenceName).toBe('Mageblood (Foil)');
+  });
+
+  test('reads a Reward property and strips a stack-count prefix for pricing', () => {
+    const [listing] = parseFetchResponseBody(valdoResult({
+      properties: [{ name: 'Reward', values: [['5x Divine Orb', 0]] }],
+    }));
+    expect(listing?.itemName).toBe('5x Divine Orb');
+    expect(listing?.referenceName).toBe('Divine Orb');
+  });
+
+  test('keeps the joined item name when no reward is present', () => {
+    const [listing] = parseFetchResponseBody(valdoResult({}));
+    expect(listing?.itemName).toBe('Squandered Highlands Valdo Map');
+    expect(listing?.referenceName).toBe('Squandered Highlands');
   });
 });
 

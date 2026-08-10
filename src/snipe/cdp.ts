@@ -196,18 +196,35 @@ function targetUrl(cdpUrl: string): string {
   return new URL('json/new?about%3Ablank', base).toString();
 }
 
+/** How long the in-page click script polls for the row before giving up.
+ * Must stay below the CDP command timeout (default 6s) with headroom. */
+const CLICK_POLL_DEADLINE_MS = 4_000;
+const CLICK_POLL_INTERVAL_MS = 250;
+
 function clickExpression(listingId: string): string {
-  return `(() => {
+  // The trade site is an SPA: the load event fires long before the result
+  // rows exist, so the click must wait for the row to stream in.
+  return `(async () => {
     const listingId = ${JSON.stringify(listingId)};
-    const row = Array.from(document.querySelectorAll('[data-id]'))
-      .find((element) => element.getAttribute('data-id') === listingId);
-    if (!row) return 'gone';
-    const direct = row.querySelector('button.direct-btn');
-    const button = direct || Array.from(row.querySelectorAll('button'))
-      .find((element) => element.textContent?.trim() === 'Travel to Hideout');
-    if (!(button instanceof HTMLButtonElement) || button.disabled) return 'unavailable';
-    button.click();
-    return 'clicked';
+    const deadline = Date.now() + ${CLICK_POLL_DEADLINE_MS};
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    for (;;) {
+      const row = Array.from(document.querySelectorAll('[data-id]'))
+        .find((element) => element.getAttribute('data-id') === listingId);
+      if (row) {
+        const direct = row.querySelector('button.direct-btn');
+        const button = direct || Array.from(row.querySelectorAll('button'))
+          .find((element) => element.textContent && element.textContent.trim() === 'Travel to Hideout');
+        if (button instanceof HTMLButtonElement && !button.disabled) {
+          button.click();
+          return 'clicked';
+        }
+        if (Date.now() >= deadline) return 'unavailable';
+      } else if (Date.now() >= deadline) {
+        return 'gone';
+      }
+      await sleep(${CLICK_POLL_INTERVAL_MS});
+    }
   })()`;
 }
 

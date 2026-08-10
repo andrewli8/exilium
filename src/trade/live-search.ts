@@ -136,10 +136,50 @@ const fetchResponseSchema = z.object({
         price: z.object({ amount: z.number(), currency: z.string() }).nullish(),
         account: z.object({ name: z.string().optional(), lastCharacterName: z.string().optional() }).optional(),
       }),
-      item: z.object({ name: z.string().optional(), typeLine: z.string().optional() }).optional(),
+      item: z.object({
+        name: z.string().optional(),
+        typeLine: z.string().optional(),
+        implicitMods: z.array(z.string()).optional(),
+        explicitMods: z.array(z.string()).optional(),
+        enchantMods: z.array(z.string()).optional(),
+        utilityMods: z.array(z.string()).optional(),
+        fracturedMods: z.array(z.string()).optional(),
+        properties: z.array(z.object({
+          name: z.string().optional(),
+          values: z.array(z.array(z.unknown())).optional(),
+        })).optional(),
+      }).optional(),
     }),
   ),
 });
+
+type FetchedItem = NonNullable<z.infer<typeof fetchResponseSchema>['result'][number]['item']>;
+
+const REWARD_LINE = /^Reward:\s*(.+?)\s*$/;
+const REWARD_STACK_PREFIX = /^\d+x\s+/i;
+
+/** Valdo's Puzzle Box maps carry their actual prize as a "Reward: …" line;
+ * that reward — not the map name — is what the listing is worth and what
+ * poe.ninja prices (foil uniques get a "(Foil)" variant suffix). */
+function extractReward(item: FetchedItem): string | null {
+  const modLines = [
+    ...item.implicitMods ?? [],
+    ...item.explicitMods ?? [],
+    ...item.enchantMods ?? [],
+    ...item.utilityMods ?? [],
+    ...item.fracturedMods ?? [],
+  ];
+  for (const line of modLines) {
+    const match = REWARD_LINE.exec(line);
+    if (match !== null) return match[1]!;
+  }
+  for (const property of item.properties ?? []) {
+    if (property.name?.trim() !== 'Reward') continue;
+    const value = property.values?.[0]?.[0];
+    if (typeof value === 'string' && value !== '') return value;
+  }
+  return null;
+}
 
 export interface LiveListing {
   readonly id: string;
@@ -210,12 +250,16 @@ export function parseFetchResponseBody(payload: unknown): readonly LiveListing[]
   const parsed = fetchResponseSchema.safeParse(payload);
   if (!parsed.success) throw new Error('trade fetch response did not match the expected shape');
   return parsed.data.result.map((r) => {
-    const name = [r.item?.name, r.item?.typeLine].filter((s) => s !== undefined && s !== '').join(' ') || r.id;
+    const reward = r.item === undefined ? null : extractReward(r.item);
+    const name = reward
+      ?? ([r.item?.name, r.item?.typeLine].filter((s) => s !== undefined && s !== '').join(' ') || r.id);
     const price = r.listing.price == null ? 'no price' : `${r.listing.price.amount} ${r.listing.price.currency}`;
     return {
       id: r.id,
       itemName: name,
-      referenceName: r.item?.name || r.item?.typeLine || r.id,
+      referenceName: reward !== null
+        ? reward.replace(REWARD_STACK_PREFIX, '')
+        : (r.item?.name || r.item?.typeLine || r.id),
       priceText: price,
       price: r.listing.price ?? null,
       listedAt: r.listing.indexed ?? null,

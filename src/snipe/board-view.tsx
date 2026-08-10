@@ -41,7 +41,7 @@ function rowText(row: ListingRow, now: number): string {
 }
 
 function shortFailure(detail: string): string {
-  if (/Could not attach|connectOverCDP|Browser\.setDownloadBehavior|Chrome unavailable/i.test(detail)) {
+  if (/Could not attach|connectOverCDP|Browser\.setDownloadBehavior|Chrome unavailable|connection is closed/i.test(detail)) {
     return 'Chrome unavailable — run exilium chrome, then press Enter again';
   }
   const firstLine = detail.split('\n', 1)[0]!.trim();
