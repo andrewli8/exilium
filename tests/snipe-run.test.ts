@@ -5,6 +5,8 @@ import { describe, expect, test, vi } from 'vitest';
 import { loadConfig } from '../src/config.js';
 import type { MarketSnapshot } from '../src/domain/types.js';
 import { saveSnipeManifest, type SnipeManifest } from '../src/snipe/catalog.js';
+import type { CatalogEntry } from '../src/snipe/catalog.js';
+import { SnipeStore } from '../src/snipe/store.js';
 import type { SnipeConsoleOptions } from '../src/snipe/console.js';
 import type { SnipeAlert } from '../src/snipe/engine.js';
 import { runSnipe, snipeStartupMessages, type OpenSnipeSocket, type SnipeDeps, type SnipeFlags } from '../src/snipe/run.js';
@@ -85,6 +87,7 @@ function makeHarness(options: {
   readonly snipeMinMargin?: number;
   readonly seedIds?: readonly string[];
   readonly manifest?: SnipeManifest;
+  readonly store?: SnipeStore;
 } = {}) {
   const folder = mkdtempSync(join(tmpdir(), 'exilium-run-'));
   if (options.emptyFolder !== true) {
@@ -171,6 +174,7 @@ function makeHarness(options: {
         close: async () => { controllerCloseCalls += 1; },
       };
     },
+    ...(options.store === undefined ? {} : { store: options.store }),
   };
 
   return {
@@ -210,6 +214,22 @@ function makeHarness(options: {
 }
 
 describe('runSnipe orchestration', () => {
+  test('publishes live connection and seed progress into a shared store', async () => {
+    const target: CatalogEntry = {
+      key: 'trade:aaa', label: 'Currency', realm: 'trade', searchId: 'aaa', league: null, enabled: true, source: 'Better Trading',
+    };
+    const store = new SnipeStore([target], { minMarginPct: 20 });
+    const harness = makeHarness({ store, seedIds: ['seed-one'] });
+    const running = runSnipe(FLAGS, harness.deps);
+    await harness.started;
+    await harness.waitForAlerts(1);
+
+    expect(store.snapshot().searches[0]?.state).toBe('live');
+    expect(store.snapshot().progress).toEqual({ seeded: 1, total: 1 });
+    expect(store.snapshot().queue.entries.map((entry) => entry.alert.listingId)).toEqual(['seed-one']);
+    harness.exit();
+    await running;
+  });
   test('runtime excludes disabled imports and includes enabled managed targets', async () => {
     const harness = makeHarness({
       manifest: {

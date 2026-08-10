@@ -33,6 +33,7 @@ import { assessMargin } from './margin.js';
 import { persistSnipeImport } from './import.js';
 import { resolveRequestedTargets } from './selection.js';
 import type { TravelResult } from './travel.js';
+import type { SnipeStore } from './store.js';
 import { buildSnipeWebhookPayload, postSnipeWebhook } from './webhook.js';
 
 export interface SnipeFlags {
@@ -90,6 +91,7 @@ export interface SnipeDeps {
   readonly connectStaggerMs?: number;
   readonly fetchLeagues?: FetchLeaguesFn;
   readonly shutdownTimeoutMs?: number;
+  readonly store?: SnipeStore;
 }
 
 export const MAX_SNIPE_SOCKETS = 20;
@@ -380,6 +382,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     seen: new Set<string>(),
     inFlight: new Set<string>(),
   }));
+  deps.store?.setProgress(0, runtimeTargets.length);
 
   const headers = {
     Cookie: `POESESSID=${sessionId}`,
@@ -424,6 +427,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
         }
         const alert = decision.alert;
         consoleHandle.addAlert(alert);
+        deps.store?.ingest(alert);
         queued += 1;
         if (source === 'live' && alert.qualifiesMargin) {
           const rendered = formatAlert(alert);
@@ -452,6 +456,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
       sockets.add(socket);
       socket.on('open', () => {
         consecutiveFailures = 0;
+        deps.store?.setSearchState(`${target.realm}:${target.searchId}`, 'live');
         out(`watching ${target.label} — ${search.league}/${search.searchId}`);
       });
       socket.on('message', (data) => {
@@ -470,10 +475,12 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
         if (stopped || stopIntent) return;
         consecutiveFailures += 1;
         if (consecutiveFailures >= 5) {
+          deps.store?.setSearchState(`${target.realm}:${target.searchId}`, 'stopped', `socket failed ${consecutiveFailures} times`);
           log(`socket for "${target.label}" failed ${consecutiveFailures} times — giving up on this search`);
           return;
         }
         const delay = Math.min(300_000, 30_000 * 2 ** (consecutiveFailures - 1));
+        deps.store?.setSearchState(`${target.realm}:${target.searchId}`, 'reconnecting', `${Math.round(delay / 1_000)}s`);
         log(`socket for "${target.label}" closed (${code}) — reconnecting in ${Math.round(delay / 1_000)}s`);
         const timer = setTimeout(() => {
           timers.delete(timer);
@@ -505,21 +512,36 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
   });
 
   const seedCurrentResults = async (): Promise<void> => {
+    let seededTargets = 0;
     for (const entry of runtimeTargets) {
       if (stopped || stopIntent) return;
+      const targetId = `${entry.target.realm}:${entry.target.searchId}`;
+      deps.store?.setSearchState(targetId, 'seeding');
       for (;;) {
         try {
           const ids = await fetchCurrentResultIds(entry.search, sessionId, networkAbort.signal);
           const queued = await processIds(entry, ids.slice(0, 10), 'seed');
           if (!stopped && !stopIntent) log(`seeded ${queued} current listing${queued === 1 ? '' : 's'} for ${entry.target.label}`);
+          seededTargets += 1;
+          deps.store?.setProgress(seededTargets, runtimeTargets.length);
+          deps.store?.setSearchState(targetId, 'live');
           break;
         } catch (error) {
           if (stopped || stopIntent || networkAbort.signal.aborted) return;
           if (error instanceof RateLimitError) {
+            deps.store?.setSearchState(targetId, 'cooldown', `${error.retryAfterSec}s`);
             log(`trade search limit reached while seeding ${entry.target.label}; retrying in ${error.retryAfterSec}s`);
             await waitForSeedRetry(error.retryAfterSec);
+            deps.store?.setSearchState(targetId, 'seeding');
             continue;
           }
+          const message = error instanceof Error ? error.message : String(error);
+          const authRequired = /401|403|POESESSID|session/i.test(message);
+          deps.store?.setSearchState(
+            targetId,
+            authRequired ? 'auth-required' : 'live',
+            authRequired ? 'run exilium setup' : 'startup seed failed; live monitoring remains active',
+          );
           log(`could not seed current listings for ${entry.target.label} (${error instanceof Error ? error.message : String(error)}); live monitoring remains active`);
           break;
         }
