@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { DetailedMover } from '../mcp/service.js';
 import { RateLimitError, sharedTradeRateLimiter, TradeRateLimiter } from './rate-limit.js';
+import { resolveTradeRequestScheduler, TradeRequestScheduler } from './request-scheduler.js';
 
 /** Stash reading over the user's own session — the same client-side trust
  * model as live search (Exilence and Awakened established it): the cookie
@@ -27,11 +28,13 @@ const stashResponseSchema = z.object({
 });
 
 export interface StashFetchDeps {
-  readonly fetchFn: (url: string, init: { headers: Record<string, string> }) => Promise<Response>;
+  readonly fetchFn: (url: string, init: { headers: Record<string, string>; signal?: AbortSignal }) => Promise<Response>;
   /** Pause between tab requests — stash walking is many requests. */
   readonly delayMs: number;
   /** Shared trade-API rate limiter; defaults to the process-wide instance. */
   readonly limiter?: TradeRateLimiter;
+  readonly scheduler?: TradeRequestScheduler;
+  readonly signal?: AbortSignal;
 }
 
 const MAX_TABS = 60;
@@ -45,15 +48,15 @@ export async function fetchAllStashItems(
   const counts = new Map<string, number>();
   let numTabs = 1;
   const limiter = deps.limiter ?? sharedTradeRateLimiter;
+  const scheduler = resolveTradeRequestScheduler(deps.scheduler, deps.limiter);
   for (let tabIndex = 0; tabIndex < Math.min(numTabs, MAX_TABS); tabIndex++) {
-    limiter.gate();
-    const res = await deps.fetchFn(buildStashUrl(accountName, league, tabIndex), {
-      headers: {
-        Cookie: `POESESSID=${sessionId}`,
-        'User-Agent': 'Exilium/0.1.0 (+https://github.com/andrewli8/exilium)',
-      },
-    });
-    limiter.observe(res);
+    const res = await scheduler.schedule('interactive', () => deps.fetchFn(buildStashUrl(accountName, league, tabIndex), {
+        headers: {
+          Cookie: `POESESSID=${sessionId}`,
+          'User-Agent': 'Exilium/0.1.0 (+https://github.com/andrewli8/exilium)',
+        },
+        ...(deps.signal === undefined ? {} : { signal: deps.signal }),
+      }), deps.signal);
     if (res.status === 401 || res.status === 403) {
       throw new Error(
         'pathofexile.com refused the stash request — your POESESSID is missing/expired, or the account name is wrong. Use the full name including the #tag (e.g. CoolExile#1234, shown on your pathofexile.com profile). Reading your own stash needs your own session cookie; check both.',

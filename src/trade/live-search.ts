@@ -1,5 +1,10 @@
 import { z } from 'zod';
 import { RateLimitError, sharedTradeRateLimiter, TradeRateLimiter } from './rate-limit.js';
+import {
+  TradeRequestScheduler,
+  type TradeRequestPriority,
+  resolveTradeRequestScheduler,
+} from './request-scheduler.js';
 
 /** Live trade-search monitoring against pathofexile.com, using the user's own
  * session, on the user's own machine. The session cookie goes to
@@ -61,11 +66,11 @@ export interface CurrentResultDeps {
     readonly signal?: AbortSignal;
   }) => Promise<Response>;
   readonly limiter?: TradeRateLimiter;
+  readonly scheduler?: TradeRequestScheduler;
   readonly signal?: AbortSignal;
 }
 
 function checkTradeResponse(res: Response, limiter: TradeRateLimiter): void {
-  limiter.observe(res);
   if (res.status === 401 || res.status === 403) {
     throw new Error('pathofexile.com rejected the session — your POESESSID is missing or expired. Log into the trade site and update it with `exilium setup`.');
   }
@@ -82,17 +87,17 @@ export async function fetchCurrentResultIds(
   deps: CurrentResultDeps,
 ): Promise<readonly string[]> {
   const limiter = deps.limiter ?? sharedTradeRateLimiter;
+  const scheduler = resolveTradeRequestScheduler(deps.scheduler, deps.limiter);
   const headers = {
     Cookie: `POESESSID=${sessionId}`,
     'User-Agent': 'Exilium/0.1.0 (+https://github.com/andrewli8/exilium)',
   };
   const base = tradeSearchApiBase(search);
 
-  limiter.gate();
-  const savedResponse = await deps.fetchFn(`${base}/${search.searchId}`, {
-    headers,
-    ...(deps.signal === undefined ? {} : { signal: deps.signal }),
-  });
+  const savedResponse = await scheduler.schedule('seed', () => deps.fetchFn(`${base}/${search.searchId}`, {
+      headers,
+      ...(deps.signal === undefined ? {} : { signal: deps.signal }),
+    }), deps.signal);
   checkTradeResponse(savedResponse, limiter);
   let savedJson: unknown;
   try {
@@ -103,13 +108,12 @@ export async function fetchCurrentResultIds(
   const saved = savedSearchSchema.safeParse(savedJson);
   if (!saved.success) throw new Error('saved search response did not contain a query');
 
-  limiter.gate();
-  const searchResponse = await deps.fetchFn(base, {
-    method: 'POST',
-    headers: { ...headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query: saved.data.query, sort: { indexed: 'desc' } }),
-    ...(deps.signal === undefined ? {} : { signal: deps.signal }),
-  });
+  const searchResponse = await scheduler.schedule('seed', () => deps.fetchFn(base, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: saved.data.query, sort: { indexed: 'desc' } }),
+      ...(deps.signal === undefined ? {} : { signal: deps.signal }),
+    }), deps.signal);
   checkTradeResponse(searchResponse, limiter);
   let resultJson: unknown;
   try {
@@ -154,13 +158,15 @@ export interface LiveListing {
 }
 
 export interface LiveDeps {
-  readonly fetchFn: (url: string, init: { headers: Record<string, string> }) => Promise<Response>;
+  readonly fetchFn: (url: string, init: { headers: Record<string, string>; signal?: AbortSignal }) => Promise<Response>;
   /** Copies text for the user to paste in game. */
   readonly clipboard: (text: string) => Promise<void>;
   readonly notify: (title: string, message: string) => Promise<void>;
   readonly log: (message: string) => void;
   /** Shared trade-API rate limiter; defaults to the process-wide instance. */
   readonly limiter?: TradeRateLimiter;
+  readonly scheduler?: TradeRequestScheduler;
+  readonly signal?: AbortSignal;
 }
 
 const FETCH_BATCH = 10;
@@ -172,20 +178,21 @@ export async function fetchListings(
   ids: readonly string[],
   search: TradeSearch,
   sessionId: string,
-  deps: Pick<LiveDeps, 'fetchFn' | 'limiter'>,
+  deps: Pick<LiveDeps, 'fetchFn' | 'limiter' | 'scheduler' | 'signal'>,
 ): Promise<readonly LiveListing[]> {
   const listings: LiveListing[] = [];
   const limiter = deps.limiter ?? sharedTradeRateLimiter;
+  const scheduler = resolveTradeRequestScheduler(deps.scheduler, deps.limiter);
   for (let i = 0; i < ids.length; i += FETCH_BATCH) {
     const batch = ids.slice(i, i + FETCH_BATCH);
-    limiter.gate();
-    const res = await deps.fetchFn(buildFetchUrl(batch, search.searchId, search.realm), {
-      headers: {
-        Cookie: `POESESSID=${sessionId}`,
-        'User-Agent': 'Exilium/0.1.0 (+https://github.com/andrewli8/exilium)',
-      },
-    });
-    limiter.observe(res);
+    const priority: TradeRequestPriority = 'live';
+    const res = await scheduler.schedule(priority, () => deps.fetchFn(buildFetchUrl(batch, search.searchId, search.realm), {
+        headers: {
+          Cookie: `POESESSID=${sessionId}`,
+          'User-Agent': 'Exilium/0.1.0 (+https://github.com/andrewli8/exilium)',
+        },
+        ...(deps.signal === undefined ? {} : { signal: deps.signal }),
+      }), deps.signal);
     if (res.status === 401 || res.status === 403) {
       throw new Error('pathofexile.com rejected the session — your POESESSID is missing or expired. Log into the trade site in a browser and copy the fresh cookie into EXILIUM_POESESSID.');
     }

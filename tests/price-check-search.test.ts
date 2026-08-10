@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from 'vitest';
 import { searchListings, tradeUrlFor } from '../src/trade/price-check.js';
 import type { TradePayload } from '../src/trade/price-check.js';
 import { TradeRateLimiter, RateLimitError } from '../src/trade/rate-limit.js';
+import { TradeRequestScheduler } from '../src/trade/request-scheduler.js';
 
 const payload: TradePayload = { query: { type: 'Saintly Chainmail', stats: [{ type: 'and', filters: [] }] }, sort: { price: 'asc' } };
 
@@ -39,12 +40,20 @@ describe('searchListings', () => {
     await expect(searchListings(payload, 'poe1', 'Mirage', 10, { fetchFn, sessionId: 'OK' })).rejects.toThrow(/league.*\bl\b|press l/i);
   });
 
-  test('gates before hitting the API when a cooldown is active — no request is sent', async () => {
-    const limiter = new TradeRateLimiter(() => 0);
-    limiter.observe({ status: 429, headers: { get: (n) => (n.toLowerCase() === 'retry-after' ? '30' : null) } });
-    const fetchFn = vi.fn();
-    await expect(searchListings(payload, 'poe1', 'Standard', 10, { fetchFn, sessionId: 'OK', limiter })).rejects.toThrow(RateLimitError);
-    expect(fetchFn).not.toHaveBeenCalled();
+  test('waits for an active cooldown before sending an interactive request', async () => {
+    let now = 0;
+    const limiter = new TradeRateLimiter(() => now);
+    limiter.observe({ status: 429, headers: { get: (name) => name.toLowerCase() === 'retry-after' ? '3' : null } });
+    const waits: number[] = [];
+    const scheduler = new TradeRequestScheduler({
+      limiter,
+      wait: async (milliseconds) => { waits.push(milliseconds); now += milliseconds; },
+    });
+    const fetchFn = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: 'x', result: [] }), { status: 200 }));
+
+    await expect(searchListings(payload, 'poe1', 'Standard', 10, { fetchFn, sessionId: 'OK', limiter, scheduler }))
+      .resolves.toEqual([]);
+    expect(waits).toEqual([3_000]);
   });
 
   test('a 429 from the API surfaces as a RateLimitError and records the cooldown', async () => {

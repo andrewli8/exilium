@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
 import { buildFetchUrl, buildLiveWsUrl, fetchCurrentResultIds, fetchListings, handleNewListings, parseTradeUrl } from '../src/trade/live-search.js';
 import { TradeRateLimiter } from '../src/trade/rate-limit.js';
+import { TradeRequestScheduler } from '../src/trade/request-scheduler.js';
 
 describe('parseTradeUrl', () => {
   test('parses a PoE1 trade search link', () => {
@@ -92,26 +93,41 @@ describe('fetchCurrentResultIds', () => {
       .rejects.toThrow(/saved search/i);
   });
 
-  test('observes rate headers between requests and surfaces 429 responses', async () => {
-    const limiter = new TradeRateLimiter(() => 0);
-    const fullBucket = vi.fn().mockResolvedValue(new Response(JSON.stringify({ query: { stats: [] } }), {
-      status: 200,
-      headers: {
-        'X-Rate-Limit-Rules': 'Account',
-        'X-Rate-Limit-Account': '1:5:60',
-        'X-Rate-Limit-Account-State': '1:5:0',
-      },
-    }));
-    await expect(fetchCurrentResultIds(poe1, 'S', { fetchFn: fullBucket, limiter }))
-      .rejects.toThrow(/backing off|limit/i);
-    expect(fullBucket).toHaveBeenCalledTimes(1);
-
+  test('surfaces 429 responses with their rate-limit cooldown', async () => {
     const rateLimited = vi.fn().mockResolvedValue(new Response('slow down', {
       status: 429,
       headers: { 'Retry-After': '7' },
     }));
     await expect(fetchCurrentResultIds(poe1, 'S', { fetchFn: rateLimited, limiter: new TradeRateLimiter(() => 0) }))
       .rejects.toThrow(/limit/i);
+  });
+
+  test('waits for proactive scheduler cooldown before continuing a saved search', async () => {
+    let now = 0;
+    const limiter = new TradeRateLimiter(() => now);
+    limiter.observe(new Response('{}', {
+      headers: {
+        'X-Rate-Limit-Rules': 'Account',
+        'X-Rate-Limit-Account': '1:5:60',
+        'X-Rate-Limit-Account-State': '1:5:0',
+      },
+    }));
+    const waits: number[] = [];
+    const scheduler = new TradeRequestScheduler({
+      limiter,
+      wait: async (milliseconds) => {
+        waits.push(milliseconds);
+        now += milliseconds;
+      },
+    });
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ query: { stats: [] } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: ['ready'] }), { status: 200 }));
+
+    await expect(fetchCurrentResultIds(poe1, 'S', { fetchFn, limiter, scheduler }))
+      .resolves.toEqual(['ready']);
+    expect(waits).toEqual([5_000]);
   });
 });
 

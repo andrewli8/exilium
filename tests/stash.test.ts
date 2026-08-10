@@ -1,5 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
 import { buildStashUrl, diffStash, fetchAllStashItems, valueStash } from '../src/trade/stash.js';
+import { TradeRateLimiter } from '../src/trade/rate-limit.js';
+import { TradeRequestScheduler } from '../src/trade/request-scheduler.js';
 import type { DetailedMover } from '../src/mcp/service.js';
 
 const MARKET: readonly DetailedMover[] = [
@@ -26,6 +28,21 @@ describe('buildStashUrl with discriminator tags', () => {
 });
 
 describe('fetchAllStashItems', () => {
+  test('waits for the shared scheduler before reading a stash tab', async () => {
+    let now = 0;
+    const limiter = new TradeRateLimiter(() => now);
+    limiter.observe({ status: 429, headers: { get: (name) => name.toLowerCase() === 'retry-after' ? '2' : null } });
+    const waits: number[] = [];
+    const scheduler = new TradeRequestScheduler({
+      limiter,
+      wait: async (milliseconds) => { waits.push(milliseconds); now += milliseconds; },
+    });
+    const fetchFn = vi.fn().mockResolvedValue(new Response(JSON.stringify({ numTabs: 1, items: [] }), { status: 200 }));
+
+    await expect(fetchAllStashItems('acct', 'Mirage', 'S', { fetchFn, delayMs: 0, limiter, scheduler }))
+      .resolves.toEqual([]);
+    expect(waits).toEqual([2_000]);
+  });
   test('walks every tab and aggregates stackable items', async () => {
     const tab = (items: unknown[]) => new Response(JSON.stringify({ numTabs: 2, items }), { status: 200 });
     const fetchFn = vi
