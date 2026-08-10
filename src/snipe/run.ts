@@ -15,13 +15,12 @@ import {
 import { RateLimitError } from '../trade/rate-limit.js';
 import { createNotifier } from '../watch/notify.js';
 import {
-  loadSnipeFolder,
-  readSnipeFolderFiles,
   resolveSnipeFolder,
   scaffoldSnipeFolder,
   type SnipeTarget,
 } from './bettertrading.js';
 import { createTravelController, type TravelController } from './browser.js';
+import { loadSnipeCatalog } from './catalog.js';
 import {
   promptSnipeTargets,
   renderSnipeConsole,
@@ -161,7 +160,9 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     out('Paste a Better Trading export now, or use `exilium snipe import` later.');
   }
 
-  let allTargets = loadSnipeFolder(readSnipeFolderFiles(folder), log);
+  const loadEnabledTargets = (): readonly SnipeTarget[] =>
+    loadSnipeCatalog(folder, log).filter((entry) => entry.enabled);
+  let allTargets = loadEnabledTargets();
   const interactive = deps.isTTY ?? process.stdin.isTTY === true;
   if (allTargets.length === 0 && interactive) {
     const askImport = deps.promptImport ?? promptImportSource;
@@ -171,7 +172,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
       try {
         const imported = persistSnipeImport({ folder, content: source, sourceName: 'startup paste' });
         out(`Imported ${imported.targets.length} Better Trading search${imported.targets.length === 1 ? '' : 'es'} to ${imported.path}.`);
-        allTargets = loadSnipeFolder(readSnipeFolderFiles(folder), log);
+        allTargets = loadEnabledTargets();
       } catch (error) {
         out(`Import failed: ${error instanceof Error ? error.message : String(error)}`);
       }

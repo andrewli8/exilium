@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, test, vi } from 'vitest';
 import { loadConfig } from '../src/config.js';
 import type { MarketSnapshot } from '../src/domain/types.js';
+import { saveSnipeManifest, type SnipeManifest } from '../src/snipe/catalog.js';
 import type { SnipeConsoleOptions } from '../src/snipe/console.js';
 import type { SnipeAlert } from '../src/snipe/engine.js';
 import { runSnipe, snipeStartupMessages, type OpenSnipeSocket, type SnipeDeps, type SnipeFlags } from '../src/snipe/run.js';
@@ -82,6 +83,7 @@ function makeHarness(options: {
   readonly globalLeague?: string;
   readonly snipeLeague?: string;
   readonly seedIds?: readonly string[];
+  readonly manifest?: SnipeManifest;
 } = {}) {
   const folder = mkdtempSync(join(tmpdir(), 'exilium-run-'));
   if (options.emptyFolder !== true) {
@@ -90,6 +92,7 @@ function makeHarness(options: {
       { label: 'Uniques', slug: 'bbb' },
     ] }));
   }
+  if (options.manifest !== undefined) saveSnipeManifest(folder, options.manifest);
   const config = loadConfig({}, {
     game: 'poe1',
     league: options.globalLeague ?? 'Allflame',
@@ -202,6 +205,21 @@ function makeHarness(options: {
 }
 
 describe('runSnipe orchestration', () => {
+  test('runtime excludes disabled imports and includes enabled managed targets', async () => {
+    const harness = makeHarness({
+      manifest: {
+        version: 1,
+        managed: [{ label: 'Managed', realm: 'trade', searchId: 'ccc', league: null }],
+        overrides: { 'trade:aaa': { enabled: false } },
+      },
+    });
+    const running = runSnipe({ ...FLAGS, all: true, searches: [] }, harness.deps);
+    await harness.started;
+    expect(harness.openedSearchIds).toEqual(['bbb', 'ccc']);
+    harness.exit();
+    await running;
+  });
+
   test('startup guidance promises headless monitoring and lazy Chrome', () => {
     expect(snipeStartupMessages(6, 'Allflame', null)).toEqual([
       'Exilium snipe — 6 enabled searches · league Allflame · min margin off',
