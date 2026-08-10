@@ -60,9 +60,11 @@ Build the standalone binaries yourself with `npm run build:binaries` (needs [Bun
 - **1 · MOVERS** the biggest price moves, with a 7-day sparkline for the selected row
 - **2 · OPPORTUNITIES** detector signals with an edge estimate, confidence, and the reasoning
 - **3 · ARBITRAGE** listed price vs implied cross-rate per market
-- **4 · WATCHES** your fired price alerts
+- **4 · WATCHES** your fired price alerts and Better Trading live snipes
 
 Keys: `s` search as you type, `f` sort a column, `w` set a watch on the selected row, `p` price-check the item on your clipboard (Ctrl+C it in game first), `c` pick a category, `l` switch league (fetches the leagues the trade site currently accepts), `Enter` open the item on the trade site, `↑↓` scroll (`Shift+↑↓` jumps ten), `r` refresh now, `q` quit.
+
+Inside tab 4, `Tab` switches between **PRICE ALERTS** and **SNIPES**, and `c` opens the snipe configuration overlay. Use Space/`a` to enable one/all searches, `e` to edit a label, trade URL, or floor, `i` to paste a Better Trading export, Enter to save and start the enabled searches, or Escape to save without starting. Opening `exilium` never starts trade monitoring on its own.
 
 A dot in the top corner shows how fresh the data is: green under 10 minutes, amber under 30, red beyond. It refetches every 5 minutes on its own, so you can leave it on a second monitor while you map.
 
@@ -173,9 +175,9 @@ Every run starts with a multi-select. Use Up/Down, Space, `a`, or number keys to
 
 Chrome is not required to monitor. Once selection is enabled, Exilium uses your locally saved POESESSID to load up to ten current results per search, then watches all selected searches through the trade site's live WebSockets. Current results seed the queue quietly; listings arriving afterward produce desktop notifications, optional sound, and webhooks. Multiple selected searches do not create browser tabs.
 
-The trade-search endpoints used by the Path of Exile website are not part of GGG's officially supported API surface and may change. Exilium reads and honors every returned rate-limit policy, staggering startup seeds instead of flooding six searches at once.
+The trade-search endpoints used by the Path of Exile website are not part of GGG's officially supported API surface and may change. Every trade HTTP path uses one priority scheduler: live listing details run before optional startup seeds, and requests are admitted one at a time after checking every returned IP/account policy. `COOLDOWN 4s` means Exilium is proactively honoring the site's policy; `RATE LIMITED 60s` means the site returned a 429 or active restriction.
 
-For every listing, Exilium converts the asking price to chaos and checks local poe.ninja data. The compact board groups results by Better Trading search and shows each search's best candidate, ordered by profit and then listing recency. The default floor is **+20%**; override it with `--min-margin N`, `snipe.minMarginPct`, or press `f` during a run. Below-floor and unknown-price listings are hidden but counted; press `u` to inspect them. Initial API results are marked `CURRENT`, while subsequent WebSocket hits are `LIVE`.
+For every listing, Exilium converts the asking price to chaos and checks local poe.ninja data. The compact board always shows one navigable row per enabled Better Trading search, even when its best value is `NO MATCH`. Qualifying candidates are ordered by profit and then listing recency. The default floor is **+20%**; override it with `--min-margin N`, `snipe.minMarginPct`, or press `f` during a run. Below-floor and unknown-price listings are hidden but counted; press `u` to inspect them. Initial API results are marked `CURRENT`, while subsequent WebSocket hits are `LIVE`.
 
 Searches run under the current challenge league — **Allflame** — no matter which league the bookmark URL mentions (search ids are league-portable). Override with `--league` or keep each URL's own league with `--keep-league`.
 

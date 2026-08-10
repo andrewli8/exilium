@@ -1,5 +1,7 @@
 # Compact Snipe Candidate Board Design
 
+> Superseded in one respect by [Watches Snipe Workspace Design](./2026-08-09-watches-snipe-workspace-design.md): enabled searches now remain as navigable `NO MATCH` rows when every listing is below the floor, instead of producing an empty board.
+
 ## Goal
 
 Replace the unbounded, verbose listing feed with a compact Better Trading candidate board that surfaces only actionable profit opportunities, supports drill-down and stale-listing removal, and travels through the user's native Chrome trade page without Playwright browser-context attachment failures.
