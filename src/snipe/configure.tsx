@@ -53,10 +53,12 @@ function buildRows(drafts: readonly CatalogEntry[], expanded: ReadonlySet<string
 }
 
 function entryDisplayLabel(entry: CatalogEntry): string {
-  const prefix = `${entry.group ?? ''} · `;
-  return entry.group !== undefined && entry.label.startsWith(prefix)
-    ? entry.label.slice(prefix.length)
-    : entry.label;
+  // Inside a folder the leading "<folder> · " is redundant — strip it even
+  // when the group name is directory-derived and differs from the payload
+  // title (e.g. group "valdos-2", label "valdos · mageblood").
+  if (entry.group === undefined) return entry.label;
+  const separator = entry.label.indexOf(' · ');
+  return separator > 0 ? entry.label.slice(separator + 3) : entry.label;
 }
 
 export function SnipeConfigureOverlay({ entries, onSave, onStart, onClose, onImport }: SnipeConfigureOverlayProps) {

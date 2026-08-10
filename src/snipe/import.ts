@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseSnipeSource, type SnipeTarget } from './bettertrading.js';
 
@@ -26,19 +26,38 @@ function folderDirName(title: string | undefined): string | null {
   return cleaned === '' ? null : cleaned;
 }
 
+/** Find a previously imported file with this digest at the root or one
+ * level down, so identical re-imports stay idempotent wherever they live. */
+function findExistingImport(root: string, fileName: string): string | null {
+  if (!existsSync(root)) return null;
+  const direct = join(root, fileName);
+  if (existsSync(direct)) return direct;
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+    const candidate = join(root, entry.name, fileName);
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
 /** Validate first, then persist an idempotent BetterTrading source file.
  * Whitespace around pasted exports is normalized so repeated imports map to
- * one deterministic SHA-256-derived filename. Each import lands in its own
- * subdirectory named after the export's folder title, so the on-disk layout
- * mirrors the Better Trading folders. */
+ * one deterministic SHA-256-derived filename. Every NEW import mints its own
+ * subdirectory — named after the export's folder title, uniquified with
+ * -2/-3 suffixes — so each import is its own folder in the configure UI. */
 export function persistSnipeImport(input: PersistSnipeImportInput): ImportResult {
   const normalized = input.content.trim();
   const targets = parseSnipeSource(normalized, input.sourceName);
   const digest = createHash('sha256').update(normalized, 'utf8').digest('hex');
-  const subdir = folderDirName(targets[0]?.group);
-  const dir = subdir === null ? input.folder : join(input.folder, subdir);
-  const path = join(dir, `import-${digest.slice(0, 12)}.bt`);
+  const fileName = `import-${digest.slice(0, 12)}.bt`;
 
+  const existing = findExistingImport(input.folder, fileName);
+  if (existing !== null) return { path: existing, created: false, targets };
+
+  const base = folderDirName(targets[0]?.group) ?? 'import';
+  let dir = join(input.folder, base);
+  for (let suffix = 2; existsSync(dir); suffix += 1) dir = join(input.folder, `${base}-${suffix}`);
+  const path = join(dir, fileName);
   mkdirSync(dir, { recursive: true });
   let created = true;
   try {

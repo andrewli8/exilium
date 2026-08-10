@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, extname, join } from 'node:path';
+import { basename, extname, join, relative, sep } from 'node:path';
 import { z } from 'zod';
 import { parseTradeUrl } from '../trade/live-search.js';
 
@@ -203,13 +203,28 @@ function fileStem(path: string): string {
 /** Parse every folder file into targets. Malformed files warn and are
  * skipped — one bad bookmark file must not kill the whole snipe session.
  * Duplicate searches (same realm+id) keep the first occurrence. */
-export function loadSnipeFolder(files: readonly FolderFile[], warn: (message: string) => void): readonly SnipeTarget[] {
+export function loadSnipeFolder(
+  files: readonly FolderFile[],
+  warn: (message: string) => void,
+  root?: string,
+): readonly SnipeTarget[] {
   const all: SnipeTarget[] = [];
   for (const file of files) {
     try {
-      const parsed = file.path.toLowerCase().endsWith('.json')
+      let parsed = file.path.toLowerCase().endsWith('.json')
         ? targetsFromJson(file.content, fileStem(file.path))
         : targetsFromText(file.content, fileStem(file.path));
+      if (root !== undefined) {
+        // A file inside a subdirectory belongs to that directory's folder —
+        // the directory wins over the payload title, so two imports of
+        // same-titled Better Trading folders stay distinct groups.
+        const rel = relative(root, file.path);
+        const segments = rel.split(sep);
+        if (!rel.startsWith('..') && segments.length > 1 && segments[0] !== '') {
+          const dirGroup = segments[0]!;
+          parsed = parsed.map((target) => ({ ...target, group: dirGroup }));
+        }
+      }
       all.push(...parsed);
     } catch (err) {
       warn(`skipping ${file.path}: ${err instanceof Error ? err.message : String(err)}`);

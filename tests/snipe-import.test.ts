@@ -46,6 +46,30 @@ describe('persistSnipeImport', () => {
     expect(loadSnipeFolder(readSnipeFolderFiles(dir), () => undefined)).toHaveLength(1);
   });
 
+  test('a second import with the same title becomes its own new folder', () => {
+    const dir = folder();
+    const other = `3:${Buffer.from(JSON.stringify({
+      tit: 'Currency', ver: '1', trs: [{ tit: 'Mirrors', loc: '1:search:zzz999' }],
+    })).toString('base64')}`;
+    const first = persistSnipeImport({ folder: dir, content: VALID_EXPORT, sourceName: 'clipboard' });
+    const second = persistSnipeImport({ folder: dir, content: other, sourceName: 'clipboard' });
+    expect(first.path).toContain(join(dir, 'currency'));
+    expect(second.path).toContain(join(dir, 'currency-2'));
+    // Re-importing the first content stays idempotent even from a subdirectory.
+    const again = persistSnipeImport({ folder: dir, content: VALID_EXPORT, sourceName: 'clipboard' });
+    expect(again.path).toBe(first.path);
+    expect(again.created).toBe(false);
+  });
+
+  test('an untitled export still gets its own folder', () => {
+    const dir = folder();
+    const untitled = `3:${Buffer.from(JSON.stringify({
+      tit: '', ver: '1', trs: [{ tit: 'Divines', loc: '1:search:abc123' }],
+    })).toString('base64')}`;
+    const result = persistSnipeImport({ folder: dir, content: untitled, sourceName: 'clipboard' });
+    expect(result.path).toContain(join(dir, 'import'));
+  });
+
   test('invalid input does not create a folder or source file', () => {
     const dir = folder();
     expect(() => persistSnipeImport({ folder: dir, content: '3:not-json', sourceName: 'clipboard' })).toThrow(/decode|JSON/i);

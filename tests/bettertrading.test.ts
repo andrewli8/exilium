@@ -163,6 +163,22 @@ describe('loadSnipeFolder', () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(String(warn.mock.calls[0]![0])).toContain('broken.json');
   });
+
+  test('a file in a subdirectory takes its group from the directory name', () => {
+    const exported = `3:${Buffer.from(JSON.stringify({
+      tit: 'valdos', ver: '1', trs: [{ tit: 'mageblood', loc: '1:search:SubDir1' }],
+    })).toString('base64')}`;
+    const targets = loadSnipeFolder(
+      [
+        { path: '/root/valdos-2/import-abc.bt', content: exported },
+        { path: '/root/plain.txt', content: 'https://www.pathofexile.com/trade/search/Allflame/RootId1' },
+      ],
+      () => undefined,
+      '/root',
+    );
+    expect(targets[0]).toMatchObject({ searchId: 'SubDir1', group: 'valdos-2', label: 'valdos · mageblood' });
+    expect(targets[1]?.group).toBeUndefined();
+  });
 });
 
 describe('folder resolution and reading', () => {
