@@ -142,7 +142,7 @@ describe('fetchListings', () => {
       new Response(JSON.stringify({ result: [{ id: 'bare1', listing: {} }] }), { status: 200 }),
     );
     const [l] = await fetchListings(['bare1'], search, 'S', { fetchFn, limiter: limiter() });
-    expect(l).toEqual({ id: 'bare1', itemName: 'bare1', referenceName: 'bare1', priceText: 'no price', price: null, listedAt: null, seller: 'unknown', whisper: '' });
+    expect(l).toEqual({ id: 'bare1', itemName: 'bare1', referenceName: 'bare1', priceText: 'no price', price: null, listedAt: null, seller: 'unknown', whisper: '', identified: true });
   });
 
   test('uniques keep the display join but reference the unique name alone', async () => {
@@ -247,6 +247,51 @@ describe('parseFetchResponseBody Valdo rewards', () => {
     }));
     expect(listing?.itemName).toBe('Mageblood (Foil)');
     expect(listing?.referenceName).toBe('Mageblood (Foil)');
+  });
+
+  test('prices Forbidden jewels by their allocated passive variant', () => {
+    const [listing] = parseFetchResponseBody({
+      result: [{
+        id: 'ff-1',
+        listing: { price: { amount: 5, currency: 'chaos' } },
+        item: {
+          name: 'Forbidden Flesh',
+          typeLine: 'Cobalt Jewel',
+          identified: true,
+          explicitMods: [{ description: "Allocates Tukohama, War's Herald if you have the matching modifier on Forbidden Flame", domain: 'explicit' }],
+        },
+      }],
+    });
+    expect(listing?.referenceName).toBe("Tukohama, War's Herald (Forbidden Flesh)");
+    expect(listing?.itemName).toBe("Tukohama, War's Herald (Forbidden Flesh)");
+  });
+
+  test('foil Forbidden jewels keep the Foil prefix in the variant reference', () => {
+    const [listing] = parseFetchResponseBody({
+      result: [{
+        id: 'ff-2',
+        listing: { price: { amount: 7, currency: 'divine' } },
+        item: {
+          name: 'Foil Forbidden Flesh',
+          identified: true,
+          explicitMods: [{ description: 'Allocates Blazing Cradle if you have the matching modifier on Forbidden Flame', domain: 'explicit' }],
+        },
+      }],
+    });
+    expect(listing?.referenceName).toBe('Blazing Cradle (Foil Forbidden Flesh)');
+  });
+
+  test('labels unidentified uniques and marks them for floor pricing', () => {
+    const [listing] = parseFetchResponseBody({
+      result: [{
+        id: 'unid-1',
+        listing: { price: { amount: 9.5, currency: 'divine' } },
+        item: { name: '', typeLine: 'Crimson Jewel', identified: false },
+      }],
+    });
+    expect(listing?.itemName).toBe('Unidentified Crimson Jewel');
+    expect(listing?.identified).toBe(false);
+    expect(listing?.referenceName).toBe('Crimson Jewel');
   });
 
   test('keeps the joined item name when no reward is present', () => {

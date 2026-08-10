@@ -40,7 +40,7 @@ import {
 } from './console.js';
 import { decideSnipe, formatAlert, type SnipeAlert } from './engine.js';
 import { effectiveLeague, resolveSnipeLeague, type FetchLeaguesFn } from './league.js';
-import { assessMargin } from './margin.js';
+import { assessMargin, assessMarginAgainstFloor, toChaos } from './margin.js';
 import { persistSnipeImport } from './import.js';
 import { resolveRequestedTargets } from './selection.js';
 import type { TravelResult } from './travel.js';
@@ -174,6 +174,21 @@ interface RunnableTarget {
 interface RuntimeTarget extends RunnableTarget {
   readonly seen: Set<string>;
   readonly inFlight: Set<string>;
+  /** Chaos price of every listing seen on this search, keyed by listing id.
+   * The minimum (excluding the listing being judged) is the search floor —
+   * the reference for listings poe.ninja cannot index. */
+  readonly knownPrices: Map<string, number>;
+}
+
+const MAX_KNOWN_PRICES = 200;
+
+function searchFloorChaos(prices: ReadonlyMap<string, number>, excludingId: string): number | undefined {
+  let floor: number | undefined;
+  for (const [id, chaos] of prices) {
+    if (id === excludingId) continue;
+    if (floor === undefined || chaos < floor) floor = chaos;
+  }
+  return floor;
 }
 
 async function promptImportSource(): Promise<string | null> {
@@ -471,6 +486,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     ...entry,
     seen: new Set<string>(),
     inFlight: new Set<string>(),
+    knownPrices: new Map<string, number>(),
   }));
   sharedStore.setProgress(0, runtimeTargets.length);
 
@@ -498,10 +514,28 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     let queued = 0;
     for (const listing of fresh) {
       if (stopped || stopIntent) return queued;
+      let assessment = assessMargin({ itemName: listing.referenceName, price: listing.price, snapshots, nowMs: now() });
+      if (assessment.referenceChaos === null) {
+        // poe.ninja has no aggregate (unidentified unique, rare): fall back to
+        // the cheapest other listing on this very search as the floor.
+        const floor = searchFloorChaos(entry.knownPrices, listing.id);
+        if (floor !== undefined) {
+          assessment = assessMarginAgainstFloor({ price: listing.price, floorChaos: floor, snapshots, nowMs: now() });
+        }
+      }
+      const listedChaos = assessment.listedChaos ?? (listing.price === null ? null : toChaos(listing.price, snapshots));
+      if (listedChaos !== null) {
+        entry.knownPrices.set(listing.id, listedChaos);
+        while (entry.knownPrices.size > MAX_KNOWN_PRICES) {
+          const oldest = entry.knownPrices.keys().next().value;
+          if (oldest === undefined) break;
+          entry.knownPrices.delete(oldest);
+        }
+      }
       const decision = decideSnipe({
         listing,
         target: entry.target,
-        assessment: assessMargin({ itemName: listing.referenceName, price: listing.price, snapshots, nowMs: now() }),
+        assessment,
         snapshots,
         globalMinMarginPct: minMarginPct,
         source: source === 'seed' ? 'current' : 'live',

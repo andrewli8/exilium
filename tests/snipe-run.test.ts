@@ -762,6 +762,39 @@ describe('runSnipe browser-live mode', () => {
     await running;
   });
 
+  test('unpriceable listings are margined against the cheapest other listing on the search', async () => {
+    const harness = browserLiveHarness();
+    const unid = (id: string, amount: number): LiveListing => ({
+      ...LISTING,
+      id,
+      itemName: 'Unidentified Crimson Jewel',
+      referenceName: 'Crimson Jewel', // no poe.ninja aggregate for this
+      identified: false,
+      priceText: `${amount} divine`,
+      price: { amount, currency: 'divine' },
+    });
+    const running = runSnipe({ ...FLAGS, browserLive: true }, harness.deps);
+    await harness.consoleReady;
+    for (let i = 0; i < 20 && harness.opened.length === 0; i += 1) await new Promise((r) => setTimeout(r, 0));
+
+    harness.emit([unid('floor-a', 1), unid('floor-b', 2)], 'seed'); // floor = 1 divine = 200c
+    harness.emit([unid('snipe', 0.5)], 'live'); // 100c vs 200c floor → +50% of the floor
+    await harness.waitForAlerts(3);
+
+    const snipe = harness.consoleAlerts.find((alert) => alert.listingId === 'snipe');
+    expect(snipe?.marginPct).toBe(50);
+    expect(snipe?.qualifiesMargin).toBe(true);
+    expect(snipe?.unknownMargin).toBe(false);
+    expect(harness.notify).toHaveBeenCalledTimes(1);
+
+    // The first seed had no sibling listings yet — its margin stays unknown.
+    const first = harness.consoleAlerts.find((alert) => alert.listingId === 'floor-a');
+    expect(first?.marginPct).toBeNull();
+
+    harness.exit();
+    await running;
+  });
+
   test('browser-live does not require a POESESSID', async () => {
     const harness = browserLiveHarness();
     const config = loadConfig({}, {

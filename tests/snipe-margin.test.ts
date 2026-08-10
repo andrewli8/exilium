@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { MarketLine, MarketSnapshot } from '../src/domain/types.js';
-import { assessMargin, passesMarginGate } from '../src/snipe/margin.js';
+import { assessMargin, assessMarginAgainstFloor, passesMarginGate } from '../src/snipe/margin.js';
 
 const NOW = Date.parse('2026-08-09T12:00:00Z');
 
@@ -82,6 +82,35 @@ describe('assessMargin', () => {
   test('substring matching still finds variant-suffixed names', () => {
     const a = assessMargin({ itemName: 'Voices', price: { amount: 40, currency: 'divine' }, snapshots: SNAPSHOTS, nowMs: NOW });
     expect(a.referenceChaos).toBe(9_000);
+  });
+});
+
+describe('assessMarginAgainstFloor', () => {
+  test('prices an unindexed listing against the search floor', () => {
+    const assessment = assessMarginAgainstFloor({
+      price: { amount: 0.5, currency: 'divine' }, // 100c at 200c/divine
+      floorChaos: 200,
+      snapshots: SNAPSHOTS,
+      nowMs: NOW,
+    });
+    expect(assessment.listedChaos).toBe(100);
+    expect(assessment.referenceChaos).toBe(200);
+    expect(assessment.referenceName).toBe('search floor');
+    expect(assessment.marginChaos).toBe(100);
+    expect(assessment.marginPct).toBe(50);
+    expect(assessment.freshness?.level).toBe('live');
+  });
+
+  test('keeps unknowns null when the listing has no priceable currency', () => {
+    const assessment = assessMarginAgainstFloor({
+      price: { amount: 3, currency: 'exalted-unknown' },
+      floorChaos: 200,
+      snapshots: SNAPSHOTS,
+      nowMs: NOW,
+    });
+    expect(assessment.listedChaos).toBeNull();
+    expect(assessment.marginChaos).toBeNull();
+    expect(assessment.marginPct).toBeNull();
   });
 });
 

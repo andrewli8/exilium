@@ -147,6 +147,7 @@ const fetchResultEntrySchema = z.object({
       item: z.object({
         name: z.string().optional(),
         typeLine: z.string().optional(),
+        identified: z.boolean().optional(),
         implicitMods: modLinesSchema,
         explicitMods: modLinesSchema,
         enchantMods: modLinesSchema,
@@ -169,6 +170,21 @@ type FetchedItem = NonNullable<z.infer<typeof fetchResultEntrySchema>['item']>;
 
 const REWARD_LINE = /^Reward:\s*(.+?)\s*$/;
 const REWARD_STACK_PREFIX = /^\d+x\s+/i;
+/** Forbidden Flame/Flesh jewels: the allocated ascendancy passive IS the
+ * item's value, and poe.ninja names each variant "<Passive> (<jewel name>)"
+ * ("Blazing Cradle (Foil Forbidden Flesh)"). The strict "if you have" suffix
+ * keeps this from matching any other Allocates-style mod. */
+const ALLOCATES_LINE = /^Allocates (.+?) if you have/;
+
+function extractAllocatedPassive(item: FetchedItem): string | null {
+  for (const line of [...item.explicitMods ?? [], ...item.implicitMods ?? []]) {
+    const text = modText(line);
+    if (text === null) continue;
+    const match = ALLOCATES_LINE.exec(text);
+    if (match !== null) return match[1]!;
+  }
+  return null;
+}
 
 /** Valdo's Puzzle Box maps carry their actual prize as a "Reward: …" line;
  * that reward — not the map name — is what the listing is worth and what
@@ -214,6 +230,9 @@ export interface LiveListing {
   readonly listedAt: string | null;
   readonly seller: string;
   readonly whisper: string;
+  /** False for unidentified items (e.g. Forbidden Flame/Flesh gambles, which
+   * list as a bare base type); absent means identified. */
+  readonly identified?: boolean;
 }
 
 export interface LiveDeps {
@@ -270,15 +289,20 @@ export function parseFetchResponseBody(payload: unknown): readonly LiveListing[]
   if (!parsed.success) throw new Error('trade fetch response did not match the expected shape');
   return parsed.data.result.filter((r) => r !== null).map((r) => {
     const reward = r.item === undefined ? null : extractReward(r.item);
-    const name = reward
-      ?? ([r.item?.name, r.item?.typeLine].filter((s) => s !== undefined && s !== '').join(' ') || r.id);
+    const identified = r.item?.identified !== false;
+    const baseReference = r.item?.name || r.item?.typeLine || r.id;
+    const passive = r.item === undefined || !identified ? null : extractAllocatedPassive(r.item);
+    const variant = passive === null ? null : `${passive} (${baseReference})`;
+    const joined = [r.item?.name, r.item?.typeLine].filter((s) => s !== undefined && s !== '').join(' ') || r.id;
+    const name = reward ?? variant ?? (identified ? joined : `Unidentified ${joined}`);
     const price = r.listing.price == null ? 'no price' : `${r.listing.price.amount} ${r.listing.price.currency}`;
     return {
       id: r.id,
       itemName: name,
+      identified,
       referenceName: reward !== null
         ? reward.replace(REWARD_STACK_PREFIX, '')
-        : (r.item?.name || r.item?.typeLine || r.id),
+        : variant ?? baseReference,
       priceText: price,
       price: r.listing.price ?? null,
       listedAt: r.listing.indexed ?? null,

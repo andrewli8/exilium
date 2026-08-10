@@ -73,6 +73,35 @@ export function assessMargin(opts: AssessMarginOptions): MarginAssessment {
   };
 }
 
+export interface FloorAssessOptions {
+  readonly price: ListingPrice | null;
+  /** Cheapest other current listing on the same search, in chaos. */
+  readonly floorChaos: number;
+  readonly snapshots: readonly MarketSnapshot[];
+  readonly nowMs: number;
+}
+
+/** Margin against the search's own floor instead of poe.ninja. Used for
+ * listings ninja cannot index — unidentified uniques (Forbidden Flame/Flesh
+ * gambles list as a bare "Crimson Jewel") and rares — where the fair
+ * reference is what the cheapest competing listing on the exact same search
+ * asks. The floor comes from live listings, so freshness is 'live'. */
+export function assessMarginAgainstFloor(opts: FloorAssessOptions): MarginAssessment {
+  const listedChaos = opts.price === null ? null : toChaos(opts.price, opts.snapshots);
+  const marginChaos = listedChaos === null ? null : opts.floorChaos - listedChaos;
+  const marginPct = marginChaos !== null && opts.floorChaos > 0 ? (marginChaos / opts.floorChaos) * 100 : null;
+  const referenceAsOf = new Date(opts.nowMs).toISOString();
+  return {
+    listedChaos,
+    referenceChaos: opts.floorChaos,
+    referenceName: 'search floor',
+    marginChaos,
+    marginPct,
+    referenceAsOf,
+    freshness: assessFreshness(referenceAsOf, opts.nowMs),
+  };
+}
+
 export interface MarginGateResult {
   readonly pass: boolean;
   /** True when a threshold was set but the margin could not be computed —
