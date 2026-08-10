@@ -8,6 +8,7 @@ import type { SnipeConsoleOptions } from '../src/snipe/console.js';
 import type { SnipeAlert } from '../src/snipe/engine.js';
 import { runSnipe, type OpenSnipeSocket, type SnipeDeps, type SnipeFlags } from '../src/snipe/run.js';
 import type { LiveListing, TradeSearch } from '../src/trade/live-search.js';
+import { RateLimitError } from '../src/trade/rate-limit.js';
 
 const NOW = Date.parse('2026-08-09T12:00:00Z');
 const SNAPSHOTS: readonly MarketSnapshot[] = [{
@@ -80,6 +81,7 @@ function makeHarness(options: {
   readonly promptImport?: () => Promise<string | null>;
   readonly globalLeague?: string;
   readonly snipeLeague?: string;
+  readonly seedIds?: readonly string[];
 } = {}) {
   const folder = mkdtempSync(join(tmpdir(), 'exilium-run-'));
   if (options.emptyFolder !== true) {
@@ -100,6 +102,7 @@ function makeHarness(options: {
   });
   const sockets = new Map<string, FakeSocket>();
   const openedSearchIds: string[] = [];
+  const openedSearches: TradeSearch[] = [];
   const consoleAlerts: SnipeAlert[] = [];
   const travelCalls: string[] = [];
   const openedPages: string[] = [];
@@ -109,11 +112,15 @@ function makeHarness(options: {
   let consoleOptions: SnipeConsoleOptions | undefined;
   let consoleCloseCalls = 0;
   let controllerCloseCalls = 0;
+  let controllerCreateCalls = 0;
+  const notify = vi.fn().mockResolvedValue(undefined);
+  const seedCalls: string[] = [];
 
   const openSocket: OpenSnipeSocket = (search) => {
     const socket = new FakeSocket();
     sockets.set(search.searchId, socket);
     openedSearchIds.push(search.searchId);
+    openedSearches.push(search);
     queueMicrotask(() => socket.emit('open'));
     started.resolve();
     return socket;
@@ -127,9 +134,13 @@ function makeHarness(options: {
     isTTY: options.emptyFolder === true,
     ...(options.promptImport === undefined ? {} : { promptImport: options.promptImport }),
     openSocket,
-    fetchListings: async (_ids: readonly string[], _search: TradeSearch) => [LISTING],
+    fetchListings: async (ids: readonly string[], _search: TradeSearch) => ids.map((id) => ({ ...LISTING, id })),
+    fetchCurrentResultIds: async (search: TradeSearch) => {
+      seedCalls.push(search.searchId);
+      return options.seedIds ?? [];
+    },
     refreshPrices: async () => undefined,
-    notify: vi.fn().mockResolvedValue(undefined),
+    notify,
     recordAlert: () => undefined,
     now: () => NOW,
     connectStaggerMs: 0,
@@ -143,30 +154,42 @@ function makeHarness(options: {
         close: () => { consoleCloseCalls += 1; },
       };
     },
-    makeTravelController: async () => ({
-      openSearch: async (url) => { openedPages.push(url); },
-      travel: async (alert) => {
-        travelCalls.push(alert.listingId);
-        return { action: 'traveled', detail: `clicked Travel to Hideout for ${alert.itemName}` };
-      },
-      close: async () => { controllerCloseCalls += 1; },
-    }),
+    makeTravelController: async () => {
+      controllerCreateCalls += 1;
+      return {
+        openSearch: async (url) => { openedPages.push(url); },
+        travel: async (alert) => {
+          travelCalls.push(alert.listingId);
+          return { action: 'traveled', detail: `clicked Travel to Hideout for ${alert.itemName}` };
+        },
+        close: async () => { controllerCloseCalls += 1; },
+      };
+    },
   };
 
   return {
     deps,
     sockets,
     openedSearchIds,
+    openedSearches,
     consoleAlerts,
     travelCalls,
     openedPages,
+    notify,
+    seedCalls,
     get consoleCloseCalls() { return consoleCloseCalls; },
     get controllerCloseCalls() { return controllerCloseCalls; },
+    get controllerCreateCalls() { return controllerCreateCalls; },
     started: started.promise,
     consoleReady: consoleReady.promise,
-    async emitListing(searchId = 'aaa') {
-      sockets.get(searchId)!.emit('message', Buffer.from(JSON.stringify({ new: ['listing-1'] })));
+    async emitListing(searchId = 'aaa', listingId = 'listing-1') {
+      sockets.get(searchId)!.emit('message', Buffer.from(JSON.stringify({ new: [listingId] })));
       await new Promise((resolve) => setTimeout(resolve, 0));
+    },
+    async waitForAlerts(count: number) {
+      for (let attempt = 0; attempt < 20 && consoleAlerts.length < count; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
     },
     async pressTravel() {
       await consoleOptions!.onTravel(consoleAlerts[0]!);
@@ -179,6 +202,97 @@ function makeHarness(options: {
 }
 
 describe('runSnipe orchestration', () => {
+  test('starts monitoring headlessly and creates Chrome only after Enter', async () => {
+    const harness = makeHarness();
+    const running = runSnipe(FLAGS, harness.deps);
+    await harness.started;
+    expect(harness.controllerCreateCalls).toBe(0);
+    expect(harness.openedPages).toEqual([]);
+    await harness.emitListing();
+    await harness.pressTravel();
+    expect(harness.controllerCreateCalls).toBe(1);
+    harness.exit();
+    await running;
+  });
+
+  test('seeds current results quietly and notifies only later live listings', async () => {
+    const harness = makeHarness({ seedIds: ['seed-1'] });
+    const running = runSnipe(FLAGS, harness.deps);
+    await harness.started;
+    await harness.waitForAlerts(1);
+    expect(harness.seedCalls).toEqual(['aaa']);
+    expect(harness.consoleAlerts.map((alert) => alert.listingId)).toEqual(['seed-1']);
+    expect(harness.notify).not.toHaveBeenCalled();
+
+    await harness.emitListing('aaa', 'live-1');
+    expect(harness.consoleAlerts.map((alert) => alert.listingId)).toEqual(['seed-1', 'live-1']);
+    expect(harness.notify).toHaveBeenCalledTimes(1);
+    harness.exit();
+    await running;
+  });
+
+  test('deduplicates an id present in both startup seed and live socket', async () => {
+    const harness = makeHarness({ seedIds: ['same-id'] });
+    const running = runSnipe(FLAGS, harness.deps);
+    await harness.started;
+    await harness.waitForAlerts(1);
+    await harness.emitListing('aaa', 'same-id');
+    expect(harness.consoleAlerts.map((alert) => alert.listingId)).toEqual(['same-id']);
+    expect(harness.notify).not.toHaveBeenCalled();
+    harness.exit();
+    await running;
+  });
+
+  test('caps a startup seed at ten current listings', async () => {
+    const ids = Array.from({ length: 12 }, (_, index) => `seed-${index}`);
+    const harness = makeHarness({ seedIds: ids });
+    const running = runSnipe(FLAGS, harness.deps);
+    await harness.started;
+    await harness.waitForAlerts(10);
+    expect(harness.consoleAlerts).toHaveLength(10);
+    expect(harness.consoleAlerts.map((alert) => alert.listingId)).toEqual(ids.slice(0, 10));
+    harness.exit();
+    await running;
+  });
+
+  test('waits and retries a rate-limited startup seed', async () => {
+    const harness = makeHarness();
+    let attempts = 0;
+    const running = runSnipe(FLAGS, {
+      ...harness.deps,
+      fetchCurrentResultIds: async () => {
+        attempts += 1;
+        if (attempts === 1) throw new RateLimitError(0);
+        return ['after-limit'];
+      },
+    });
+    await harness.started;
+    await harness.waitForAlerts(1);
+    expect(attempts).toBe(2);
+    expect(harness.consoleAlerts[0]?.listingId).toBe('after-limit');
+    harness.exit();
+    await running;
+  });
+
+  test('does not permanently lose an id when its first detail fetch fails', async () => {
+    const harness = makeHarness();
+    let attempts = 0;
+    const running = runSnipe(FLAGS, {
+      ...harness.deps,
+      fetchListings: async (ids) => {
+        attempts += 1;
+        if (attempts === 1) throw new Error('temporary fetch failure');
+        return ids.map((id) => ({ ...LISTING, id }));
+      },
+    });
+    await harness.started;
+    await harness.emitListing('aaa', 'retry-me');
+    await harness.emitListing('aaa', 'retry-me');
+    expect(harness.consoleAlerts.map((alert) => alert.listingId)).toEqual(['retry-me']);
+    harness.exit();
+    await running;
+  });
+
   test('a qualifying listing is queued and never travels until the console action', async () => {
     const harness = makeHarness();
     const running = runSnipe(FLAGS, harness.deps);
@@ -195,14 +309,12 @@ describe('runSnipe orchestration', () => {
     expect([...harness.sockets.values()].every((socket) => socket.closed)).toBe(true);
   });
 
-  test('opens sockets only for enabled searches and opens the first one in the reusable tab', async () => {
+  test('opens sockets only for enabled searches without opening a browser page', async () => {
     const harness = makeHarness();
     const running = runSnipe(FLAGS, harness.deps);
     await harness.started;
     expect(harness.openedSearchIds).toEqual(['aaa']);
-    expect(harness.openedPages).toEqual([
-      'https://www.pathofexile.com/trade/search/Allflame/aaa',
-    ]);
+    expect(harness.openedPages).toEqual([]);
     harness.exit();
     await running;
   });
@@ -227,9 +339,8 @@ describe('runSnipe orchestration', () => {
     const harness = makeHarness({ globalLeague: 'Standard', snipeLeague: 'cUrReNt' });
     const running = runSnipe(FLAGS, harness.deps);
     await harness.started;
-    expect(harness.openedPages).toEqual([
-      'https://www.pathofexile.com/trade/search/Allflame/aaa',
-    ]);
+    expect(harness.openedSearches[0]?.league).toBe('Allflame');
+    expect(harness.openedPages).toEqual([]);
     harness.exit();
     await running;
   });
@@ -246,7 +357,18 @@ describe('runSnipe orchestration', () => {
     expect(harness.consoleAlerts).toEqual([]);
   });
 
-  test('q during initial CDP attach returns and closes a controller that resolves late', async () => {
+  test('shutdown prevents an in-flight startup seed from enqueueing', async () => {
+    const gate = deferred<readonly string[]>();
+    const harness = makeHarness();
+    const running = runSnipe(FLAGS, { ...harness.deps, fetchCurrentResultIds: async () => gate.promise });
+    await harness.started;
+    harness.exit();
+    gate.resolve(['too-late']);
+    await running;
+    expect(harness.consoleAlerts).toEqual([]);
+  });
+
+  test('q during a lazy CDP attach returns and closes a controller that resolves late', async () => {
     const gate = deferred<Awaited<ReturnType<NonNullable<SnipeDeps['makeTravelController']>>>>();
     const close = vi.fn(async () => undefined);
     const harness = makeHarness();
@@ -255,7 +377,9 @@ describe('runSnipe orchestration', () => {
       shutdownTimeoutMs: 5,
       makeTravelController: async () => gate.promise,
     });
-    await harness.consoleReady;
+    await harness.started;
+    await harness.emitListing();
+    void harness.pressTravel();
     await Promise.resolve();
     harness.exit();
     await running;

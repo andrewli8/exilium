@@ -7,10 +7,12 @@ import { NinjaClient } from '../sources/ninja/client.js';
 import type { SnapshotRepository } from '../storage/snapshot-repository.js';
 import {
   buildLiveWsUrl,
+  fetchCurrentResultIds as fetchTradeCurrentResultIds,
   fetchListings as fetchTradeListings,
   type LiveListing,
   type TradeSearch,
 } from '../trade/live-search.js';
+import { RateLimitError } from '../trade/rate-limit.js';
 import { createNotifier } from '../watch/notify.js';
 import {
   loadSnipeFolder,
@@ -26,7 +28,7 @@ import {
   type SnipeConsoleHandle,
   type SnipeConsoleOptions,
 } from './console.js';
-import { buildSearchPageUrl, decideSnipe, formatAlert, type SnipeAlert } from './engine.js';
+import { decideSnipe, formatAlert, type SnipeAlert } from './engine.js';
 import { effectiveLeague, resolveSnipeLeague, type FetchLeaguesFn } from './league.js';
 import { assessMargin } from './margin.js';
 import { persistSnipeImport } from './import.js';
@@ -63,6 +65,12 @@ type FetchSnipeListings = (
   signal?: AbortSignal,
 ) => Promise<readonly LiveListing[]>;
 
+type FetchCurrentSnipeResultIds = (
+  search: TradeSearch,
+  sessionId: string,
+  signal?: AbortSignal,
+) => Promise<readonly string[]>;
+
 export interface SnipeDeps {
   readonly config: ExiliumConfig;
   readonly repo: SnapshotRepository;
@@ -75,6 +83,7 @@ export interface SnipeDeps {
   readonly makeTravelController?: typeof createTravelController;
   readonly openSocket?: OpenSnipeSocket;
   readonly fetchListings?: FetchSnipeListings;
+  readonly fetchCurrentResultIds?: FetchCurrentSnipeResultIds;
   readonly refreshPrices?: (signal: AbortSignal) => Promise<void>;
   readonly notify?: (title: string, body: string) => Promise<void>;
   readonly recordAlert?: (alert: SnipeAlert, action: string, detail: string) => void;
@@ -108,6 +117,11 @@ function recordSnipe(alert: SnipeAlert, action: string, detail: string, log: (me
 interface RunnableTarget {
   readonly target: SnipeTarget;
   readonly search: TradeSearch;
+}
+
+interface RuntimeTarget extends RunnableTarget {
+  readonly seen: Set<string>;
+  readonly inFlight: Set<string>;
 }
 
 async function promptImportSource(): Promise<string | null> {
@@ -337,6 +351,16 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     fetchTradeListings(ids, search, sid, {
       fetchFn: (url, init) => fetch(url, { ...init, ...(signal === undefined ? {} : { signal }) }),
     }));
+  const fetchCurrentResultIds = deps.fetchCurrentResultIds ?? ((search, sid, signal) =>
+    fetchTradeCurrentResultIds(search, sid, {
+      fetchFn: (url, init) => fetch(url, init),
+      ...(signal === undefined ? {} : { signal }),
+    }));
+  const runtimeTargets: readonly RuntimeTarget[] = runnable.map((entry) => ({
+    ...entry,
+    seen: new Set<string>(),
+    inFlight: new Set<string>(),
+  }));
 
   const headers = {
     Cookie: `POESESSID=${sessionId}`,
@@ -349,9 +373,56 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     void task.finally(() => pending.delete(task));
   };
 
-  const connectTarget = ({ target, search }: RunnableTarget): void => {
+  const processIds = async (
+    entry: RuntimeTarget,
+    ids: readonly string[],
+    source: 'seed' | 'live',
+  ): Promise<number> => {
+    const fresh = ids.filter((id) => !entry.seen.has(id) && !entry.inFlight.has(id));
+    if (fresh.length === 0) return 0;
+    for (const id of fresh) entry.inFlight.add(id);
+    try {
+      const listings = await fetchListings(fresh, entry.search, sessionId, networkAbort.signal);
+      if (stopped || stopIntent) return 0;
+      for (const id of fresh) entry.seen.add(id);
+      const snapshots = repo.latestAll(config.game, entry.search.league);
+      let queued = 0;
+      for (const listing of listings) {
+        if (stopped || stopIntent) return queued;
+        const decision = decideSnipe({
+          listing,
+          target: entry.target,
+          assessment: assessMargin({ itemName: listing.referenceName, price: listing.price, snapshots, nowMs: now() }),
+          snapshots,
+          globalMinMarginPct: minMarginPct,
+          league: entry.search.league,
+          seen: NO_PRIOR_LISTINGS,
+        });
+        if (decision.kind === 'suppressed') {
+          log(`skip ${listing.itemName}: ${decision.reason}`);
+          continue;
+        }
+        const alert = decision.alert;
+        consoleHandle.addAlert(alert);
+        queued += 1;
+        if (source === 'live') {
+          const rendered = formatAlert(alert);
+          sound();
+          void notify!(rendered.title, rendered.body);
+          recordWebhook(alert, 'queued', 'waiting for Enter');
+        } else {
+          record(alert, 'seeded', 'current result at startup');
+        }
+      }
+      return queued;
+    } finally {
+      for (const id of fresh) entry.inFlight.delete(id);
+    }
+  };
+
+  const connectTarget = (entry: RuntimeTarget): void => {
+    const { target, search } = entry;
     if (stopped || stopIntent) return;
-    const seen = new Set<string>();
     let consecutiveFailures = 0;
     const connect = (): void => {
       if (stopped || stopIntent) return;
@@ -365,34 +436,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
         const task = (async () => {
           try {
             const message = JSON.parse(data.toString()) as { new?: string[] };
-            const fresh = (message.new ?? []).filter((id) => !seen.has(id));
-            if (fresh.length === 0) return;
-            for (const id of fresh) seen.add(id);
-            const listings = await fetchListings(fresh, search, sessionId, networkAbort.signal);
-            if (stopped || stopIntent) return;
-            const snapshots = repo.latestAll(config.game, search.league);
-            for (const listing of listings) {
-              if (stopped || stopIntent) return;
-              const decision = decideSnipe({
-                listing,
-                target,
-                assessment: assessMargin({ itemName: listing.referenceName, price: listing.price, snapshots, nowMs: now() }),
-                snapshots,
-                globalMinMarginPct: minMarginPct,
-                league: search.league,
-                seen: NO_PRIOR_LISTINGS,
-              });
-              if (decision.kind === 'suppressed') {
-                log(`skip ${listing.itemName}: ${decision.reason}`);
-                continue;
-              }
-              const alert = decision.alert;
-              const rendered = formatAlert(alert);
-              consoleHandle.addAlert(alert);
-              sound();
-              void notify!(rendered.title, rendered.body);
-              recordWebhook(alert, 'queued', 'waiting for Enter');
-            }
+            await processIds(entry, message.new ?? [], 'live');
           } catch (error) {
             log(error instanceof Error ? error.message : String(error));
           }
@@ -420,6 +464,45 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
       });
     };
     connect();
+  };
+
+  const waitForSeedRetry = (seconds: number): Promise<void> => new Promise((resolve) => {
+    if (networkAbort.signal.aborted) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(done, seconds * 1_000);
+    timers.add(timer);
+    function done(): void {
+      clearTimeout(timer);
+      timers.delete(timer);
+      networkAbort.signal.removeEventListener('abort', done);
+      resolve();
+    }
+    networkAbort.signal.addEventListener('abort', done, { once: true });
+  });
+
+  const seedCurrentResults = async (): Promise<void> => {
+    for (const entry of runtimeTargets) {
+      if (stopped || stopIntent) return;
+      for (;;) {
+        try {
+          const ids = await fetchCurrentResultIds(entry.search, sessionId, networkAbort.signal);
+          const queued = await processIds(entry, ids.slice(0, 10), 'seed');
+          if (!stopped && !stopIntent) log(`seeded ${queued} current listing${queued === 1 ? '' : 's'} for ${entry.target.label}`);
+          break;
+        } catch (error) {
+          if (stopped || stopIntent || networkAbort.signal.aborted) return;
+          if (error instanceof RateLimitError) {
+            log(`trade search limit reached while seeding ${entry.target.label}; retrying in ${error.retryAfterSec}s`);
+            await waitForSeedRetry(error.retryAfterSec);
+            continue;
+          }
+          log(`could not seed current listings for ${entry.target.label} (${error instanceof Error ? error.message : String(error)}); live monitoring remains active`);
+          break;
+        }
+      }
+    }
   };
 
   const cleanup = async (): Promise<void> => {
@@ -459,30 +542,14 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
   process.once('SIGINT', onSigint);
   try {
     out(`Exilium snipe — ${runnable.length} enabled search${runnable.length === 1 ? '' : 'es'} · league ${league} · min margin ${minMarginPct ?? 'off'}`);
-    out('Live hits enter the queue. Select one and press Enter to click Travel to Hideout; no whisper is sent or copied.');
+    out('Monitoring is headless. Current results seed quietly; new live hits notify.');
+    out('Chrome is only needed after you press Enter to travel; no whisper is sent or copied.');
     for (const { target } of runnable) out(`  ${target.label} (${target.searchId})`);
-
-    // Visible confirmation of the enabled configuration: claim one page and
-    // show the first selected search. Every later action reuses this page.
-    const first = runnable[0]!;
-    const initialBrowserOpen = ensureController()
-      .then(async (controller) => {
-        if (!shutdownRequested) {
-          await controller.openSearch(buildSearchPageUrl(first.target, first.search.league));
-        }
-      })
-      .catch((error: unknown) => {
-        if (!shutdownRequested) {
-          log(`Could not open the enabled search in Chrome (${error instanceof Error ? error.message : String(error)}). Run \`exilium chrome\`; alerts will keep queuing.`);
-        }
-      });
-    await Promise.race([initialBrowserOpen, stopRequested]);
-    if (stopIntent) return;
 
     startRefresh();
     refreshTimer = setInterval(startRefresh, config.refreshSec * 1_000);
     const stagger = deps.connectStaggerMs ?? CONNECT_STAGGER_MS;
-    runnable.forEach((entry, index) => {
+    runtimeTargets.forEach((entry, index) => {
       const delay = index * stagger;
       if (delay === 0) connectTarget(entry);
       else {
@@ -493,6 +560,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
         timers.add(timer);
       }
     });
+    startTask(seedCurrentResults());
     await Promise.race([consoleHandle.waitUntilExit().then(() => undefined), stopRequested]);
   } finally {
     process.removeListener('SIGINT', onSigint);
