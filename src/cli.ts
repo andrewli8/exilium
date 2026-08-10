@@ -343,7 +343,7 @@ async function cmdTui(): Promise<void> {
   });
   let snipeEntries = catalogApi.loadSnipeCatalog(snipeFolder, (message) => console.error(message));
   const snipeStore = new SnipeStore(snipeEntries.filter((entry) => entry.enabled), {
-    minMarginPct: config.snipe.minMarginPct ?? 20,
+    minMarginPct: config.snipe.minMarginPct ?? 0,
   });
   let snipeRuntime: Awaited<ReturnType<typeof startSnipeRuntime>> | undefined;
   const entryUrl = (entry: (typeof snipeEntries)[number]): string => {

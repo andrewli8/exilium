@@ -103,7 +103,7 @@ export function decideSnipe(opts: DecideSnipeOptions): SnipeDecision {
       reason: `above max buy (${listing.priceText} > ${target.maxBuy!.amount} ${target.maxBuy!.currency}) for "${target.label}"`,
     };
   }
-  const threshold = target.minMarginPct ?? opts.globalMinMarginPct ?? 20;
+  const threshold = target.minMarginPct ?? opts.globalMinMarginPct ?? 0;
   const gate = passesMarginGate(assessment, threshold);
   const qualifiesMargin = gate.pass && !gate.unknownMargin;
 

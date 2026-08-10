@@ -287,7 +287,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     key: `${target.realm}:${target.searchId}`,
     enabled: true,
     source: 'Better Trading' as const,
-  })), { minMarginPct: minMarginPct ?? 20 });
+  })), { minMarginPct: minMarginPct ?? 0 });
   const tradeScheduler = deps.scheduler ?? sharedTradeRequestScheduler;
   let lastSchedulerStatus: string | null | undefined;
   const publishSchedulerHealth = (health: TradeSchedulerHealth): void => {

@@ -63,7 +63,7 @@ export class SnipeStore {
 
   constructor(targets: readonly CatalogEntry[], options: SnipeStoreOptions = {}) {
     this.searches = targets.map((target) => ({ target, state: 'stopped', detail: null }));
-    this.floor = options.minMarginPct ?? 20;
+    this.floor = options.minMarginPct ?? 0;
     this.queue = {
       ...createQueueState(options.maxEntries ?? 200),
       selectedTargetId: targets[0]?.key ?? null,

@@ -149,7 +149,7 @@ export function SnipeQueueApp({ alerts, onTravel, onExit, now, searchCount, minM
   const ingestedOrder = useRef<string[]>([]);
   const { exit } = useApp();
   const clock = now ?? Date.now;
-  const [floor, setFloor] = useState(minMarginPct ?? 20);
+  const [floor, setFloor] = useState(minMarginPct ?? 0);
   const [floorInput, setFloorInput] = useState<string | null>(null);
   const alertSignature = alerts.map((alert) => alert.listingId).join('\u0000');
 

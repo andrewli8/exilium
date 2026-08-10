@@ -321,7 +321,7 @@ describe('runSnipe orchestration', () => {
     const harness = makeHarness();
     const running = runSnipe(FLAGS, harness.deps);
     await harness.started;
-    expect(harness.consoleOptions).toMatchObject({ searchCount: 1, minMarginPct: 20 });
+    expect(harness.consoleOptions).toMatchObject({ searchCount: 1, minMarginPct: 0 });
     harness.exit();
     await running;
   });

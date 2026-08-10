@@ -258,6 +258,7 @@ describe('SnipeQueueApp', () => {
       <SnipeQueueApp
         alerts={[alert('near', { marginPct: 19, qualifiesMargin: false })]}
         onTravel={async () => ({ action: 'failed', detail: 'unused' })}
+        minMarginPct={20}
       />,
     );
     await flush();
