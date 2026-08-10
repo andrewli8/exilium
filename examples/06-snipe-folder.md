@@ -25,21 +25,7 @@ You can instead point `EXILIUM_BETTERTRADING` or `--folder` at a directory of
 `.bt`, `.txt`, `.md`, or `.json` sources. A plain source may contain trade URLs;
 structured JSON can add `maxBuy` or `minMarginPct` per search.
 
-## 2. Start the reusable Chrome profile
-
-```powershell
-exilium chrome
-```
-
-Log into pathofexile.com in that window and clear any human verification once.
-Exilium attaches through the local CDP endpoint. It owns one page for the
-session and leaves the Chrome process running when the console exits.
-
-If Chrome is installed somewhere unusual, save `snipe.chromePath` in config or
-set `EXILIUM_CHROME`. `exilium chrome --print` shows the command without
-launching it.
-
-## 3. Choose searches for this run
+## 2. Choose searches and monitor headlessly
 
 ```powershell
 exilium snipe --min-margin 15
@@ -54,8 +40,11 @@ The picker starts with nothing selected:
 - Escape cancels.
 
 This selection is deliberately not written to config. After Enter, Exilium
-opens the first enabled search in its reusable Chrome tab and creates live
-WebSockets only for the selected searches (up to 20).
+creates live WebSockets only for the selected searches (up to 20); it does not
+open Chrome or create browser tabs. In a rate-limited background sequence it
+also loads up to ten current results per selected search using your locally
+saved POESESSID. Those current results seed the queue quietly. Listings that
+arrive afterward through the WebSockets produce notifications.
 
 For a non-interactive run, make the choice explicit:
 
@@ -67,7 +56,11 @@ exilium snipe --search AbC123xyz --search DeF456uvw
 Search IDs are league-portable for PoE1. `--league Standard` overrides the
 resolved challenge league; `--keep-league` trusts each source URL.
 
-## 4. Act on live hits
+The trade-search endpoints used by the website are not in GGG's supported API
+reference and may change. Exilium observes the dynamic account/IP rate-limit
+headers and waits when needed; six imports are never polled simultaneously.
+
+## 3. Act on queue entries
 
 New hits appear as `NEW` queue rows with search label, item, price, margin,
 freshness, seller, and age. New arrivals do not move your current selection.
@@ -84,10 +77,23 @@ search, finds the matching listing row, reloads once for indexing lag, and
 clicks its Travel to Hideout button once. The row becomes `TRAVELED` only after
 that click succeeds.
 
-If Chrome cannot be reached, the row becomes `FAILED` with the recovery command
-`exilium chrome`; live hits continue to queue.
+Chrome is contacted for the first time only after Enter. If it cannot be
+reached, the row becomes `FAILED` with the recovery command `exilium chrome`;
+headless live hits continue to queue.
 
-## 5. Margin and history
+Start the reusable profile in another terminal only when you want to travel:
+
+```powershell
+exilium chrome
+```
+
+Log into pathofexile.com in that window and clear any human verification once.
+Exilium attaches through the local CDP endpoint and owns one action page. It
+leaves the Chrome process running when the console exits. If Chrome is installed
+somewhere unusual, save `snipe.chromePath` in config or set `EXILIUM_CHROME`;
+`exilium chrome --print` shows the launch command without starting it.
+
+## 4. Margin and history
 
 - `+10,000c (+25.0%)` means the local reference is 10,000 chaos above the ask.
 - `STALE >10m` means reference refresh fell behind; reprice before committing.
@@ -100,10 +106,10 @@ console does not use a whisper/paste workflow.
 
 ## Windows verification checklist
 
-1. `exilium chrome` opens the dedicated profile.
-2. The imported extension searches appear in the picker.
-3. Enabling a subset opens the first selected search in one Chrome tab.
-4. A hit appears as `NEW` without browser navigation or travel.
-5. Enter on that row performs one Travel to Hideout click.
-6. A second hit reuses the same tab.
-7. `q` leaves Chrome running and closes Exilium's owned page.
+1. The imported extension searches appear in the picker.
+2. Enabling a subset starts sockets and seeds queue rows with no Chrome process.
+3. A new hit appears as `NEW` and produces a notification without navigation.
+4. Enter without Chrome marks only that row `FAILED` and monitoring continues.
+5. `exilium chrome` opens the dedicated profile; retry performs one Travel to Hideout click.
+6. A second Enter action reuses the same action tab.
+7. `q` leaves Chrome running and closes only Exilium's owned page.

@@ -575,7 +575,7 @@ async function cmdChrome(): Promise<void> {
     return;
   }
   console.log(`Launching Chrome with a debugging port on ${port} (dedicated profile: ${profileDir}).`);
-  console.log('Log into pathofexile.com in that window once and clear any Cloudflare check. `exilium snipe` reuses one tab and opens the first search you enable.');
+  console.log('Log into pathofexile.com in that window once and clear any Cloudflare check. `exilium snipe` monitors headlessly and uses one action tab only after you press Enter to travel.');
   console.log(`If Chrome does not open, run this yourself:\n  ${printableCommand}\n(${launch.note})`);
   const { spawn } = await import('node:child_process');
   const child = spawn(launch.cmd, [...launch.args], { detached: true, stdio: 'ignore' });

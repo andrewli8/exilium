@@ -97,6 +97,18 @@ export const MAX_SNIPE_SOCKETS = 20;
 const CONNECT_STAGGER_MS = 500;
 const NO_PRIOR_LISTINGS: ReadonlySet<string> = new Set();
 
+export function snipeStartupMessages(
+  searchCount: number,
+  league: string,
+  minMarginPct: number | null,
+): readonly string[] {
+  return [
+    `Exilium snipe — ${searchCount} enabled search${searchCount === 1 ? '' : 'es'} · league ${league} · min margin ${minMarginPct ?? 'off'}`,
+    'Monitoring is headless. Current results seed quietly; new live hits notify.',
+    'Chrome is only needed after you press Enter to travel; no whisper is sent or copied.',
+  ];
+}
+
 function snipeLogPath(): string {
   return join(homedir(), '.exilium', 'snipes.jsonl');
 }
@@ -541,9 +553,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
   const onSigint = (): void => requestStop();
   process.once('SIGINT', onSigint);
   try {
-    out(`Exilium snipe — ${runnable.length} enabled search${runnable.length === 1 ? '' : 'es'} · league ${league} · min margin ${minMarginPct ?? 'off'}`);
-    out('Monitoring is headless. Current results seed quietly; new live hits notify.');
-    out('Chrome is only needed after you press Enter to travel; no whisper is sent or copied.');
+    for (const message of snipeStartupMessages(runnable.length, league, minMarginPct)) out(message);
     for (const { target } of runnable) out(`  ${target.label} (${target.searchId})`);
 
     startRefresh();

@@ -6,7 +6,7 @@ import { loadConfig } from '../src/config.js';
 import type { MarketSnapshot } from '../src/domain/types.js';
 import type { SnipeConsoleOptions } from '../src/snipe/console.js';
 import type { SnipeAlert } from '../src/snipe/engine.js';
-import { runSnipe, type OpenSnipeSocket, type SnipeDeps, type SnipeFlags } from '../src/snipe/run.js';
+import { runSnipe, snipeStartupMessages, type OpenSnipeSocket, type SnipeDeps, type SnipeFlags } from '../src/snipe/run.js';
 import type { LiveListing, TradeSearch } from '../src/trade/live-search.js';
 import { RateLimitError } from '../src/trade/rate-limit.js';
 
@@ -202,6 +202,14 @@ function makeHarness(options: {
 }
 
 describe('runSnipe orchestration', () => {
+  test('startup guidance promises headless monitoring and lazy Chrome', () => {
+    expect(snipeStartupMessages(6, 'Allflame', null)).toEqual([
+      'Exilium snipe — 6 enabled searches · league Allflame · min margin off',
+      'Monitoring is headless. Current results seed quietly; new live hits notify.',
+      'Chrome is only needed after you press Enter to travel; no whisper is sent or copied.',
+    ]);
+  });
+
   test('starts monitoring headlessly and creates Chrome only after Enter', async () => {
     const harness = makeHarness();
     const running = runSnipe(FLAGS, harness.deps);

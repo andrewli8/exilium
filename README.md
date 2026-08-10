@@ -14,7 +14,7 @@ Covers PoE1 (default: 39 categories, ~35,000 markets including currency, uniques
 - **Price alerts.** Set a watch like "ping me if Mageblood drops below 100 div" and get a desktop notification or Discord message when it hits.
 - **Price anything.** `exilium price headhunter` returns the going rate in chaos and divine.
 - **Snipe live searches.** Point it at a pathofexile.com live search and it copies the trade whisper to your clipboard the moment a listing appears. You paste it in-game.
-- **Run selected Better Trading searches.** `exilium snipe` lets you multi-select searches for each run, opens the first enabled search in one reusable Chrome tab, and queues live hits with poe.ninja margins. Enter on a selected hit clicks Travel to Hideout; arrivals never act or copy a whisper.
+- **Run selected Better Trading searches headlessly.** `exilium snipe` lets you multi-select searches, quietly seeds current results, and queues live hits with poe.ninja margins without opening Chrome. Enter on a selected hit lazily connects to one reusable Chrome tab to click Travel to Hideout; arrivals never act or copy a whisper.
 - **Value your stash.** See what a tab is worth and what changed since last time.
 - **Ask Claude.** Register the MCP server, then ask "what are the biggest movers right now?" or "find me a flip with 50%+ edge and write out the steps."
 
@@ -152,13 +152,15 @@ Sources can contain any mix of:
 
 Every run starts with a multi-select. Use Up/Down, Space, `a`, or number keys to choose searches, then Enter to enable only those searches. The choice is not saved. For scripts and non-interactive terminals, use `--all` or repeat `--search ID`.
 
-Before starting, run `exilium chrome` and log into pathofexile.com in that dedicated browser profile. Once the selection is enabled, Exilium attaches to Chrome and opens the first selected search in one owned tab. All selected searches are watched through the trade site's live WebSockets; Exilium never creates one tab per search.
+Chrome is not required to monitor. Once selection is enabled, Exilium uses your locally saved POESESSID to load up to ten current results per search, then watches all selected searches through the trade site's live WebSockets. Current results seed the queue quietly; listings arriving afterward produce desktop notifications, optional sound, and webhooks. Multiple selected searches do not create browser tabs.
+
+The trade-search endpoints used by the Path of Exile website are not part of GGG's officially supported API surface and may change. Exilium reads and honors every returned rate-limit policy, staggering startup seeds instead of flooding six searches at once.
 
 For every new listing, Exilium converts the asking price to chaos, checks local poe.ninja data, and adds the hit to the terminal queue with its margin: `Mageblood · 150 divine · +10,000c (+25.0%)`. Set a floor with `--min-margin 20` (or `snipe.minMarginPct` in config). Items with no aggregate price still alert as `no reference price`.
 
 Searches run under the current challenge league — **Allflame** — no matter which league the bookmark URL mentions (search ids are league-portable). Override with `--league` or keep each URL's own league with `--keep-league`.
 
-On a hit you get the queue row, desktop notification, optional sound, and a `queued` entry in `~/.exilium/snipes.jsonl`. Nothing opens, travels, sends, or copies a whisper merely because the listing arrived. Select a queue row and press Enter: that one user action navigates the reusable tab to the listing, clicks **Travel to Hideout** once, and marks the row `TRAVELED` or `FAILED`. Use `r` to retry a failed row, `d` to dismiss, and `q` to stop.
+On a new live hit you get the queue row, desktop notification, optional sound, and a `queued` entry in `~/.exilium/snipes.jsonl`. Nothing opens, travels, sends, or copies a whisper merely because the listing arrived. Select a queue row and press Enter: Exilium then lazily attaches to the Chrome instance started by `exilium chrome`, navigates its reusable tab to the listing, clicks **Travel to Hideout** once, and marks the row `TRAVELED` or `FAILED`. If Chrome is unavailable, the row explains how to start it and remains retryable with `r`; monitoring never stops.
 
 `EXILIUM_SNIPE_WEBHOOK` remains an optional structured event feed for notifications and agent integrations. Travel authority stays in the local queue: the supported console flow does not send or copy a seller whisper.
 
