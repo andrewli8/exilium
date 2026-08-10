@@ -245,10 +245,19 @@ describe('parseFetchResponseBody Valdo rewards', () => {
 
   test('extracts a reward from a structured mod object description', () => {
     const [listing] = parseFetchResponseBody(valdoResult({
+      explicitMods: [{ description: 'Reward: Foil Nimis', domain: 'explicit' }],
+    }));
+    expect(listing?.itemName).toBe('Foil Nimis');
+    expect(listing?.referenceName).toBe('Nimis');
+  });
+
+  test('Mageblood rewards pin to the 4-flask line and skip the unid floor', () => {
+    const [listing] = parseFetchResponseBody(valdoResult({
       explicitMods: [{ description: 'Reward: Foil Mageblood', domain: 'explicit' }],
     }));
     expect(listing?.itemName).toBe('Foil Mageblood');
-    expect(listing?.referenceName).toBe('Mageblood');
+    expect(listing?.referenceName).toBe('Mageblood (4 Flasks)');
+    expect(listing?.rewardBase).toBeUndefined();
   });
 
   test('prices Forbidden jewels by their allocated passive variant', () => {

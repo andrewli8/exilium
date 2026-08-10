@@ -171,6 +171,12 @@ type FetchedItem = NonNullable<z.infer<typeof fetchResultEntrySchema>['item']>;
 const REWARD_LINE = /^Reward:\s*(.+?)\s*$/;
 const REWARD_STACK_PREFIX = /^\d+x\s+/i;
 const REWARD_FOIL_PREFIX = /^Foil\s+/i;
+/** Rewards whose reference must pin to one specific ninja line (and skip the
+ * unid-floor lookup). Mageblood rewards count as 4-flask — the volume-based
+ * variant pick could drift onto the far pricier 5-flask line. */
+const REWARD_REFERENCE_OVERRIDES: ReadonlyMap<string, string> = new Map([
+  ['mageblood', 'Mageblood (4 Flasks)'],
+]);
 /** Forbidden Flame/Flesh jewels: the allocated ascendancy passive IS the
  * item's value, and poe.ninja names each variant "<Passive> (<jewel name>)"
  * ("Blazing Cradle (Foil Forbidden Flesh)"). The strict "if you have" suffix
@@ -313,8 +319,9 @@ export function parseFetchResponseBody(payload: unknown): readonly LiveListing[]
       // lines, so "Foil Nimis" prices as "Nimis"; stack prefixes ("5x")
       // strip the same way. priceItem prefers the item's own variant lines,
       // so this never substring-matches back into a Valdo map line.
-      referenceName: rewardBase ?? variant ?? baseReference,
-      ...(rewardBase === null ? {} : { rewardBase }),
+      referenceName: (rewardBase === null ? undefined : REWARD_REFERENCE_OVERRIDES.get(rewardBase.toLowerCase()))
+        ?? rewardBase ?? variant ?? baseReference,
+      ...(rewardBase === null || REWARD_REFERENCE_OVERRIDES.has(rewardBase.toLowerCase()) ? {} : { rewardBase }),
       priceText: price,
       price: r.listing.price ?? null,
       listedAt: r.listing.indexed ?? null,
