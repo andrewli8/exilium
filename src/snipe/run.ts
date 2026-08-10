@@ -115,6 +115,10 @@ export interface SnipeDeps {
 
 export const MAX_SNIPE_SOCKETS = 20;
 const CONNECT_STAGGER_MS = 500;
+/** Pause between browser-live tab opens. Each tab's plain-page load runs a
+ * real search under the user's session, and the site budgets those tightly —
+ * tabs must open one at a time with breathing room, never all at once. */
+const BROWSER_LIVE_TAB_GAP_MS = 4_000;
 const NO_PRIOR_LISTINGS: ReadonlySet<string> = new Set();
 
 export function snipeStartupMessages(
@@ -127,7 +131,7 @@ export function snipeStartupMessages(
     `Exilium snipe — ${searchCount} enabled search${searchCount === 1 ? '' : 'es'} · league ${league} · min margin ${minMarginPct ?? 'off'}`,
     ...(browserLive ? [
       'Browser-live: Chrome opens each search\'s /live page and Exilium reads listings straight off those tabs — no trade API calls of its own.',
-      'Run `exilium chrome` and log into pathofexile.com first. Enter clicks Travel to Hideout in the already-open tab.',
+      'Run `exilium chrome` and log into pathofexile.com first. Tabs open one at a time (the site budgets searches), so the board fills as each search seeds. Enter clicks Travel to Hideout in the already-open tab.',
     ] : [
       'Monitoring is headless. Current results seed quietly; new live hits notify.',
       'Chrome is only needed after you press Enter to travel; no whisper is sent or copied.',
@@ -739,23 +743,32 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
 
     startRefresh();
     refreshTimer = setInterval(startRefresh, config.refreshSec * 1_000);
-    const stagger = deps.connectStaggerMs ?? CONNECT_STAGGER_MS;
-    runtimeTargets.forEach((entry, index) => {
-      const start = (): void => {
-        if (browserLive) startTask(openLiveTab(entry));
-        else connectTarget(entry);
-      };
-      const delay = index * stagger;
-      if (delay === 0) start();
-      else {
-        const timer = setTimeout(() => {
-          timers.delete(timer);
-          start();
-        }, delay);
-        timers.add(timer);
-      }
-    });
-    if (!browserLive) startTask(seedCurrentResults());
+    if (browserLive) {
+      const tabGapMs = deps.connectStaggerMs ?? BROWSER_LIVE_TAB_GAP_MS;
+      startTask((async () => {
+        for (const [index, entry] of runtimeTargets.entries()) {
+          if (stopped || stopIntent) return;
+          await openLiveTab(entry);
+          if (index < runtimeTargets.length - 1 && tabGapMs > 0) {
+            await waitForSeedRetry(tabGapMs / 1_000);
+          }
+        }
+      })());
+    } else {
+      const stagger = deps.connectStaggerMs ?? CONNECT_STAGGER_MS;
+      runtimeTargets.forEach((entry, index) => {
+        const delay = index * stagger;
+        if (delay === 0) connectTarget(entry);
+        else {
+          const timer = setTimeout(() => {
+            timers.delete(timer);
+            connectTarget(entry);
+          }, delay);
+          timers.add(timer);
+        }
+      });
+      startTask(seedCurrentResults());
+    }
     await Promise.race([consoleHandle.waitUntilExit().then(() => undefined), stopRequested]);
   } finally {
     process.removeListener('SIGINT', onSigint);

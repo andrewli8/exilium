@@ -734,6 +734,33 @@ describe('runSnipe browser-live mode', () => {
     await running;
   });
 
+  test('opens tabs one at a time so the page-side search budget survives', async () => {
+    const harness = makeHarness();
+    const opened: string[] = [];
+    let releaseFirst: () => void = () => undefined;
+    const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const fakePage = {
+      url: () => 'about:blank',
+      goto: async () => undefined,
+      clickTravelButton: async () => 'clicked' as const,
+      close: async () => undefined,
+    };
+    const openLiveSearch: NonNullable<SnipeDeps['openLiveSearch']> = async (options) => {
+      opened.push(options.search.searchId);
+      if (opened.length === 1) await firstGate;
+      return { page: fakePage, close: async () => undefined };
+    };
+    const running = runSnipe({ ...FLAGS, browserLive: true, searches: ['aaa', 'bbb'] }, { ...harness.deps, openLiveSearch });
+    await harness.consoleReady;
+    for (let i = 0; i < 10; i += 1) await new Promise((r) => setTimeout(r, 0));
+    expect(opened).toEqual(['aaa']); // the second tab must wait for the first
+    releaseFirst();
+    for (let i = 0; i < 20 && opened.length < 2; i += 1) await new Promise((r) => setTimeout(r, 0));
+    expect(opened).toEqual(['aaa', 'bbb']);
+    harness.exit();
+    await running;
+  });
+
   test('browser-live does not require a POESESSID', async () => {
     const harness = browserLiveHarness();
     const config = loadConfig({}, {
