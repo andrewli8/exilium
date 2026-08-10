@@ -134,17 +134,21 @@ function snipeAlert(): SnipeAlert {
 }
 
 describe('ExiliumTui', () => {
-  test('tab 4 switches between PRICE ALERTS and persistent SNIPES rows', async () => {
+  test('tab 4 lands on SNIPES by default; Tab reaches PRICE ALERTS', async () => {
     const ui = render(<ExiliumTui service={makeService()} {...PROPS} snipe={snipeWorkspace()} />);
     ui.stdin.write('4');
     await flush();
-    expect(ui.lastFrame()).toContain('PRICE ALERTS');
-    ui.stdin.write('\t');
-    await flush();
-    expect(ui.lastFrame()).toContain('SNIPES');
+    expect(ui.lastFrame()).toContain('[SNIPES]');
     expect(ui.lastFrame()).toContain('Sublime Vision');
     expect(ui.lastFrame()).toContain('Mageblood');
     ui.stdin.write('\u001b');
+    await flush();
+    expect(ui.lastFrame()).toContain('[PRICE ALERTS]');
+  });
+
+  test('tab 4 defaults to PRICE ALERTS when no snipe workspace exists', async () => {
+    const ui = render(<ExiliumTui service={makeService()} {...PROPS} />);
+    ui.stdin.write('4');
     await flush();
     expect(ui.lastFrame()).toContain('[PRICE ALERTS]');
   });
@@ -166,8 +170,6 @@ describe('ExiliumTui', () => {
     const workspace = snipeWorkspace();
     const ui = render(<ExiliumTui service={makeService()} {...PROPS} snipe={workspace} />);
     ui.stdin.write('4');
-    await flush();
-    ui.stdin.write('\t');
     await flush();
     expect(ui.lastFrame()).toContain('[SNIPES]');
 
@@ -195,8 +197,6 @@ describe('ExiliumTui', () => {
     workspace.store.ingest(snipeAlert());
     const ui = render(<ExiliumTui service={makeService()} {...PROPS} snipe={workspace} />);
     ui.stdin.write('4');
-    await flush();
-    ui.stdin.write('\t');
     await flush();
     ui.stdin.write('\u001b[13;2u');
     await flush();

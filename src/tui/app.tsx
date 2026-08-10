@@ -298,7 +298,9 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
   type PcState = { kind: 'idle' } | { kind: 'loading' } | { kind: 'result'; r: PriceCheckResult } | { kind: 'error'; message: string };
   const [pc, setPc] = useState<PcState>({ kind: 'idle' });
   const [statusMsg, setStatusMsg] = useState('');
-  const [watchesView, setWatchesView] = useState<WatchesView>('price-alerts');
+  // Snipes are the tab's main event — land there whenever a snipe workspace
+  // exists; price alerts stay one Tab away.
+  const [watchesView, setWatchesView] = useState<WatchesView>(snipe !== undefined ? 'snipes' : 'price-alerts');
   const [snipeConfigOpen, setSnipeConfigOpen] = useState(false);
   const [snipeEntries, setSnipeEntries] = useState<readonly CatalogEntry[]>(snipe?.entries ?? []);
 
