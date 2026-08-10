@@ -65,12 +65,28 @@ export function SnipeBoardView({ store, onTravel, active = true, embedded = fals
     if (floorInput !== null) {
       if (key.escape) setFloorInput(null);
       else if (key.return) {
-        const parsed = Number(floorInput);
-        if (floorInput !== '' && Number.isFinite(parsed) && parsed >= 0) store.setFloor(parsed);
+        // "10" or "10%" → percent · "5d" → flat divines · "800c" → flat chaos.
+        const match = /^(\d+(?:\.\d+)?)\s*(d|c|%)?$/i.exec(floorInput.trim());
+        if (match !== null) {
+          const value = Number(match[1]);
+          const unit = match[2]?.toLowerCase();
+          if (Number.isFinite(value) && value >= 0) {
+            if (unit === 'd') {
+              const rate = snapshot.chaosPerDivine;
+              if (rate === null) {
+                setNotice('No divine rate yet — price data is still loading; try again shortly or use chaos (e.g. 800c)');
+                setFloorInput(null);
+                return;
+              }
+              store.setFlatFloor(value * rate, `${match[1]}d`);
+            } else if (unit === 'c') store.setFlatFloor(value, `${match[1]}c`);
+            else store.setFloor(value);
+          }
+        }
         setFloorInput(null);
       } else if (key.delete) setFloorInput('');
       else if (key.backspace) setFloorInput((value) => value?.slice(0, -1) ?? null);
-      else if (/^[0-9.]+$/.test(input)) setFloorInput((value) => `${value ?? ''}${input}`);
+      else if (/^[0-9.dc%]+$/i.test(input)) setFloorInput((value) => `${value ?? ''}${input}`);
       return;
     }
     if (input.toLowerCase() === 'q' && !embedded) onExit?.();
@@ -133,7 +149,7 @@ export function SnipeBoardView({ store, onTravel, active = true, embedded = fals
       {failure !== null && <Text color="red">{fold(failure)}</Text>}
       {failure === null && otherNotice !== null && <Text color="yellow">{fold(otherNotice)}</Text>}
       <Text color="cyan">{fold(`${headerStatus} ${glyphs.sep} Chrome on demand`)}</Text>
-      <Text dimColor>{fold(`Threshold: +${snapshot.floor}% profit ${glyphs.sep} press t to change`)}</Text>
+      <Text dimColor>{fold(`Threshold: +${snapshot.flatFloor === null ? `${snapshot.floor}%` : snapshot.flatFloor.label} profit ${glyphs.sep} press t to change (e.g. 15, 5d, 800c)`)}</Text>
       {snapshot.queue.view === 'board' ? <>
         {rows.length === 0 ? <>
           <Text dimColor>{fold(`Watching ${snapshot.searches.length} search${snapshot.searches.length === 1 ? '' : 'es'} — waiting for listings`)}</Text>
@@ -166,7 +182,7 @@ export function SnipeBoardView({ store, onTravel, active = true, embedded = fals
         {(selectedGroup?.entries.length ?? 0) === 0 && <Text dimColor>No listings for this search — press u on the board to reveal hidden listings.</Text>}
         <Text dimColor>Enter travel · Esc board</Text>
       </>}
-      {floorInput !== null && <Text color="yellow">{`Set threshold: ${floorInput}▌% · Enter apply · Esc cancel`}</Text>}
+      {floorInput !== null && <Text color="yellow">{`Set threshold: ${floorInput}▌ · % or flat (5d, 800c) · Enter apply · Esc cancel`}</Text>}
     </Box>
   );
 }

@@ -75,6 +75,22 @@ describe('SnipeStore', () => {
     expect(store.snapshot().queue.selectedTargetId).toBe('trade:one');
   });
 
+  test('a flat chaos threshold qualifies rows by absolute profit', () => {
+    const store = new SnipeStore([target('one')], { minMarginPct: 0 });
+    store.ingest(alert('big', { marginChaos: 1_200, marginPct: 3, qualifiesMargin: true }));
+    store.ingest(alert('small', { marginChaos: 300, marginPct: 40, qualifiesMargin: true }));
+    expect(store.snapshot().table.rows.every((row) => row.qualifies)).toBe(true);
+
+    store.setFlatFloor(1_000, '5d');
+    const rows = store.snapshot().table.rows;
+    expect(rows.find((row) => row.entry.alert.listingId === 'big')?.qualifies).toBe(true);
+    expect(rows.find((row) => row.entry.alert.listingId === 'small')?.qualifies).toBe(false);
+    expect(store.snapshot().flatFloor).toEqual({ chaos: 1_000, label: '5d' });
+
+    store.setFloor(10); // returning to percent clears the flat threshold
+    expect(store.snapshot().flatFloor).toBeNull();
+  });
+
   test('publishes keyboard capture so the host TUI can mute its shortcuts', () => {
     const store = new SnipeStore([target('one')]);
     expect(store.snapshot().keyboardCapture).toBe(false);

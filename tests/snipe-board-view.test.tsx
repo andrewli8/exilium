@@ -127,6 +127,35 @@ describe('SnipeBoardView', () => {
     expect(store.snapshot().keyboardCapture).toBe(false);
   });
 
+  test('t accepts a flat divine threshold like 5d', async () => {
+    const store = new SnipeStore([target('one')], { minMarginPct: 0 });
+    store.setChaosPerDivine(200);
+    store.ingest(alert('big', 3, { marginChaos: 1_200 }));
+    store.ingest(alert('small', 40, { marginChaos: 300 }));
+    const ui = render(<SnipeBoardView store={store} onTravel={async () => ({ action: 'failed', detail: 'unused' })} />);
+    ui.stdin.write('t');
+    await flush();
+    ui.stdin.write('5d');
+    await flush();
+    ui.stdin.write('\r');
+    await flush();
+    expect(store.snapshot().flatFloor).toEqual({ chaos: 1_000, label: '5d' });
+    expect(ui.lastFrame()).toContain('Threshold: +5d profit');
+  });
+
+  test('t accepts a flat chaos threshold like 800c', async () => {
+    const store = new SnipeStore([target('one')], { minMarginPct: 0 });
+    const ui = render(<SnipeBoardView store={store} onTravel={async () => ({ action: 'failed', detail: 'unused' })} />);
+    ui.stdin.write('t');
+    await flush();
+    ui.stdin.write('800c');
+    await flush();
+    ui.stdin.write('\r');
+    await flush();
+    expect(store.snapshot().flatFloor).toEqual({ chaos: 800, label: '800c' });
+    expect(ui.lastFrame()).toContain('Threshold: +800c profit');
+  });
+
   test('f still works as a threshold alias', async () => {
     const store = new SnipeStore([target('one')], { minMarginPct: 20 });
     const ui = render(<SnipeBoardView store={store} onTravel={async () => ({ action: 'failed', detail: 'unused' })} />);

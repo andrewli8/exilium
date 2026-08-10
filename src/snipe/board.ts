@@ -1,3 +1,4 @@
+import type { SnipeAlert } from './engine.js';
 import type { SnipeQueueEntry, SnipeQueueState } from './queue.js';
 
 export interface CandidateGroup {
@@ -56,6 +57,22 @@ export interface ListingTable {
 
 export interface ListingTableOptions {
   readonly minMarginPct?: number;
+  /** Flat profit threshold in chaos; overrides the percent floor for entries
+   * without their own per-search floor. */
+  readonly flatFloorChaos?: number;
+}
+
+/** Does one alert clear a flat chaos threshold? A per-search percent floor
+ * still wins for its own entries. Exported so the runtime's ping gate and
+ * the board agree. */
+export function alertClearsFlatFloor(
+  alert: Pick<SnipeAlert, 'marginChaos' | 'marginPct' | 'targetMinMarginPct'>,
+  flatFloorChaos: number,
+): boolean {
+  if (alert.targetMinMarginPct !== null) {
+    return alert.marginPct !== null && alert.marginPct >= alert.targetMinMarginPct;
+  }
+  return alert.marginChaos !== null && alert.marginChaos >= flatFloorChaos;
 }
 
 function listedTime(entry: SnipeQueueEntry): number {
@@ -90,7 +107,12 @@ export function projectListingTable(
 ): ListingTable {
   const entries = state.entries.filter(active);
   const rows = entries
-    .map((entry): ListingRow => ({ entry, qualifies: entryQualifies(entry, options.minMarginPct) }))
+    .map((entry): ListingRow => ({
+      entry,
+      qualifies: options.flatFloorChaos !== undefined
+        ? alertClearsFlatFloor(entry.alert, options.flatFloorChaos)
+        : entryQualifies(entry, options.minMarginPct),
+    }))
     .sort((left, right) => {
       const recency = listedTime(right.entry) - listedTime(left.entry);
       if (recency !== 0) return recency;

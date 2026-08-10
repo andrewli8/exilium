@@ -40,6 +40,12 @@ export interface SnipeSnapshot {
   /** True while an inline prompt (threshold entry) owns the keyboard; a host
    * TUI must mute its own shortcuts (tab switching, quit) while set. */
   readonly keyboardCapture: boolean;
+  /** Flat profit threshold (chaos + the label as entered, e.g. "5d");
+   * overrides the percent floor while set. */
+  readonly flatFloor: { readonly chaos: number; readonly label: string } | null;
+  /** Chaos per divine from the latest snapshots; lets the UI convert "5d"
+   * threshold input. Null until price data arrives. */
+  readonly chaosPerDivine: number | null;
 }
 
 export interface SnipeStoreOptions {
@@ -55,6 +61,8 @@ export class SnipeStore {
   private progress: SnipeSnapshot['progress'];
   private status: string | null = null;
   private keyboardCapture = false;
+  private flatFloor: { readonly chaos: number; readonly label: string } | null = null;
+  private chaosPerDivine: number | null = null;
   private readonly listeners = new Set<() => void>();
   private readonly rememberedIds = new Set<string>();
   private readonly rememberedOrder: string[] = [];
@@ -138,7 +146,21 @@ export class SnipeStore {
   setFloor(floor: number): void {
     if (!Number.isFinite(floor) || floor < 0) return;
     this.floor = floor;
+    this.flatFloor = null;
     this.queue = queueReducer(this.queue, { type: 'reconcile-floor', minMarginPct: floor });
+    this.rebuild();
+  }
+
+  setFlatFloor(chaos: number, label: string): void {
+    if (!Number.isFinite(chaos) || chaos < 0) return;
+    this.flatFloor = { chaos, label };
+    this.rebuild();
+  }
+
+  setChaosPerDivine(rate: number | null): void {
+    if (rate !== null && (!Number.isFinite(rate) || rate <= 0)) return;
+    if (this.chaosPerDivine === rate) return;
+    this.chaosPerDivine = rate;
     this.rebuild();
   }
 
@@ -175,11 +197,16 @@ export class SnipeStore {
       searches: this.searches,
       queue: this.queue,
       board,
-      table: projectListingTable(this.queue, { minMarginPct: this.floor }),
+      table: projectListingTable(this.queue, {
+        minMarginPct: this.floor,
+        ...(this.flatFloor === null ? {} : { flatFloorChaos: this.flatFloor.chaos }),
+      }),
       floor: this.floor,
       progress: this.progress,
       status: this.status,
       keyboardCapture: this.keyboardCapture,
+      flatFloor: this.flatFloor,
+      chaosPerDivine: this.chaosPerDivine,
     };
   }
 

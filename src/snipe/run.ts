@@ -40,6 +40,7 @@ import {
 } from './console.js';
 import { decideSnipe, formatAlert, type SnipeAlert } from './engine.js';
 import { effectiveLeague, resolveSnipeLeague, type FetchLeaguesFn } from './league.js';
+import { alertClearsFlatFloor } from './board.js';
 import { assessListingOnly, assessMargin, assessMarginAgainstFloor, toChaos } from './margin.js';
 import { RewardFloorService, type PageEvaluate, type RewardFloorPrice } from './reward-floor.js';
 import { persistSnipeImport } from './import.js';
@@ -545,6 +546,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     if (fresh.length === 0) return 0;
     if (dedupe) for (const listing of fresh) entry.seen.add(listing.id);
     const snapshots = repo.latestAll(config.game, entry.search.league);
+    sharedStore.setChaosPerDivine(toChaos({ amount: 1, currency: 'divine' }, snapshots));
     let queued = 0;
     for (const listing of fresh) {
       if (stopped || stopIntent) return queued;
@@ -600,7 +602,13 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
       consoleHandle?.addAlert(alert);
       sharedStore.ingest(alert);
       queued += 1;
-      if (source === 'live' && alert.qualifiesMargin) {
+      // The ping follows the threshold shown on the board: a flat session
+      // threshold (e.g. "5d") replaces the percent gate.
+      const flatFloor = sharedStore.snapshot().flatFloor;
+      const pingQualifies = flatFloor === null
+        ? alert.qualifiesMargin
+        : alertClearsFlatFloor(alert, flatFloor.chaos);
+      if (source === 'live' && pingQualifies) {
         const rendered = formatAlert(alert);
         sound();
         void notify!(rendered.title, rendered.body);
