@@ -506,7 +506,7 @@ async function cmdSnipe(): Promise<void> {
     const { homedir } = await import('node:os');
     const { resolveSnipeFolder } = await import('./snipe/bettertrading.js');
     const { loadSnipeCatalog } = await import('./snipe/catalog.js');
-    const { addSnipe, editSnipe, formatSnipeCatalog, parseMaxBuy, removeSnipe } = await import('./snipe/manage.js');
+    const { addSnipe, editSnipe, formatSnipeCatalog, parseMaxBuy, removeSnipe, runInteractiveSnipeEditor } = await import('./snipe/manage.js');
     const folder = resolveSnipeFolder({
       flagValue: flagValue('--folder') ?? config.snipe.folder,
       cwd: process.cwd(),
@@ -536,7 +536,22 @@ async function cmdSnipe(): Promise<void> {
     }
     const selector = process.argv[4];
     if (selector === undefined || selector.startsWith('--')) {
-      if (subcommand === 'edit') throw new Error('Interactive snipe editor is not available in this build yet; use `exilium snipe edit <id> [options]`.');
+      if (subcommand === 'edit') {
+        if (process.stdin.isTTY !== true) throw new Error('Interactive `exilium snipe edit` requires a terminal; use `exilium snipe edit <id> [options]` in scripts.');
+        const { createInterface } = await import('node:readline/promises');
+        const rl = createInterface({ input: process.stdin, output: process.stdout });
+        try {
+          await runInteractiveSnipeEditor({
+            folder,
+            question: (prompt) => rl.question(prompt),
+            out: (message) => console.log(message),
+            warn: (message) => console.error(message),
+          });
+        } finally {
+          rl.close();
+        }
+        return;
+      }
       throw new Error('Usage: exilium snipe remove <id-or-label>');
     }
     if (subcommand === 'remove') {

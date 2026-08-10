@@ -9,6 +9,7 @@ import {
   formatSnipeCatalog,
   parseMaxBuy,
   removeSnipe,
+  runInteractiveSnipeEditor,
 } from '../src/snipe/manage.js';
 
 function folder(withImport = false): string {
@@ -95,5 +96,31 @@ describe('snipe management', () => {
     expect(rendered).toContain('disabled');
     expect(rendered).toContain('15%');
     expect(rendered).toContain('Better Trading');
+  });
+
+  test('interactive editor retries invalid actions, edits an import, and adds a live URL', async () => {
+    const dir = folder(true);
+    const answers = [
+      'wat',
+      'e', 'aaa111', 'Cheap Sublime', '', '15', 'd',
+      'a', 'https://www.pathofexile.com/trade/search/Allflame/bbb222/live', 'Mageblood', '20div', '',
+      'done',
+    ];
+    const output: string[] = [];
+    await runInteractiveSnipeEditor({
+      folder: dir,
+      question: async () => answers.shift() ?? 'done',
+      out: (message) => output.push(message),
+      warn: (message) => output.push(message),
+    });
+    const entries = loadSnipeCatalog(dir, () => undefined);
+    expect(entries.find((entry) => entry.searchId === 'aaa111')).toMatchObject({
+      label: 'Cheap Sublime', minMarginPct: 15, enabled: false,
+    });
+    expect(entries.find((entry) => entry.searchId === 'bbb222')).toMatchObject({
+      label: 'Mageblood', maxBuy: { amount: 20, currency: 'divine' }, enabled: true,
+    });
+    expect(output.join('\n')).toMatch(/Unknown action/i);
+    expect(output.join('\n')).toContain('Cheap Sublime');
   });
 });

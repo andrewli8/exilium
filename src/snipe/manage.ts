@@ -9,6 +9,7 @@ import {
   type SnipeManifest,
   type SnipeOverride,
 } from './catalog.js';
+import { persistSnipeImport } from './import.js';
 
 export interface BuyPrice {
   readonly amount: number;
@@ -144,4 +145,90 @@ export function formatSnipeCatalog(entries: readonly CatalogEntry[]): string {
     entry.source,
   ].join('\t'));
   return [header, ...rows].join('\n');
+}
+
+export interface InteractiveSnipeEditorDeps {
+  readonly folder: string;
+  readonly question: (prompt: string) => Promise<string>;
+  readonly out: (message: string) => void;
+  readonly warn: (message: string) => void;
+}
+
+function optionalMargin(raw: string): number | null | undefined {
+  const value = raw.trim().toLowerCase();
+  if (value === '') return undefined;
+  if (value === 'none') return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) throw new Error('Minimum margin must be a finite number, "none", or blank');
+  return parsed;
+}
+
+function optionalMaxBuy(raw: string): BuyPrice | null | undefined {
+  const value = raw.trim().toLowerCase();
+  if (value === '') return undefined;
+  if (value === 'none') return null;
+  return parseMaxBuy(value);
+}
+
+/** Cross-platform readline manager. It deliberately owns no readline
+ * instance: the CLI supplies `question`, while tests inject deterministic
+ * answers. Errors remain inside the loop so one typo does not exit. */
+export async function runInteractiveSnipeEditor(deps: InteractiveSnipeEditorDeps): Promise<void> {
+  for (;;) {
+    const entries = loadSnipeCatalog(deps.folder, deps.warn);
+    deps.out(entries.length === 0 ? 'No snipes configured.' : formatSnipeCatalog(entries));
+    const action = (await deps.question('[a]dd [e]dit [t]oggle [r]emove [i]mport [done]: ')).trim().toLowerCase();
+    if (action === 'done' || action === 'q' || action === 'quit') return;
+    try {
+      if (action === 'a' || action === 'add') {
+        const url = (await deps.question('Trade search URL: ')).trim();
+        const name = (await deps.question('Name (blank uses search ID): ')).trim();
+        const maxBuy = optionalMaxBuy(await deps.question('Max buy (20div/150c, blank for none): '));
+        const minMarginPct = optionalMargin(await deps.question('Minimum margin % (blank for none): '));
+        const entry = addSnipe({
+          folder: deps.folder,
+          url,
+          ...(name === '' ? {} : { name }),
+          ...(maxBuy == null ? {} : { maxBuy }),
+          ...(minMarginPct == null ? {} : { minMarginPct }),
+        });
+        deps.out(`Added ${entry.label} (${entry.searchId}).`);
+      } else if (action === 'e' || action === 'edit') {
+        const selector = (await deps.question('ID or label: ')).trim();
+        const name = (await deps.question('New name (blank keeps current): ')).trim();
+        const maxBuy = optionalMaxBuy(await deps.question('Max buy (value, none to clear, blank to keep): '));
+        const minMarginPct = optionalMargin(await deps.question('Minimum margin % (number, none to clear, blank to keep): '));
+        const state = (await deps.question('State ([e]nable/[d]isable/blank keep): ')).trim().toLowerCase();
+        if (state !== '' && state !== 'e' && state !== 'enable' && state !== 'd' && state !== 'disable') {
+          throw new Error('State must be enable, disable, or blank');
+        }
+        const entry = editSnipe({
+          folder: deps.folder,
+          selector,
+          ...(name === '' ? {} : { name }),
+          ...(maxBuy === undefined ? {} : { maxBuy }),
+          ...(minMarginPct === undefined ? {} : { minMarginPct }),
+          ...(state === '' ? {} : { enabled: state === 'e' || state === 'enable' }),
+        });
+        deps.out(`Updated ${entry.label} (${entry.searchId}).`);
+      } else if (action === 't' || action === 'toggle') {
+        const selector = (await deps.question('ID or label: ')).trim();
+        const entry = resolveCatalogEntry(loadSnipeCatalog(deps.folder, deps.warn), selector);
+        const updated = editSnipe({ folder: deps.folder, selector: entry.key, enabled: !entry.enabled });
+        deps.out(`${updated.enabled ? 'Enabled' : 'Disabled'} ${updated.label}.`);
+      } else if (action === 'r' || action === 'remove') {
+        const selector = (await deps.question('ID or label: ')).trim();
+        const entry = removeSnipe({ folder: deps.folder, selector });
+        deps.out(`${entry.source === 'Better Trading' ? 'Disabled' : 'Removed'} ${entry.label}.`);
+      } else if (action === 'i' || action === 'import') {
+        const content = await deps.question('Paste Better Trading export: ');
+        const imported = persistSnipeImport({ folder: deps.folder, content, sourceName: 'interactive editor' });
+        deps.out(`Imported ${imported.targets.length} search${imported.targets.length === 1 ? '' : 'es'}.`);
+      } else {
+        deps.out(`Unknown action "${action}".`);
+      }
+    } catch (error) {
+      deps.out(`Error: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
 }

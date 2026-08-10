@@ -87,6 +87,7 @@ Run any of these as `exilium <command>` from anywhere after `npm link`.
 | `exilium watches [add\|rm\|events]` | Manage saved watches, the same ones agents create |
 | `exilium live <trade-url>` | Watch a trade-site live search; whispers land on your clipboard |
 | `exilium snipe` | Pick Better Trading searches for this run, queue live hits, and press Enter to travel. `--min-margin N` `--all` `--search ID` |
+| `exilium snipe list\|add\|edit\|remove` | Manage imported and manually added snipe searches without starting monitoring |
 | `exilium stash --account "Name#1234"` | Value your stash, track net worth, see what changed |
 | `exilium sellsheet --file counts.txt` | Price a dump tab into a bulk WTS message. `--discount N` |
 | `exilium journal [add]` | Record trade outcomes and see your fill rate |
@@ -149,6 +150,24 @@ Sources can contain any mix of:
 - **Plain text** (`.txt`/`.md`): one trade URL per line, optional `| label`.
 - **Better Trading exports** (`.txt`/`.bt`): paste a folder export string (`3:...`) from the [Better Trading](https://github.com/exile-center/better-trading) browser extension.
 - **Structured JSON** (`.json`): per-search rules like `maxBuy` and `minMarginPct` (the folder README shows the shape).
+
+Manage the resulting catalog interactively:
+
+```bash
+exilium snipe edit
+```
+
+Or use scriptable commands:
+
+```bash
+exilium snipe list
+exilium snipe add "https://www.pathofexile.com/trade/search/Allflame/9zRjda6KHK/live" --name "Sublime Vision" --max-buy 20div
+exilium snipe edit 9zRjda6KHK --min-margin 15 --disable
+exilium snipe edit 9zRjda6KHK --enable --max-buy none
+exilium snipe remove 9zRjda6KHK
+```
+
+Exilium stores additions and overrides in `.exilium-snipes.json` inside the BetterTrading folder. Extension exports are never rewritten: removing an imported search disables it reversibly, while removing an Exilium-added search deletes that managed entry.
 
 Every run starts with a multi-select. Use Up/Down, Space, `a`, or number keys to choose searches, then Enter to enable only those searches. The choice is not saved. For scripts and non-interactive terminals, use `--all` or repeat `--search ID`.
 

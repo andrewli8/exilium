@@ -25,7 +25,31 @@ You can instead point `EXILIUM_BETTERTRADING` or `--folder` at a directory of
 `.bt`, `.txt`, `.md`, or `.json` sources. A plain source may contain trade URLs;
 structured JSON can add `maxBuy` or `minMarginPct` per search.
 
-## 2. Choose searches and monitor headlessly
+## 2. Manage imported and manual searches
+
+Open the interactive manager:
+
+```powershell
+exilium snipe edit
+```
+
+It can add, edit, enable/disable, remove, and import searches. The same actions
+are scriptable:
+
+```powershell
+exilium snipe list
+exilium snipe add "https://www.pathofexile.com/trade/search/Allflame/9zRjda6KHK/live" --name "Sublime Vision" --max-buy 20div
+exilium snipe edit 9zRjda6KHK --min-margin 15 --disable
+exilium snipe edit 9zRjda6KHK --enable --max-buy none
+exilium snipe remove 9zRjda6KHK
+```
+
+Exilium writes a private `.exilium-snipes.json` manifest inside the configured
+BetterTrading folder. It never rewrites the extension export. Removing an
+imported target therefore disables it and can be reversed with `--enable`;
+removing a target added by Exilium deletes that managed entry.
+
+## 3. Choose searches and monitor headlessly
 
 ```powershell
 exilium snipe --min-margin 15
@@ -60,7 +84,7 @@ The trade-search endpoints used by the website are not in GGG's supported API
 reference and may change. Exilium observes the dynamic account/IP rate-limit
 headers and waits when needed; six imports are never polled simultaneously.
 
-## 3. Act on queue entries
+## 4. Act on queue entries
 
 New hits appear as `NEW` queue rows with search label, item, price, margin,
 freshness, seller, and age. New arrivals do not move your current selection.
@@ -93,7 +117,7 @@ leaves the Chrome process running when the console exits. If Chrome is installed
 somewhere unusual, save `snipe.chromePath` in config or set `EXILIUM_CHROME`;
 `exilium chrome --print` shows the launch command without starting it.
 
-## 4. Margin and history
+## 5. Margin and history
 
 - `+10,000c (+25.0%)` means the local reference is 10,000 chaos above the ask.
 - `STALE >10m` means reference refresh fell behind; reprice before committing.
