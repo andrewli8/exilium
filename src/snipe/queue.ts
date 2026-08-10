@@ -23,17 +23,18 @@ export interface SnipeQueueState {
 
 export type SnipeQueueAction =
   | { readonly type: 'add'; readonly alert: SnipeAlert; readonly receivedAt: string }
-  | { readonly type: 'move'; readonly delta: number }
+  | { readonly type: 'move'; readonly delta: number; readonly minMarginPct?: number }
   | { readonly type: 'travel-start'; readonly listingId: string }
   | { readonly type: 'travel-success'; readonly listingId: string; readonly detail: string }
   | { readonly type: 'travel-failure'; readonly listingId: string; readonly detail: string }
   | { readonly type: 'dismiss'; readonly listingId: string }
   | { readonly type: 'remove-gone'; readonly listingId: string }
-  | { readonly type: 'open-detail' }
-  | { readonly type: 'next-view' }
-  | { readonly type: 'previous-view' }
+  | { readonly type: 'open-detail'; readonly minMarginPct?: number }
+  | { readonly type: 'next-view'; readonly minMarginPct?: number }
+  | { readonly type: 'previous-view'; readonly minMarginPct?: number }
   | { readonly type: 'board' }
-  | { readonly type: 'toggle-hidden' }
+  | { readonly type: 'toggle-hidden'; readonly minMarginPct?: number }
+  | { readonly type: 'reconcile-floor'; readonly minMarginPct: number }
   | { readonly type: 'toggle-details' };
 
 export function createQueueState(maxEntries = 200): SnipeQueueState {
@@ -77,8 +78,15 @@ function addEntry(state: SnipeQueueState, alert: SnipeAlert, receivedAt: string)
   return { ...state, entries, selectedTargetId, selectedListingId };
 }
 
-function moveSelection(state: SnipeQueueState, delta: number): SnipeQueueState {
-  const board = projectCandidateBoard(state, { showHidden: state.showHidden });
+function boardAtFloor(state: SnipeQueueState, minMarginPct?: number) {
+  return projectCandidateBoard(state, {
+    showHidden: state.showHidden,
+    ...(minMarginPct === undefined ? {} : { minMarginPct }),
+  });
+}
+
+function moveSelection(state: SnipeQueueState, delta: number, minMarginPct?: number): SnipeQueueState {
+  const board = boardAtFloor(state, minMarginPct);
   if (board.groups.length === 0) return state;
   if (state.view === 'detail') {
     const group = board.groups.find((candidate) => candidate.targetId === state.selectedTargetId);
@@ -127,9 +135,9 @@ function dismiss(state: SnipeQueueState, listingId: string): SnipeQueueState {
   return { ...state, entries, selectedTargetId, selectedListingId };
 }
 
-function setView(state: SnipeQueueState, view: 'board' | 'detail'): SnipeQueueState {
+function setView(state: SnipeQueueState, view: 'board' | 'detail', minMarginPct?: number): SnipeQueueState {
   if (view === 'detail') {
-    const board = projectCandidateBoard(state, { showHidden: state.showHidden });
+    const board = boardAtFloor(state, minMarginPct);
     const group = board.groups.find((candidate) => candidate.targetId === state.selectedTargetId);
     if (group === undefined) return state;
     return { ...state, view, selectedListingId: group.best.alert.listingId };
@@ -142,7 +150,7 @@ export function queueReducer(state: SnipeQueueState, action: SnipeQueueAction): 
     case 'add':
       return addEntry(state, action.alert, action.receivedAt);
     case 'move':
-      return moveSelection(state, action.delta);
+      return moveSelection(state, action.delta, action.minMarginPct);
     case 'travel-start':
       return transition(state, action.listingId, ['new', 'failed'], 'traveling', null);
     case 'travel-success': {
@@ -162,22 +170,34 @@ export function queueReducer(state: SnipeQueueState, action: SnipeQueueAction): 
       return { ...next, notice: `${target ?? 'Listing'}: listing sold or removed — queue updated` };
     }
     case 'open-detail':
-      return setView(state, 'detail');
+      return setView(state, 'detail', action.minMarginPct);
     case 'next-view':
-      return setView(state, state.view === 'board' ? 'detail' : 'board');
+      return setView(state, state.view === 'board' ? 'detail' : 'board', action.minMarginPct);
     case 'previous-view':
-      return setView(state, state.view === 'board' ? 'detail' : 'board');
+      return setView(state, state.view === 'board' ? 'detail' : 'board', action.minMarginPct);
     case 'board':
       return setView(state, 'board');
     case 'toggle-hidden': {
       const showHidden = !state.showHidden;
       const next = { ...state, showHidden };
-      const board = projectCandidateBoard(next, { showHidden });
+      const board = projectCandidateBoard(next, {
+        showHidden,
+        ...(action.minMarginPct === undefined ? {} : { minMarginPct: action.minMarginPct }),
+      });
       const selected = board.groups.find((group) => group.targetId === next.selectedTargetId) ?? board.groups[0];
       return {
         ...next,
         selectedTargetId: selected?.targetId ?? next.selectedTargetId,
         selectedListingId: selected?.best.alert.listingId ?? next.selectedListingId,
+      };
+    }
+    case 'reconcile-floor': {
+      const board = boardAtFloor(state, action.minMarginPct);
+      const selected = board.groups.find((group) => group.targetId === state.selectedTargetId) ?? board.groups[0];
+      return {
+        ...state,
+        selectedTargetId: selected?.targetId ?? null,
+        selectedListingId: selected?.best.alert.listingId ?? null,
       };
     }
     case 'toggle-details':

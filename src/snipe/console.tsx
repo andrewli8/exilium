@@ -132,9 +132,10 @@ function detailRow(entry: SnipeQueueEntry, selected: boolean, now: number): stri
   return `${marker} ${item} ${price} ${profit} ${listed}${status}`.trimEnd();
 }
 
-function rowColor(entry: SnipeQueueEntry): 'green' | 'cyan' | 'yellow' | 'red' {
+function rowColor(entry: SnipeQueueEntry, floor: number): 'green' | 'cyan' | 'yellow' | 'red' {
   if (entry.status === 'failed') return 'red';
-  if (entry.alert.unknownMargin || entry.alert.stale || !entry.alert.qualifiesMargin) return 'yellow';
+  const effectiveFloor = entry.alert.targetMinMarginPct ?? floor;
+  if (entry.alert.unknownMargin || entry.alert.stale || entry.alert.marginPct === null || entry.alert.marginPct < effectiveFloor) return 'yellow';
   if (entry.alert.source === 'live') return 'cyan';
   return 'green';
 }
@@ -193,19 +194,22 @@ export function SnipeQueueApp({ alerts, onTravel, onExit, now, searchCount, minM
       if (key.escape) setFloorInput(null);
       else if (key.return) {
         const parsed = Number(floorInput);
-        if (floorInput !== '' && Number.isFinite(parsed) && parsed >= 0) setFloor(parsed);
+        if (floorInput !== '' && Number.isFinite(parsed) && parsed >= 0) {
+          setFloor(parsed);
+          dispatch({ type: 'reconcile-floor', minMarginPct: parsed });
+        }
         setFloorInput(null);
       } else if (key.backspace || key.delete) setFloorInput((value) => value?.slice(0, -1) ?? null);
       else if (/^[0-9.]$/.test(input) && !(input === '.' && floorInput.includes('.'))) setFloorInput(`${floorInput}${input}`);
       return;
     }
-    if (key.upArrow) dispatch({ type: 'move', delta: -1 });
-    else if (key.downArrow) dispatch({ type: 'move', delta: 1 });
-    else if (key.return && key.shift) dispatch({ type: 'open-detail' });
-    else if (key.tab && key.shift) dispatch({ type: 'previous-view' });
-    else if (key.tab) dispatch({ type: 'next-view' });
+    if (key.upArrow) dispatch({ type: 'move', delta: -1, minMarginPct: floor });
+    else if (key.downArrow) dispatch({ type: 'move', delta: 1, minMarginPct: floor });
+    else if (key.return && key.shift) dispatch({ type: 'open-detail', minMarginPct: floor });
+    else if (key.tab && key.shift) dispatch({ type: 'previous-view', minMarginPct: floor });
+    else if (key.tab) dispatch({ type: 'next-view', minMarginPct: floor });
     else if (key.escape) dispatch({ type: 'board' });
-    else if (input.toLowerCase() === 'u') dispatch({ type: 'toggle-hidden' });
+    else if (input.toLowerCase() === 'u') dispatch({ type: 'toggle-hidden', minMarginPct: floor });
     else if (input.toLowerCase() === 'f') setFloorInput('');
     else if (input === '?') dispatch({ type: 'toggle-details' });
     else if (input.toLowerCase() === 'q') {
@@ -246,7 +250,7 @@ export function SnipeQueueApp({ alerts, onTravel, onExit, now, searchCount, minM
               <Text
                 key={group.targetId}
                 inverse={group.targetId === state.selectedTargetId}
-                color={rowColor(group.best)}
+                color={rowColor(group.best, floor)}
               >
                 {groupRow(group, group.targetId === state.selectedTargetId, clock())}
               </Text>
@@ -261,7 +265,7 @@ export function SnipeQueueApp({ alerts, onTravel, onExit, now, searchCount, minM
             <Text
               key={entry.alert.listingId}
               inverse={entry.alert.listingId === state.selectedListingId}
-              color={rowColor(entry)}
+              color={rowColor(entry, floor)}
             >
               {detailRow(entry, entry.alert.listingId === state.selectedListingId, clock())}
             </Text>

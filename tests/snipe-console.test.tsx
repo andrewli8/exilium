@@ -336,6 +336,34 @@ describe('SnipeQueueApp', () => {
     expect(ui.lastFrame()).toContain('1 below floor');
   });
 
+  test('changing the floor repairs selection to the first remaining candidate', async () => {
+    const calls: string[] = [];
+    const ui = render(
+      <SnipeQueueApp
+        alerts={[
+          alert('low', { marginPct: 25 }),
+          alert('high', { marginPct: 35 }),
+        ]}
+        onTravel={async (item) => {
+          calls.push(item.listingId);
+          return { action: 'failed', detail: 'unused' };
+        }}
+      />,
+    );
+    await flush();
+    ui.stdin.write('f');
+    await flush();
+    ui.stdin.write('3');
+    await flush();
+    ui.stdin.write('0');
+    await flush();
+    ui.stdin.write('\r');
+    await flush();
+    ui.stdin.write('\r');
+    await flush();
+    expect(calls).toEqual(['high']);
+  });
+
   test('keeps raw Chrome traces out of the board and reveals them only with question mark', async () => {
     const technical = 'browserType.connectOverCDP: Protocol error (Browser.setDownloadBehavior): Browser context management is not supported';
     const ui = render(
