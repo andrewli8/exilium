@@ -16,6 +16,8 @@ import {
 import type { TravelResult } from './travel.js';
 import { fold, glyphs } from '../tui/glyphs.js';
 import { projectCandidateBoard, type CandidateGroup } from './board.js';
+import type { SnipeStore } from './store.js';
+import { SnipeBoardView } from './board-view.js';
 
 export interface SnipeTargetPickerProps {
   readonly targets: readonly SnipeTarget[];
@@ -290,6 +292,7 @@ export interface SnipeConsoleOptions {
   readonly now?: () => number;
   readonly searchCount?: number;
   readonly minMarginPct?: number;
+  readonly store?: SnipeStore;
 }
 
 export interface SnipeConsoleHandle {
@@ -302,6 +305,27 @@ export function renderSnipeConsole(
   options: SnipeConsoleOptions,
   renderOptions?: RenderOptions,
 ): SnipeConsoleHandle {
+  if (options.store !== undefined) {
+    const store = options.store;
+    const instance = render(
+      <SnipeBoardView
+        store={store}
+        onTravel={async (listingId) => {
+          const entry = store.snapshot().queue.entries.find((candidate) => candidate.alert.listingId === listingId);
+          return entry === undefined
+            ? { action: 'gone', detail: 'listing is no longer in the queue' }
+            : options.onTravel(entry.alert);
+        }}
+        {...(options.onExit === undefined ? {} : { onExit: options.onExit })}
+      />,
+      renderOptions,
+    );
+    return {
+      addAlert: (alert) => store.ingest(alert),
+      waitUntilExit: () => instance.waitUntilExit(),
+      close: () => instance.unmount(),
+    };
+  }
   let alerts: readonly SnipeAlert[] = [];
   const props = {
     onTravel: options.onTravel,

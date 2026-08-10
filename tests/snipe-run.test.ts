@@ -214,6 +214,14 @@ function makeHarness(options: {
 }
 
 describe('runSnipe orchestration', () => {
+  test('provides the standalone renderer with the shared search store', async () => {
+    const harness = makeHarness();
+    const running = runSnipe(FLAGS, harness.deps);
+    await harness.consoleReady;
+    expect(harness.consoleOptions?.store?.snapshot().board.groups.map((group) => group.targetId)).toEqual(['trade:aaa']);
+    harness.exit();
+    await running;
+  });
   test('publishes live connection and seed progress into a shared store', async () => {
     const target: CatalogEntry = {
       key: 'trade:aaa', label: 'Currency', realm: 'trade', searchId: 'aaa', league: null, enabled: true, source: 'Better Trading',

@@ -105,6 +105,24 @@ export class SnipeStore {
     this.rebuild();
   }
 
+  setTargets(targets: readonly CatalogEntry[]): void {
+    const existing = new Map(this.searches.map((search) => [search.target.key, search]));
+    this.searches = targets.map((target) => {
+      const prior = existing.get(target.key);
+      return { target, state: prior?.state ?? 'stopped', detail: prior?.detail ?? null };
+    });
+    if (!targets.some((target) => target.key === this.queue.selectedTargetId)) {
+      this.queue = {
+        ...this.queue,
+        selectedTargetId: targets[0]?.key ?? null,
+        selectedListingId: null,
+        view: 'board',
+      };
+    }
+    this.progress = { seeded: Math.min(this.progress.seeded, targets.length), total: targets.length };
+    this.rebuild();
+  }
+
   setProgress(seeded: number, total: number): void {
     this.progress = { seeded, total };
     this.rebuild();

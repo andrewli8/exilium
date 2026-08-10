@@ -11,9 +11,24 @@ import { formatDelta, formatNumber, formatPriceUnits } from '../domain/format-pr
 import { matchesSearch } from './search.js';
 import { renderSparkline } from './sparkline.js';
 import { glyphs, fold } from './glyphs.js';
+import type { CatalogEntry } from '../snipe/catalog.js';
+import type { SnipeStore } from '../snipe/store.js';
+import type { TravelResult } from '../snipe/travel.js';
+import { SnipeBoardView } from '../snipe/board-view.js';
+import { SnipeConfigureOverlay } from '../snipe/configure.js';
 
 type View = 'movers' | 'opps' | 'arb' | 'watches';
 type InputMode = 'normal' | 'search' | 'sort' | 'category' | 'watch' | 'league';
+type WatchesView = 'price-alerts' | 'snipes';
+
+export interface SnipeWorkspaceAdapter {
+  readonly entries: readonly CatalogEntry[];
+  readonly store: SnipeStore;
+  readonly save: (entries: readonly CatalogEntry[]) => Promise<readonly CatalogEntry[]>;
+  readonly import: (source: string) => Promise<readonly CatalogEntry[]>;
+  readonly start: (enabledKeys: readonly string[]) => Promise<void>;
+  readonly travel: (listingId: string) => Promise<TravelResult>;
+}
 
 export interface TuiProps {
   readonly service: ExiliumService;
@@ -31,6 +46,7 @@ export interface TuiProps {
   readonly onPriceCheck?: ((league: string) => Promise<PriceCheckResult>) | undefined;
   /** Fetch the leagues the trade search currently accepts (for the `l` picker). */
   readonly onFetchLeagues?: (() => Promise<readonly string[]>) | undefined;
+  readonly snipe?: SnipeWorkspaceAdapter | undefined;
 }
 
 const GOLD = '#d4a017';
@@ -253,7 +269,7 @@ function Tabs({ view, category, hint }: {
 
 /** Bloomberg-style terminal UI over the local snapshot store. Reads cached
  * data only; "r" triggers a live ingest via the injected callback. */
-export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIngestSec, onOpenLink, onPriceCheck, onFetchLeagues }: TuiProps): React.JSX.Element {
+export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIngestSec, onOpenLink, onPriceCheck, onFetchLeagues, snipe }: TuiProps): React.JSX.Element {
   const { exit } = useApp();
   const { isRawModeSupported } = useStdin();
   const [view, setView] = useState<View>('movers');
@@ -282,6 +298,9 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
   type PcState = { kind: 'idle' } | { kind: 'loading' } | { kind: 'result'; r: PriceCheckResult } | { kind: 'error'; message: string };
   const [pc, setPc] = useState<PcState>({ kind: 'idle' });
   const [statusMsg, setStatusMsg] = useState('');
+  const [watchesView, setWatchesView] = useState<WatchesView>('price-alerts');
+  const [snipeConfigOpen, setSnipeConfigOpen] = useState(false);
+  const [snipeEntries, setSnipeEntries] = useState<readonly CatalogEntry[]>(snipe?.entries ?? []);
 
   useEffect(() => {
     const t = setInterval(() => setTick((n) => n + 1), refreshSec * 1000);
@@ -377,6 +396,7 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
   };
 
   useInput((input, key) => {
+    if (snipeConfigOpen) return;
     // The price-check overlay owns the keyboard while it is open.
     if (pc.kind !== 'idle') {
       if (key.escape || input === 'q') { setPc({ kind: 'idle' }); return; }
@@ -517,6 +537,22 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
       if (key.leftArrow) { setSortCol((c) => ((c ?? 0) - 1 + table.model.columns.length) % table.model.columns.length); setSortDir('desc'); return; }
       return;
     }
+    if (view === 'watches' && key.tab) {
+      setWatchesView((current) => current === 'price-alerts' ? 'snipes' : 'price-alerts');
+      return;
+    }
+    if (view === 'watches' && input.toLowerCase() === 'c' && snipe !== undefined) {
+      setSnipeConfigOpen(true);
+      return;
+    }
+    if (view === 'watches' && watchesView === 'snipes') {
+      if (input === 'q' || (key.ctrl && input === 'c')) exit();
+      if (input === '1') switchView('movers');
+      if (input === '2') switchView('opps');
+      if (input === '3') switchView('arb');
+      if (input === '4') switchView('watches');
+      return;
+    }
     if (input === 'q' || (key.ctrl && input === 'c')) exit();
     if (input === '1') switchView('movers');
     if (input === '2') switchView('opps');
@@ -589,7 +625,9 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
           ? 'category: type to filter · ↑↓ pick · ↵ apply · esc cancel'
           : inputMode === 'watch'
             ? 'watch: type threshold · ↵ create · esc cancel'
-            : 's search · f sort · w watch · p price-check clipboard · ↵ trade link · ↑↓ rows · ←→ page · c category · l league · r refresh · q quit',
+            : view === 'watches'
+              ? `Tab price alerts/snipes · c configure snipes · ${glyphs.upDown} rows · q quit`
+              : 's search · f sort · w watch · p price-check clipboard · ↵ trade link · ↑↓ rows · ←→ page · c category · l league · r refresh · q quit',
   );
 
   const selectedMover = view === 'movers' ? (table.rows[clampedSelected] as DetailedMover | undefined) : undefined;
@@ -600,6 +638,26 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
     <Box flexDirection="column" paddingX={1}>
       <Header game={game} league={activeLeague} primary={data.summary.primaryCurrency} asOf={data.summary.asOf} ingesting={ingesting} />
       <Tabs view={view} category={data.category} hint={hint} />
+      {view === 'watches' && (
+        <Text color={GOLD}>{watchesView === 'price-alerts' ? '[PRICE ALERTS]  SNIPES' : 'PRICE ALERTS  [SNIPES]'}</Text>
+      )}
+      {snipeConfigOpen && snipe !== undefined && (
+        <SnipeConfigureOverlay
+          entries={snipeEntries}
+          onSave={async (entries) => {
+            const saved = await snipe.save(entries);
+            setSnipeEntries(saved);
+            return saved;
+          }}
+          onImport={async (source) => {
+            const imported = await snipe.import(source);
+            setSnipeEntries(imported);
+            return imported;
+          }}
+          onStart={snipe.start}
+          onClose={() => setSnipeConfigOpen(false)}
+        />
+      )}
       {pc.kind !== 'idle' && (
         <Box flexDirection="column" borderStyle={glyphs.border} borderColor={GOLD} paddingX={1}>
           {pc.kind === 'loading' && <Text color={GOLD}>{fold('Price-checking the item on your clipboard…')}</Text>}
@@ -706,7 +764,11 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
           <Text color={DIM}>{`  (${rowCount} match${rowCount === 1 ? '' : 'es'})`}</Text>
         </Text>
       )}
-      <Box marginTop={1} flexDirection="column">
+      {view === 'watches' && watchesView === 'snipes' && snipe !== undefined && !snipeConfigOpen ? (
+        <Box marginTop={1} flexDirection="column">
+          <SnipeBoardView store={snipe.store} onTravel={snipe.travel} embedded />
+        </Box>
+      ) : !snipeConfigOpen && <Box marginTop={1} flexDirection="column">
         <HeaderRow model={table.model} sortCol={sortCol} sortDir={sortDir} sortMode={inputMode === 'sort'} />
         {visible.map((row, i) => (
           <DataRow key={offset + i} model={table.model} row={row} selected={offset + i === clampedSelected} />
@@ -715,7 +777,7 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
         {rowCount > 0 && (
           <Text color={DIM}>{fold(`row ${clampedSelected + 1} of ${rowCount}${rowCount > VIEWPORT ? ' · ↑↓/PgUp/PgDn to scroll' : ''}`)}</Text>
         )}
-      </Box>
+      </Box>}
       {selectedMover !== undefined && (
         <Box marginTop={1} flexDirection="column">
           <Text color={GOLD} bold>{selectedMover.name}</Text>

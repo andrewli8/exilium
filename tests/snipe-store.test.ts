@@ -69,6 +69,13 @@ describe('SnipeStore', () => {
     });
   });
 
+  test('reconfigures enabled search rows without replacing the store', () => {
+    const store = new SnipeStore([target('one')]);
+    store.setTargets([target('two')]);
+    expect(store.snapshot().board.groups.map((group) => group.targetId)).toEqual(['trade:two']);
+    expect(store.snapshot().queue.selectedTargetId).toBe('trade:two');
+  });
+
   test('does not resurrect dismissed or queue-evicted listing ids', () => {
     const store = new SnipeStore([target('one')], { minMarginPct: 0, maxEntries: 2 });
     store.ingest(alert('anchor', { targetId: 'trade:one', marginPct: 30, qualifiesMargin: true }));

@@ -7,6 +7,9 @@ import { createDb } from '../src/storage/db.js';
 import { SnapshotRepository } from '../src/storage/snapshot-repository.js';
 import { WatchRepository } from '../src/storage/watch-repository.js';
 import type { MarketSnapshot } from '../src/domain/types.js';
+import type { CatalogEntry } from '../src/snipe/catalog.js';
+import { SnipeStore } from '../src/snipe/store.js';
+import type { SnipeWorkspaceAdapter } from '../src/tui/app.js';
 
 const SNAP: MarketSnapshot = {
   game: 'poe1',
@@ -104,7 +107,47 @@ function makeBigService(n: number): ExiliumService {
 
 const flush = () => new Promise((r) => setTimeout(r, 50));
 
+function snipeWorkspace(): SnipeWorkspaceAdapter {
+  const entries: readonly CatalogEntry[] = [
+    { key: 'trade:one', label: 'Sublime Vision', realm: 'trade', searchId: 'one', league: 'Allflame', enabled: true, source: 'Exilium' },
+    { key: 'trade:two', label: 'Mageblood', realm: 'trade', searchId: 'two', league: 'Allflame', enabled: true, source: 'Exilium' },
+  ];
+  return {
+    entries,
+    store: new SnipeStore(entries),
+    save: async (next) => next,
+    import: async () => entries,
+    start: async () => undefined,
+    travel: async () => ({ action: 'failed', detail: 'unused' }),
+  };
+}
+
 describe('ExiliumTui', () => {
+  test('tab 4 switches between PRICE ALERTS and persistent SNIPES rows', async () => {
+    const ui = render(<ExiliumTui service={makeService()} {...PROPS} snipe={snipeWorkspace()} />);
+    ui.stdin.write('4');
+    await flush();
+    expect(ui.lastFrame()).toContain('PRICE ALERTS');
+    ui.stdin.write('\t');
+    await flush();
+    expect(ui.lastFrame()).toContain('SNIPES');
+    expect(ui.lastFrame()).toContain('Sublime Vision');
+    expect(ui.lastFrame()).toContain('Mageblood');
+  });
+
+  test('c opens snipe configuration only inside WATCHES', async () => {
+    const ui = render(<ExiliumTui service={makeService()} {...PROPS} snipe={snipeWorkspace()} />);
+    ui.stdin.write('c');
+    await flush();
+    expect(ui.lastFrame()).toContain('category:');
+    ui.stdin.write('\u001b');
+    await flush();
+    ui.stdin.write('4');
+    await flush();
+    ui.stdin.write('c');
+    await flush();
+    expect(ui.lastFrame()).toContain('CONFIGURE SNIPES');
+  });
   test('renders header with league, primary currency, and the movers view by default', () => {
     const { lastFrame } = render(<ExiliumTui service={makeService()} {...PROPS} />);
     const frame = lastFrame()!;

@@ -317,6 +317,30 @@ async function cmdTui(): Promise<void> {
     league = await resolveLeague(client);
   }
   const tuiService = makeService();
+  const [{ homedir }, { resolveSnipeFolder }, catalogApi, { persistSnipeImport }, { SnipeStore }, { startSnipeRuntime }] = await Promise.all([
+    import('node:os'),
+    import('./snipe/bettertrading.js'),
+    import('./snipe/catalog.js'),
+    import('./snipe/import.js'),
+    import('./snipe/store.js'),
+    import('./snipe/runtime.js'),
+  ]);
+  const snipeFolder = resolveSnipeFolder({
+    flagValue: config.snipe.folder,
+    cwd: process.cwd(),
+    home: homedir(),
+  });
+  let snipeEntries = catalogApi.loadSnipeCatalog(snipeFolder, (message) => console.error(message));
+  const snipeStore = new SnipeStore(snipeEntries.filter((entry) => entry.enabled), {
+    minMarginPct: config.snipe.minMarginPct ?? 20,
+  });
+  let snipeRuntime: Awaited<ReturnType<typeof startSnipeRuntime>> | undefined;
+  const entryUrl = (entry: (typeof snipeEntries)[number]): string => {
+    const leaguePart = encodeURIComponent(entry.league ?? config.snipe.league ?? league);
+    return entry.realm === 'trade2'
+      ? `https://www.pathofexile.com/trade2/search/poe2/${leaguePart}/${entry.searchId}`
+      : `https://www.pathofexile.com/trade/search/${leaguePart}/${entry.searchId}`;
+  };
   const onIngest = async (lg: string = league): Promise<void> => {
     await ingestLeague(client, repo, {
       game: config.game,
@@ -330,7 +354,7 @@ async function cmdTui(): Promise<void> {
     console.log('First run for this league — pulling market data before opening the UI…');
     await onIngest().catch((err) => console.error(err instanceof Error ? err.message : err));
   }
-  render(
+  const instance = render(
     React.default.createElement(ExiliumTui, {
       service: tuiService,
       game: config.game,
@@ -341,8 +365,62 @@ async function cmdTui(): Promise<void> {
       onOpenLink: (url: string) => openUrl(url, { platform: process.platform }),
       onPriceCheck: (lg: string) => priceCheckFromClipboard(lg),
       onFetchLeagues: () => fetchTradeLeagues(config.game, (url, init) => fetch(url, init)),
+      snipe: {
+        entries: snipeEntries,
+        store: snipeStore,
+        save: async (drafts: typeof snipeEntries) => {
+          const edits = drafts.map((draft, index) => {
+            const original = snipeEntries[index] ?? draft;
+            return {
+              key: original.key,
+              label: draft.label,
+              url: entryUrl(draft),
+              minMarginPct: draft.minMarginPct ?? null,
+              enabled: draft.enabled,
+            };
+          });
+          snipeEntries = catalogApi.updateSnipeCatalog(snipeFolder, edits);
+          snipeStore.setTargets(snipeEntries.filter((entry) => entry.enabled));
+          return snipeEntries;
+        },
+        import: async (source: string) => {
+          persistSnipeImport({ folder: snipeFolder, content: source, sourceName: 'TUI paste' });
+          snipeEntries = catalogApi.loadSnipeCatalog(snipeFolder, (message) => console.error(message));
+          snipeStore.setTargets(snipeEntries.filter((entry) => entry.enabled));
+          return snipeEntries;
+        },
+        start: async (enabledKeys: readonly string[]) => {
+          if (snipeRuntime !== undefined) await snipeRuntime.stop();
+          const enabled = snipeEntries.filter((entry) => enabledKeys.includes(entry.key));
+          snipeStore.setTargets(enabled);
+          snipeRuntime = await startSnipeRuntime({
+            flags: {
+              folder: snipeFolder,
+              league: undefined,
+              keepLeague: false,
+              minMargin: String(snipeStore.snapshot().floor),
+              all: false,
+              searches: enabledKeys,
+            },
+            store: snipeStore,
+          }, {
+            snipeDeps: {
+              config,
+              repo,
+              out: () => undefined,
+              log: (message) => console.error(message),
+              isTTY: false,
+            },
+          });
+        },
+        travel: async (listingId: string) => snipeRuntime === undefined
+          ? { action: 'failed' as const, detail: 'Monitoring is stopped — press c, then Enter to start enabled snipes' }
+          : snipeRuntime.travel(listingId),
+      },
     }),
   );
+  await instance.waitUntilExit();
+  if (snipeRuntime !== undefined) await snipeRuntime.stop();
 }
 
 async function cmdJournal(): Promise<void> {
