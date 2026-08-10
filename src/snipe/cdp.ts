@@ -152,7 +152,13 @@ class CdpConnection {
 }
 
 export interface CdpTravelPage extends TravelPage {
+  /** allowReload: false keeps a browser-live tab intact — reloading would
+   * discard the rows the live stream has accumulated. */
+  clickTravelButton(listingId: string, options?: { readonly allowReload?: boolean }): Promise<TravelClickResult>;
   close(): Promise<void>;
+  /** Best-effort page-world evaluation (browser-live uses it to kick off the
+   * initial search). Optional so lightweight fakes stay small. */
+  evaluate?(expression: string): Promise<unknown>;
 }
 
 export interface CreateCdpPageOptions {
@@ -296,9 +302,16 @@ export async function createCdpPage(options: CreateCdpPageOptions): Promise<CdpT
     await connection.send('Network.enable');
   }
 
+  // The load event is best-effort: the trade site is a heavy SPA whose load
+  // can outlast the CDP timeout, especially with several tabs opening at
+  // once. Navigation has been issued and network capture keeps flowing, so a
+  // late load event must never tear the tab down.
   const waitForLoad = async (command: Promise<unknown>): Promise<void> => {
-    const loaded = connection.waitFor('Page.loadEventFired');
-    await Promise.all([command, loaded]);
+    const loaded = connection.waitFor('Page.loadEventFired').then(() => 'loaded' as const, () => 'timeout' as const);
+    await command;
+    if (await loaded === 'timeout') {
+      options.log('Chrome page load event is late — continuing; the tab keeps loading and capture stays attached.');
+    }
   };
   const evaluateClick = async (listingId: string): Promise<TravelClickResult> => {
     const result = await connection.send('Runtime.evaluate', {
@@ -318,11 +331,19 @@ export async function createCdpPage(options: CreateCdpPageOptions): Promise<CdpT
       await waitForLoad(connection.send('Page.navigate', { url }));
       currentUrl = url;
     },
-    async clickTravelButton(listingId: string) {
+    async clickTravelButton(listingId: string, clickOptions?: { readonly allowReload?: boolean }) {
       const first = await evaluateClick(listingId);
-      if (first !== 'gone') return first;
+      if (first !== 'gone' || clickOptions?.allowReload === false) return first;
       await waitForLoad(connection.send('Page.reload', { ignoreCache: true }));
       return evaluateClick(listingId);
+    },
+    async evaluate(expression: string) {
+      const result = await connection.send('Runtime.evaluate', {
+        expression,
+        returnByValue: true,
+        awaitPromise: true,
+      }) as { result?: { value?: unknown } };
+      return result.result?.value;
     },
     async close() {
       if (closed) return;

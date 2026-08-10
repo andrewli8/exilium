@@ -88,6 +88,46 @@ describe('browser-live search', () => {
     expect(testHarness.logs.filter((line) => /browser-live/.test(line))).toHaveLength(2);
   });
 
+  test('kicks off the page own search and keeps its results in the seed window', async () => {
+    const clock = { value: 1_000 };
+    let captured: ((url: string, body: string) => void) | undefined;
+    let resolveKickstart!: (value: unknown) => void;
+    const kickstart = new Promise((resolve) => { resolveKickstart = resolve; });
+    const evaluateCalls: string[] = [];
+    const listings: Array<{ source: string; ids: readonly string[] }> = [];
+    const handle = await openBrowserLiveSearch({
+      cdpUrl: 'http://127.0.0.1:9222',
+      search: { realm: 'trade', league: 'Allflame', searchId: 'xyz' },
+      log: () => undefined,
+      onListings: (parsed, source) => listings.push({ source, ids: parsed.map((l) => l.id) }),
+      seedWindowMs: 5_000,
+      createPage: async (options) => {
+        captured = options.onTradeFetchBody;
+        return {
+          url: () => 'about:blank',
+          goto: async () => undefined,
+          clickTravelButton: async () => 'clicked',
+          evaluate: async (expression: string) => { evaluateCalls.push(expression); return kickstart; },
+          close: async () => undefined,
+        };
+      },
+      now: () => clock.value,
+    });
+    expect(evaluateCalls).toHaveLength(1);
+    expect(evaluateCalls[0]).toContain('Search');
+
+    clock.value = 9_000; // past the base 5s window, but the search click just settled
+    resolveKickstart('clicked');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    captured?.(FETCH_URL, fetchBody('current'));
+    expect(listings).toEqual([{ source: 'seed', ids: ['current'] }]);
+
+    clock.value = 20_000; // well past the extended window
+    captured?.(FETCH_URL, fetchBody('fresh'));
+    expect(listings.at(-1)).toEqual({ source: 'live', ids: ['fresh'] });
+    await handle.close();
+  });
+
   test('close closes the owned page', async () => {
     const clock = { value: 0 };
     const testHarness = harness(clock);

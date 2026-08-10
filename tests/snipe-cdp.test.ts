@@ -42,6 +42,7 @@ function harness(options: {
   onTradeFetchBody?: (url: string, body: string) => void;
   onDisconnect?: () => void;
   responseBodies?: Record<string, { body: string; base64Encoded?: boolean }>;
+  suppressLoadEvent?: boolean;
 } = {}) {
   const socket = new FakeSocket();
   const evaluateValues = [...(options.evaluateValues ?? ['clicked'])];
@@ -57,7 +58,7 @@ function harness(options: {
         else socket.respond(message.id, { body: stored.body, base64Encoded: stored.base64Encoded ?? false });
       } else {
         socket.respond(message.id);
-        if (message.method === 'Page.navigate' || message.method === 'Page.reload') {
+        if ((message.method === 'Page.navigate' || message.method === 'Page.reload') && options.suppressLoadEvent !== true) {
           socket.event('Page.loadEventFired');
         }
       }
@@ -111,6 +112,27 @@ describe('direct CDP page control', () => {
       'Page.reload',
       'Runtime.evaluate',
     ]);
+  });
+
+  test('a slow SPA load event does not fail navigation or tear the tab down', async () => {
+    const testHarness = harness({ suppressLoadEvent: true });
+    const page = await testHarness.create;
+    await expect(page.goto('https://www.pathofexile.com/trade/search/Allflame/abc/live')).resolves.toBeUndefined();
+    expect(page.url()).toBe('https://www.pathofexile.com/trade/search/Allflame/abc/live');
+    expect(testHarness.socket.sent.some((message) => message.method === 'Page.close')).toBe(false);
+  });
+
+  test('clickTravelButton with allowReload false never reloads the page', async () => {
+    const testHarness = harness({ evaluateValues: ['gone'] });
+    const page = await testHarness.create;
+    expect(await page.clickTravelButton('listing-1', { allowReload: false })).toBe('gone');
+    expect(testHarness.socket.sent.some((message) => message.method === 'Page.reload')).toBe(false);
+  });
+
+  test('evaluate runs an expression in the page and returns its value', async () => {
+    const testHarness = harness({ evaluateValues: ['clicked'] });
+    const page = await testHarness.create;
+    expect(await page.evaluate?.('1 + 1')).toBe('clicked');
   });
 
   test('captures the trade fetch bodies the page itself requests', async () => {

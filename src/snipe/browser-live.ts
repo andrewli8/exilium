@@ -44,9 +44,39 @@ export interface BrowserLiveSearchHandle {
 }
 
 const DEFAULT_SEED_WINDOW_MS = 10_000;
+/** Tab CDP command budget. The trade site is heavy and several tabs open at
+ * once; the default 6s regularly expired mid-load and detached capture. */
+const TAB_COMMAND_TIMEOUT_MS = 20_000;
+const KICKSTART_DEADLINE_MS = 15_000;
+/** After the initial in-page search settles, its results may still be in
+ * flight — keep classifying captures as seed for this much longer. */
+const KICKSTART_SEED_GRACE_MS = 5_000;
 
 export function liveSearchPageUrl(search: TradeSearch): string {
   return `${buildSearchPageUrl({ realm: search.realm, searchId: search.searchId }, search.league)}/live`;
+}
+
+/** The /live page only streams NEW listings; the search's current results
+ * never load on their own. Click the page's own Search button once so the
+ * current results arrive through the same captured fetches — still zero
+ * Exilium-side API calls. */
+function kickstartSearchExpression(): string {
+  return `(async () => {
+    const deadline = Date.now() + ${KICKSTART_DEADLINE_MS};
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    for (;;) {
+      if (document.querySelector('[data-id]')) return 'results';
+      const button = document.querySelector('button.search-btn')
+        || Array.from(document.querySelectorAll('button'))
+          .find((element) => element.textContent && element.textContent.trim() === 'Search');
+      if (button instanceof HTMLButtonElement && !button.disabled) {
+        button.click();
+        return 'clicked';
+      }
+      if (Date.now() >= deadline) return 'search button not found';
+      await sleep(500);
+    }
+  })()`;
 }
 
 /** Adapt an open live tab into a TravelPage. The tab already renders this
@@ -56,7 +86,7 @@ export function liveTabTravelPage(page: CdpTravelPage, searchUrl: string): Trave
   return {
     url: () => searchUrl,
     goto: async () => undefined,
-    clickTravelButton: (listingId) => page.clickTravelButton(listingId),
+    clickTravelButton: (listingId) => page.clickTravelButton(listingId, { allowReload: false }),
   };
 }
 
@@ -65,10 +95,12 @@ export async function openBrowserLiveSearch(
 ): Promise<BrowserLiveSearchHandle> {
   const now = options.now ?? Date.now;
   const seedWindowMs = options.seedWindowMs ?? DEFAULT_SEED_WINDOW_MS;
-  let openedAt = now();
+  let seedUntil = now() + seedWindowMs;
+  let firstCaptureLogged = false;
   const page = await (options.createPage ?? createCdpPage)({
     cdpUrl: options.cdpUrl,
     log: options.log,
+    timeoutMs: TAB_COMMAND_TIMEOUT_MS,
     onTradeFetchBody: (url, body) => {
       let listings: readonly LiveListing[];
       try {
@@ -78,7 +110,11 @@ export async function openBrowserLiveSearch(
         return;
       }
       if (listings.length === 0) return;
-      options.onListings(listings, now() - openedAt < seedWindowMs ? 'seed' : 'live');
+      if (!firstCaptureLogged) {
+        firstCaptureLogged = true;
+        options.log(`browser-live: capturing listings for ${options.search.searchId}`);
+      }
+      options.onListings(listings, now() < seedUntil ? 'seed' : 'live');
     },
     ...(options.onDisconnect === undefined ? {} : { onDisconnect: options.onDisconnect }),
   });
@@ -88,6 +124,17 @@ export async function openBrowserLiveSearch(
     await page.close();
     throw error;
   }
-  openedAt = now();
+  seedUntil = now() + seedWindowMs;
+  if (page.evaluate !== undefined) {
+    const evaluate = page.evaluate.bind(page);
+    void evaluate(kickstartSearchExpression())
+      .then((outcome) => {
+        seedUntil = Math.max(seedUntil, now() + KICKSTART_SEED_GRACE_MS);
+        options.log(`browser-live: initial search for ${options.search.searchId}: ${String(outcome)}`);
+      })
+      .catch((error: unknown) => {
+        options.log(`browser-live: could not kick off the initial search for ${options.search.searchId}: ${error instanceof Error ? error.message : String(error)}`);
+      });
+  }
   return { page, close: () => page.close() };
 }
