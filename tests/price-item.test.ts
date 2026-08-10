@@ -69,6 +69,20 @@ describe('priceItem', () => {
     expect(q!.itemId).toBe('greater-essence-of-ruin');
   });
 
+  test('prefers the item own variant lines over other lines containing the name', () => {
+    const snap: MarketSnapshot = {
+      ...POE1_SNAP,
+      lines: [
+        line({ itemId: 'valdo-mb', name: 'Squandered Highlands (Foil Mageblood)', primaryValue: 10_000, volumePrimaryValue: 999_999 }),
+        line({ itemId: 'mageblood-4f', name: 'Mageblood (4 Flasks)', primaryValue: 42_000, volumePrimaryValue: 5_000 }),
+        line({ itemId: 'mageblood-5f', name: 'Mageblood (5 Flasks)', primaryValue: 282_000, volumePrimaryValue: 1_000 }),
+      ],
+    };
+    // "Mageblood" must resolve to the belt's own variants — the Valdo map
+    // line merely contains the word and has more volume.
+    expect(priceItem('Mageblood', [snap])?.itemId).toBe('mageblood-4f');
+  });
+
   test('returns null when nothing matches', () => {
     expect(priceItem('mirror of kalandra', [POE2_SNAP])).toBeNull();
   });

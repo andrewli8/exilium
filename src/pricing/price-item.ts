@@ -23,6 +23,10 @@ export function priceItem(query: string, snapshots: readonly MarketSnapshot[]): 
   const match =
     all.find((c) => c.line.itemId.toLowerCase() === q) ??
     all.find((c) => c.line.name.toLowerCase() === q) ??
+    // The item's own variant lines ("Mageblood (5 Flasks)") outrank arbitrary
+    // lines that merely contain the name ("Squandered Highlands (Foil
+    // Mageblood)" — a Valdo map, priced very differently).
+    [...all].sort(byVolume).find((c) => c.line.name.toLowerCase().startsWith(`${q} (`)) ??
     [...all].sort(byVolume).find((c) => matchesSearch(`${c.line.name} ${c.line.itemId}`, query)) ??
     null;
 

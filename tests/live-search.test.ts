@@ -205,14 +205,14 @@ describe('parseFetchResponseBody Valdo rewards', () => {
     }],
   });
 
-  test('prices a Valdo map by its exact map+reward variant line', () => {
+  test('prices a Valdo map by the reward item itself, de-foiled to its ninja line', () => {
     const [listing] = parseFetchResponseBody(valdoResult({
-      explicitMods: ['Area is influenced by something', 'Reward: Foil Mageblood'],
+      explicitMods: ['Area is influenced by something', 'Reward: Foil Nimis'],
     }));
-    expect(listing?.itemName).toBe('Foil Mageblood');
-    // poe.ninja names Valdo map lines "<Map> (<Reward>)"; a bare reward name
-    // would substring-match an arbitrary map's price.
-    expect(listing?.referenceName).toBe('Squandered Highlands (Foil Mageblood)');
+    expect(listing?.itemName).toBe('Foil Nimis');
+    // The reward's own item price is the reference; poe.ninja has no foil
+    // item lines, so "Foil Nimis" prices as "Nimis".
+    expect(listing?.referenceName).toBe('Nimis');
   });
 
   test('reads a Reward property and strips a stack-count prefix for pricing', () => {
@@ -220,7 +220,7 @@ describe('parseFetchResponseBody Valdo rewards', () => {
       properties: [{ name: 'Reward', values: [['5x Divine Orb', 0]] }],
     }));
     expect(listing?.itemName).toBe('5x Divine Orb');
-    expect(listing?.referenceName).toBe('Squandered Highlands (Divine Orb)');
+    expect(listing?.referenceName).toBe('Divine Orb');
   });
 
   test('parses the browser-live payload shape: structured mod objects and null result entries', () => {
@@ -248,7 +248,7 @@ describe('parseFetchResponseBody Valdo rewards', () => {
       explicitMods: [{ description: 'Reward: Foil Mageblood', domain: 'explicit' }],
     }));
     expect(listing?.itemName).toBe('Foil Mageblood');
-    expect(listing?.referenceName).toBe('Squandered Highlands (Foil Mageblood)');
+    expect(listing?.referenceName).toBe('Mageblood');
   });
 
   test('prices Forbidden jewels by their allocated passive variant', () => {

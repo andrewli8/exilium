@@ -170,6 +170,7 @@ type FetchedItem = NonNullable<z.infer<typeof fetchResultEntrySchema>['item']>;
 
 const REWARD_LINE = /^Reward:\s*(.+?)\s*$/;
 const REWARD_STACK_PREFIX = /^\d+x\s+/i;
+const REWARD_FOIL_PREFIX = /^Foil\s+/i;
 /** Forbidden Flame/Flesh jewels: the allocated ascendancy passive IS the
  * item's value, and poe.ninja names each variant "<Passive> (<jewel name>)"
  * ("Blazing Cradle (Foil Forbidden Flesh)"). The strict "if you have" suffix
@@ -300,14 +301,13 @@ export function parseFetchResponseBody(payload: unknown): readonly LiveListing[]
       id: r.id,
       itemName: name,
       identified,
-      // Valdo maps: poe.ninja prices each map+reward combination as its own
-      // line named "<Map> (<Reward>)" — a bare reward name would substring-
-      // match an arbitrary (often cheaper) map's line. When ninja lacks the
-      // exact combo, the search-floor fallback takes over downstream.
+      // The reference for a Valdo map is the reward ITEM's own price — that
+      // is what the map is worth chasing. poe.ninja carries no foil item
+      // lines, so "Foil Nimis" prices as "Nimis"; stack prefixes ("5x")
+      // strip the same way. priceItem prefers the item's own variant lines,
+      // so this never substring-matches back into a Valdo map line.
       referenceName: reward !== null
-        ? (r.item?.name
-          ? `${r.item.name} (${reward.replace(REWARD_STACK_PREFIX, '')})`
-          : reward.replace(REWARD_STACK_PREFIX, ''))
+        ? reward.replace(REWARD_STACK_PREFIX, '').replace(REWARD_FOIL_PREFIX, '')
         : variant ?? baseReference,
       priceText: price,
       price: r.listing.price ?? null,
