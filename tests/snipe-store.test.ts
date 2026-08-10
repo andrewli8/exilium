@@ -41,18 +41,38 @@ function alert(id: string, overrides: Partial<SnipeAlert> = {}): SnipeAlert {
 }
 
 describe('SnipeStore', () => {
-  test('keeps every enabled search navigable when all candidates miss the floor', () => {
+  test('keeps below-floor listings selectable as dim table rows', () => {
     const store = new SnipeStore([target('one'), target('two')], { minMarginPct: 20 });
     store.ingest(alert('one'));
 
     const snapshot = store.snapshot();
-    expect(snapshot.board.groups.map((group) => group.targetId)).toEqual(['trade:one', 'trade:two']);
-    expect(snapshot.board.groups[0]).toMatchObject({ best: null, hiddenCount: 1 });
-    expect(snapshot.board.groups[1]).toMatchObject({ best: null, hiddenCount: 0 });
-    expect(snapshot.queue.selectedTargetId).toBe('trade:one');
+    expect(snapshot.table.rows.map((row) => row.entry.alert.listingId)).toEqual(['one']);
+    expect(snapshot.table.rows[0]?.qualifies).toBe(false);
+    expect(snapshot.queue.selectedListingId).toBe('one');
 
     store.dispatch({ type: 'move', delta: 1 });
+    expect(store.snapshot().queue.selectedListingId).toBe('one');
+  });
+
+  test('moving across the flat table keeps the target of the selected row in sync', () => {
+    const store = new SnipeStore([target('one'), target('two')], { minMarginPct: 20 });
+    store.ingest(alert('one', { marginPct: 30, qualifiesMargin: true }), '2026-08-09T12:00:00.000Z');
+    store.ingest(alert('two', {
+      listedAt: '2026-08-09T12:01:00.000Z',
+      marginPct: 30,
+      qualifiesMargin: true,
+    }), '2026-08-09T12:01:00.000Z');
+
+    expect(store.snapshot().table.rows.map((row) => row.entry.alert.listingId)).toEqual(['two', 'one']);
+    expect(store.snapshot().queue.selectedListingId).toBe('one');
+
+    store.dispatch({ type: 'move', delta: -1 });
+    expect(store.snapshot().queue.selectedListingId).toBe('two');
     expect(store.snapshot().queue.selectedTargetId).toBe('trade:two');
+
+    store.dispatch({ type: 'move', delta: 1 });
+    expect(store.snapshot().queue.selectedListingId).toBe('one');
+    expect(store.snapshot().queue.selectedTargetId).toBe('trade:one');
   });
 
   test('notifies subscribers with connection and seed progress state', () => {

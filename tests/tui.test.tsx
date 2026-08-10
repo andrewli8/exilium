@@ -177,14 +177,14 @@ describe('ExiliumTui', () => {
     ui.stdin.write('\u001b');
     await flush();
     expect(ui.lastFrame()).toContain('[SNIPES]');
-    expect(ui.lastFrame()).toContain('BEST');
+    expect(ui.lastFrame()).toContain('REWARD');
 
     ui.stdin.write('\u001b[13;2u');
     await flush();
     ui.stdin.write('\u001b[Z');
     await flush();
     expect(ui.lastFrame()).toContain('[SNIPES]');
-    expect(ui.lastFrame()).toContain('BEST');
+    expect(ui.lastFrame()).toContain('REWARD');
 
     ui.stdin.write('\u001b');
     await flush();

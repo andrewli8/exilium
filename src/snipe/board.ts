@@ -42,6 +42,22 @@ export interface SearchCandidateBoardOptions extends CandidateBoardOptions {
   readonly targets: readonly CandidateTarget[];
 }
 
+export interface ListingRow {
+  readonly entry: SnipeQueueEntry;
+  readonly qualifies: boolean;
+}
+
+export interface ListingTable {
+  readonly rows: readonly ListingRow[];
+  readonly qualifyingCount: number;
+  readonly belowFloorCount: number;
+  readonly unknownCount: number;
+}
+
+export interface ListingTableOptions {
+  readonly minMarginPct?: number;
+}
+
 function listedTime(entry: SnipeQueueEntry): number {
   const value = entry.alert.listedAt ?? entry.receivedAt;
   const parsed = Date.parse(value);
@@ -62,18 +78,40 @@ function active(entry: SnipeQueueEntry): boolean {
   return entry.status !== 'traveled';
 }
 
+function entryQualifies(entry: SnipeQueueEntry, minMarginPct: number | undefined): boolean {
+  if (entry.alert.unknownMargin || entry.alert.marginPct === null) return false;
+  const floor = entry.alert.targetMinMarginPct ?? minMarginPct;
+  return floor === undefined ? entry.alert.qualifiesMargin : entry.alert.marginPct >= floor;
+}
+
+export function projectListingTable(
+  state: Pick<SnipeQueueState, 'entries'>,
+  options: ListingTableOptions = {},
+): ListingTable {
+  const entries = state.entries.filter(active);
+  const rows = entries
+    .map((entry): ListingRow => ({ entry, qualifies: entryQualifies(entry, options.minMarginPct) }))
+    .sort((left, right) => {
+      const recency = listedTime(right.entry) - listedTime(left.entry);
+      if (recency !== 0) return recency;
+      return Date.parse(right.entry.receivedAt) - Date.parse(left.entry.receivedAt);
+    });
+  const unknownCount = rows.filter((row) => row.entry.alert.unknownMargin).length;
+  const qualifyingCount = rows.filter((row) => row.qualifies).length;
+  return {
+    rows,
+    qualifyingCount,
+    belowFloorCount: rows.length - qualifyingCount - unknownCount,
+    unknownCount,
+  };
+}
+
 export function projectCandidateBoard(
   state: Pick<SnipeQueueState, 'entries'>,
   options: CandidateBoardOptions,
 ): CandidateBoard {
   const entries = state.entries.filter(active);
-  const qualifies = (entry: SnipeQueueEntry): boolean => {
-    if (entry.alert.unknownMargin || entry.alert.marginPct === null) return false;
-    const floor = entry.alert.targetMinMarginPct ?? options.minMarginPct;
-    return floor === undefined
-      ? entry.alert.qualifiesMargin
-      : entry.alert.marginPct >= floor;
-  };
+  const qualifies = (entry: SnipeQueueEntry): boolean => entryQualifies(entry, options.minMarginPct);
   const unknownCount = entries.filter((entry) => entry.alert.unknownMargin).length;
   const belowFloorCount = entries.filter((entry) =>
     !entry.alert.unknownMargin && !qualifies(entry),

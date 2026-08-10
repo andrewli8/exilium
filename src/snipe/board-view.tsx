@@ -2,6 +2,8 @@ import React, { useState, useSyncExternalStore } from 'react';
 import { Box, Text, useInput } from 'ink';
 import type { SnipeStore } from './store.js';
 import type { TravelResult } from './travel.js';
+import type { ListingRow } from './board.js';
+import { formatNumber } from '../domain/format-price.js';
 import { fold, glyphs } from '../tui/glyphs.js';
 
 export interface SnipeBoardViewProps {
@@ -12,12 +14,30 @@ export interface SnipeBoardViewProps {
   readonly onExit?: () => void;
 }
 
+const MAX_TABLE_ROWS = 12;
+
 function age(value: string | null, now = Date.now()): string {
   if (value === null) return '-';
   const seconds = Math.max(0, Math.floor((now - Date.parse(value)) / 1_000));
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h`;
+}
+
+function profitText(row: ListingRow): string {
+  const chaos = row.entry.alert.marginChaos;
+  if (chaos === null) return '?';
+  return `${chaos >= 0 ? '+' : '-'}${formatNumber(Math.abs(chaos))}c`;
+}
+
+function rowText(row: ListingRow, now: number): string {
+  const alert = row.entry.alert;
+  const price = fold(alert.priceText).slice(0, 11).padEnd(11);
+  const profit = profitText(row).slice(0, 9).padEnd(9);
+  const time = age(alert.listedAt ?? row.entry.receivedAt, now).padEnd(5);
+  const reward = fold(alert.itemName).slice(0, 34);
+  const status = row.entry.status === 'traveling' ? '  TRAVELING' : row.entry.status === 'failed' ? '  FAILED' : '';
+  return `${price} ${profit} ${time} ${reward}${status}`;
 }
 
 function shortFailure(detail: string): string {
@@ -32,7 +52,9 @@ export function SnipeBoardView({ store, onTravel, active = true, embedded = fals
   const snapshot = useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot);
   const [notice, setNotice] = useState<string | null>(null);
   const [floorInput, setFloorInput] = useState<string | null>(null);
-  const selected = snapshot.board.groups.find((group) => group.targetId === snapshot.queue.selectedTargetId);
+  const rows = snapshot.table.rows;
+  const selectedRow = rows.find((row) => row.entry.alert.listingId === snapshot.queue.selectedListingId) ?? rows[0];
+  const selectedGroup = snapshot.board.groups.find((group) => group.targetId === snapshot.queue.selectedTargetId);
 
   useInput((input, key) => {
     if (!active) return;
@@ -51,7 +73,7 @@ export function SnipeBoardView({ store, onTravel, active = true, embedded = fals
     else if (key.upArrow) store.dispatch({ type: 'move', delta: -1, minMarginPct: snapshot.floor });
     else if (key.downArrow) store.dispatch({ type: 'move', delta: 1, minMarginPct: snapshot.floor });
     else if (key.return && key.shift) {
-      if (selected?.best === null && selected.hiddenCount > 0 && !snapshot.queue.showHidden) {
+      if (selectedGroup?.best === null && selectedGroup.hiddenCount > 0 && !snapshot.queue.showHidden) {
         store.dispatch({ type: 'toggle-hidden', minMarginPct: snapshot.floor });
       }
       store.dispatch({ type: 'open-detail', minMarginPct: snapshot.floor });
@@ -61,10 +83,10 @@ export function SnipeBoardView({ store, onTravel, active = true, embedded = fals
     else if (input.toLowerCase() === 'f') setFloorInput('');
     else if (key.return) {
       const listing = snapshot.queue.view === 'detail'
-        ? selected?.entries.find((entry) => entry.alert.listingId === snapshot.queue.selectedListingId) ?? selected?.best
-        : selected?.best;
+        ? selectedGroup?.entries.find((entry) => entry.alert.listingId === snapshot.queue.selectedListingId) ?? selectedGroup?.best
+        : selectedRow?.entry;
       if (listing === null || listing === undefined) {
-        setNotice(`No candidate meets +${snapshot.floor}% for ${selected?.targetLabel ?? 'this search'} — press u to inspect hidden listings`);
+        setNotice('No listings yet — live searches will fill this table the moment something is posted');
         return;
       }
       setNotice(null);
@@ -80,40 +102,64 @@ export function SnipeBoardView({ store, onTravel, active = true, embedded = fals
   const headerStatus = limiterStatus ?? (seeding
     ? `SEEDING ${snapshot.progress.seeded}/${snapshot.progress.total}`
     : `${snapshot.searches.filter((search) => search.state === 'live').length} LIVE`);
-  const selectedEntry = snapshot.queue.view === 'detail'
-    ? selected?.entries.find((entry) => entry.alert.listingId === snapshot.queue.selectedListingId) ?? selected?.best
-    : selected?.best;
-  const failure = selectedEntry?.status === 'failed' && selectedEntry.detail !== null
-    ? shortFailure(selectedEntry.detail)
+  const detailEntry = snapshot.queue.view === 'detail'
+    ? selectedGroup?.entries.find((entry) => entry.alert.listingId === snapshot.queue.selectedListingId) ?? selectedGroup?.best
+    : selectedRow?.entry;
+  const failure = detailEntry?.status === 'failed' && detailEntry.detail !== null
+    ? shortFailure(detailEntry.detail)
     : null;
+  const travelSent = snapshot.queue.notice === 'Travel sent' ? snapshot.queue.notice : null;
+  const otherNotice = failure ?? notice ?? snapshot.status ?? (travelSent === null ? snapshot.queue.notice : null);
+
+  const selectedIndex = Math.max(0, rows.findIndex((row) => row.entry.alert.listingId === selectedRow?.entry.alert.listingId));
+  const windowStart = Math.min(
+    Math.max(0, selectedIndex - MAX_TABLE_ROWS + 1),
+    Math.max(0, rows.length - MAX_TABLE_ROWS),
+  );
+  const visibleRows = rows.slice(windowStart, windowStart + MAX_TABLE_ROWS);
+  const hiddenAbove = windowStart;
+  const hiddenBelow = Math.max(0, rows.length - windowStart - MAX_TABLE_ROWS);
 
   return (
     <Box flexDirection="column">
       {!embedded && <Text bold>EXILIUM SNIPES</Text>}
-      <Text color="cyan">{fold(`${headerStatus} ${glyphs.sep} Floor +${snapshot.floor}% ${glyphs.sep} Chrome on demand`)}</Text>
+      {travelSent !== null && <Text color="green">{travelSent}</Text>}
+      {failure !== null && <Text color="red">{fold(failure)}</Text>}
+      {failure === null && otherNotice !== null && <Text color="yellow">{fold(otherNotice)}</Text>}
+      <Text color="cyan">{fold(`${headerStatus} ${glyphs.sep} Chrome on demand`)}</Text>
+      <Text dimColor>{fold(`Threshold: +${snapshot.floor}% profit`)}</Text>
       {snapshot.queue.view === 'board' ? <>
-        <Text dimColor>{'  STATE         SEARCH                    BEST       PROFIT     AGE  OTHER'}</Text>
-        {snapshot.board.groups.map((group) => {
-          const search = states.get(group.targetId);
-          const best = group.best;
-          const state = (search?.state ?? 'stopped').toUpperCase().replace('-', ' ');
-          const other = group.hiddenCount === 0 ? '' : `${group.hiddenCount} hidden`;
-          const line = `${group.targetId === snapshot.queue.selectedTargetId ? glyphs.select : ' '} ${state.padEnd(13)} ${fold(group.targetLabel).slice(0, 24).padEnd(24)} ${(best?.alert.priceText ?? 'NO MATCH').slice(0, 10).padStart(10)} ${(best?.alert.marginPct === null || best === null ? '-' : `${best.alert.marginPct >= 0 ? '+' : ''}${best.alert.marginPct.toFixed(1)}%`).padStart(10)} ${age(best?.alert.listedAt ?? null).padStart(7)}  ${other}`;
-          return <Text key={group.targetId} inverse={group.targetId === snapshot.queue.selectedTargetId}>{line}</Text>;
-        })}
-        <Text dimColor>{fold(`${snapshot.board.qualifyingCount} qualifying ${glyphs.sep} ${snapshot.board.belowFloorCount} below floor ${glyphs.sep} ${snapshot.board.unknownCount} unknown`)}</Text>
-        <Text dimColor>{fold(`${glyphs.upDown} searches ${glyphs.sep} Enter travel best ${glyphs.sep} Shift+Enter inspect ${glyphs.sep} u hidden ${glyphs.sep} f floor ${glyphs.sep} c configure`)}</Text>
+        {rows.length === 0 ? <>
+          <Text dimColor>{fold(`Watching ${snapshot.searches.length} search${snapshot.searches.length === 1 ? '' : 'es'} — waiting for listings`)}</Text>
+          {snapshot.searches.map((search) => (
+            <Text key={search.target.key} dimColor>
+              {`  ${(states.get(search.target.key)?.state ?? 'stopped').toUpperCase().replace('-', ' ').padEnd(13)} ${fold(search.target.label)}`}
+            </Text>
+          ))}
+        </> : <>
+          <Text dimColor>{'  PRICE       PROFIT    TIME  REWARD'}</Text>
+          {hiddenAbove > 0 && <Text dimColor>{`  ↑ ${hiddenAbove} newer hidden`}</Text>}
+          {visibleRows.map((row) => {
+            const isSelected = row.entry.alert.listingId === selectedRow?.entry.alert.listingId;
+            const line = `${isSelected ? glyphs.select : ' '} ${rowText(row, Date.now())}`;
+            if (row.entry.status === 'failed') return <Text key={row.entry.alert.listingId} inverse={isSelected} color="red">{line}</Text>;
+            if (!row.qualifies) return <Text key={row.entry.alert.listingId} inverse={isSelected} dimColor>{line}</Text>;
+            return <Text key={row.entry.alert.listingId} inverse={isSelected} bold>{line}</Text>;
+          })}
+          {hiddenBelow > 0 && <Text dimColor>{`  ↓ ${hiddenBelow} older hidden`}</Text>}
+          <Text dimColor>{fold(`${snapshot.table.qualifyingCount} above threshold ${glyphs.sep} ${snapshot.table.belowFloorCount} below ${glyphs.sep} ${snapshot.table.unknownCount} unknown`)}</Text>
+        </>}
+        <Text dimColor>{fold(`${glyphs.upDown} select ${glyphs.sep} Enter travel ${glyphs.sep} Shift+Enter inspect ${glyphs.sep} f floor ${glyphs.sep} c configure`)}</Text>
       </> : <>
-        <Text bold>{fold(selected?.targetLabel ?? 'SNIPE DETAILS')}</Text>
-        {selected?.entries.map((entry) => (
+        <Text bold>{fold(selectedGroup?.targetLabel ?? 'SNIPE DETAILS')}</Text>
+        {selectedGroup?.entries.map((entry) => (
           <Text key={entry.alert.listingId} inverse={entry.alert.listingId === snapshot.queue.selectedListingId}>
             {`${entry.alert.itemName.slice(0, 34).padEnd(34)} ${entry.alert.priceText.padStart(12)} ${(entry.alert.marginPct === null ? '-' : `${entry.alert.marginPct.toFixed(1)}%`).padStart(8)} ${age(entry.alert.listedAt).padStart(6)}`}
           </Text>
         ))}
-        {(selected?.entries.length ?? 0) === 0 && <Text dimColor>No listings for this search — press u on the board to reveal hidden listings.</Text>}
+        {(selectedGroup?.entries.length ?? 0) === 0 && <Text dimColor>No listings for this search — press u on the board to reveal hidden listings.</Text>}
         <Text dimColor>Enter travel · Esc board</Text>
       </>}
-      {(failure ?? notice ?? snapshot.status ?? snapshot.queue.notice) !== null && <Text color={failure === null ? 'yellow' : 'red'}>{fold((failure ?? notice ?? snapshot.status ?? snapshot.queue.notice)!)}</Text>}
       {floorInput !== null && <Text color="yellow">{`Set session floor: ${floorInput}▌% · Enter apply · Esc cancel`}</Text>}
     </Box>
   );

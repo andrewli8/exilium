@@ -157,7 +157,7 @@ export function queueReducer(state: SnipeQueueState, action: SnipeQueueAction): 
       const next = transition(state, action.listingId, ['traveling'], 'traveled', action.detail);
       return next === state ? state : {
         ...next,
-        notice: 'Travel requested successfully — queue updated',
+        notice: 'Travel sent',
       };
     }
     case 'travel-failure':

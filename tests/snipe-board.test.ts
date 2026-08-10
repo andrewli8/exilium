@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { projectCandidateBoard, projectSearchCandidateBoard } from '../src/snipe/board.js';
+import { projectCandidateBoard, projectListingTable, projectSearchCandidateBoard } from '../src/snipe/board.js';
 import type { SnipeAlert } from '../src/snipe/engine.js';
 import { createQueueState, queueReducer, type SnipeQueueState } from '../src/snipe/queue.js';
 
@@ -115,5 +115,60 @@ describe('candidate board projection', () => {
     const board = projectCandidateBoard(state, { showHidden: false, minMarginPct: 20 });
     expect(board.groups).toEqual([]);
     expect(board.belowFloorCount).toBe(1);
+  });
+});
+
+describe('listing table projection', () => {
+  test('flattens every target into one newest-first table with qualify flags', () => {
+    let state = createQueueState();
+    state = add(state, candidate({ listingId: 'old-good', listedAt: '2026-08-09T11:50:00.000Z' }));
+    state = add(state, candidate({
+      listingId: 'new-dim',
+      targetId: 'trade:nimis',
+      targetLabel: 'Nimis',
+      listedAt: '2026-08-09T11:59:00.000Z',
+      marginPct: 5,
+      qualifiesMargin: false,
+    }));
+    state = add(state, candidate({ listingId: 'mid-good', listedAt: '2026-08-09T11:55:00.000Z' }));
+
+    const table = projectListingTable(state, { minMarginPct: 20 });
+
+    expect(table.rows.map((row) => row.entry.alert.listingId)).toEqual(['new-dim', 'mid-good', 'old-good']);
+    expect(table.rows.map((row) => row.qualifies)).toEqual([false, true, true]);
+    expect(table).toMatchObject({ qualifyingCount: 2, belowFloorCount: 1, unknownCount: 0 });
+  });
+
+  test('keeps unknown-margin listings visible but never qualifying', () => {
+    const state = add(createQueueState(), candidate({
+      listingId: 'mystery',
+      marginPct: null,
+      marginChaos: null,
+      unknownMargin: true,
+      qualifiesMargin: false,
+    }));
+    const table = projectListingTable(state, { minMarginPct: 20 });
+    expect(table.rows).toHaveLength(1);
+    expect(table.rows[0]?.qualifies).toBe(false);
+    expect(table.unknownCount).toBe(1);
+  });
+
+  test('a per-target floor still wins over the session floor in the table', () => {
+    const state = add(createQueueState(), candidate({
+      listingId: 'strict',
+      marginPct: 35,
+      targetMinMarginPct: 40,
+      qualifiesMargin: false,
+    }));
+    const table = projectListingTable(state, { minMarginPct: 20 });
+    expect(table.rows[0]?.qualifies).toBe(false);
+    expect(table.belowFloorCount).toBe(1);
+  });
+
+  test('drops traveled listings from the table', () => {
+    let state = add(createQueueState(), candidate({ listingId: 'done' }));
+    state = queueReducer(state, { type: 'travel-start', listingId: 'done' });
+    state = queueReducer(state, { type: 'travel-success', listingId: 'done', detail: 'ok' });
+    expect(projectListingTable(state, { minMarginPct: 20 }).rows).toEqual([]);
   });
 });

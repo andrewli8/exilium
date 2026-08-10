@@ -1,7 +1,9 @@
 import type { CatalogEntry } from './catalog.js';
 import type { SnipeAlert } from './engine.js';
 import {
+  projectListingTable,
   projectSearchCandidateBoard,
+  type ListingTable,
   type SearchCandidateBoard,
 } from './board.js';
 import {
@@ -31,6 +33,7 @@ export interface SnipeSnapshot {
   readonly searches: readonly SnipeSearchSnapshot[];
   readonly queue: SnipeQueueState;
   readonly board: SearchCandidateBoard;
+  readonly table: ListingTable;
   readonly floor: number;
   readonly progress: { readonly seeded: number; readonly total: number };
   readonly status: string | null;
@@ -82,15 +85,15 @@ export class SnipeStore {
 
   dispatch(action: SnipeQueueAction): void {
     if (action.type === 'move' && this.queue.view === 'board') {
-      const groups = this.current.board.groups;
-      if (groups.length === 0) return;
-      const currentIndex = Math.max(0, groups.findIndex((group) => group.targetId === this.queue.selectedTargetId));
-      const nextIndex = Math.max(0, Math.min(groups.length - 1, currentIndex + action.delta));
-      const group = groups[nextIndex]!;
+      const rows = this.current.table.rows;
+      if (rows.length === 0) return;
+      const currentIndex = Math.max(0, rows.findIndex((row) => row.entry.alert.listingId === this.queue.selectedListingId));
+      const nextIndex = Math.max(0, Math.min(rows.length - 1, currentIndex + action.delta));
+      const row = rows[nextIndex]!;
       this.queue = {
         ...this.queue,
-        selectedTargetId: group.targetId,
-        selectedListingId: group.best?.alert.listingId ?? null,
+        selectedTargetId: row.entry.alert.targetId,
+        selectedListingId: row.entry.alert.listingId,
       };
     } else {
       this.queue = queueReducer(this.queue, action);
@@ -162,6 +165,7 @@ export class SnipeStore {
       searches: this.searches,
       queue: this.queue,
       board,
+      table: projectListingTable(this.queue, { minMarginPct: this.floor }),
       floor: this.floor,
       progress: this.progress,
       status: this.status,
@@ -172,6 +176,10 @@ export class SnipeStore {
     this.current = this.buildSnapshot();
     if (this.current.board.groups.length > 0 && this.queue.selectedTargetId === null) {
       this.queue = { ...this.queue, selectedTargetId: this.current.board.groups[0]!.targetId };
+      this.current = this.buildSnapshot();
+    }
+    if (this.queue.selectedListingId === null && this.current.table.rows.length > 0) {
+      this.queue = { ...this.queue, selectedListingId: this.current.table.rows[0]!.entry.alert.listingId };
       this.current = this.buildSnapshot();
     }
     for (const listener of this.listeners) listener();
