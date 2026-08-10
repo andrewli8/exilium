@@ -26,7 +26,7 @@ function fetchBody(id: string): string {
 function harness(nowValues: { value: number }) {
   let captured: ((url: string, body: string) => void) | undefined;
   const pageOptions: CreateCdpPageOptions[] = [];
-  const goto = vi.fn(async () => undefined);
+  const goto = vi.fn(async (_url: string) => undefined);
   const close = vi.fn(async () => undefined);
   const page: CdpTravelPage = {
     url: () => 'about:blank',
@@ -47,6 +47,7 @@ function harness(nowValues: { value: number }) {
     log: (message) => logs.push(message),
     onListings: (parsed: readonly LiveListing[], source) => listings.push({ source, ids: parsed.map((l) => l.id) }),
     seedWindowMs: 5_000,
+    seedCaptureWaitMs: 0,
     createPage,
     now: () => nowValues.value,
   });
@@ -61,13 +62,17 @@ describe('browser-live search', () => {
       .toBe('https://www.pathofexile.com/trade2/search/poe2/Standard/abc/live');
   });
 
-  test('navigates to the live page and classifies early captures as seed, later as live', async () => {
+  test('seeds from the plain search page, then goes live and classifies captures', async () => {
     const clock = { value: 1_000 };
     const testHarness = harness(clock);
     await testHarness.open;
-    expect(testHarness.goto).toHaveBeenCalledWith('https://www.pathofexile.com/trade/search/Allflame/xyz/live');
+    // Plain page first (its auto-run search delivers current results), then /live.
+    expect(testHarness.goto.mock.calls.map((call) => call[0])).toEqual([
+      'https://www.pathofexile.com/trade/search/Allflame/xyz',
+      'https://www.pathofexile.com/trade/search/Allflame/xyz/live',
+    ]);
 
-    clock.value = 3_000; // within the 5s seed window
+    clock.value = 3_000; // within the 5s post-live seed window
     testHarness.emit(FETCH_URL, fetchBody('early'));
     clock.value = 9_000; // past the window
     testHarness.emit(FETCH_URL, fetchBody('late'));
@@ -88,41 +93,37 @@ describe('browser-live search', () => {
     expect(testHarness.logs.filter((line) => /browser-live/.test(line))).toHaveLength(2);
   });
 
-  test('kicks off the page own search and keeps its results in the seed window', async () => {
+  test('captures on the plain page are always seeds, even after a long load', async () => {
     const clock = { value: 1_000 };
     let captured: ((url: string, body: string) => void) | undefined;
-    let resolveKickstart!: (value: unknown) => void;
-    const kickstart = new Promise((resolve) => { resolveKickstart = resolve; });
-    const evaluateCalls: string[] = [];
     const listings: Array<{ source: string; ids: readonly string[] }> = [];
-    const handle = await openBrowserLiveSearch({
+    let releaseLiveNav: () => void = () => undefined;
+    const liveNavGate = new Promise<void>((resolve) => { releaseLiveNav = resolve; });
+    const open = openBrowserLiveSearch({
       cdpUrl: 'http://127.0.0.1:9222',
       search: { realm: 'trade', league: 'Allflame', searchId: 'xyz' },
       log: () => undefined,
       onListings: (parsed, source) => listings.push({ source, ids: parsed.map((l) => l.id) }),
       seedWindowMs: 5_000,
+      seedCaptureWaitMs: 60_000,
       createPage: async (options) => {
         captured = options.onTradeFetchBody;
         return {
           url: () => 'about:blank',
-          goto: async () => undefined,
+          goto: async (url: string) => { if (url.endsWith('/live')) await liveNavGate; },
           clickTravelButton: async () => 'clicked',
-          evaluate: async (expression: string) => { evaluateCalls.push(expression); return kickstart; },
           close: async () => undefined,
         };
       },
       now: () => clock.value,
     });
-    expect(evaluateCalls).toHaveLength(1);
-    expect(evaluateCalls[0]).toContain('Search');
-
-    clock.value = 9_000; // past the base 5s window, but the search click just settled
-    resolveKickstart('clicked');
     await new Promise((resolve) => setTimeout(resolve, 0));
+    clock.value = 45_000; // still on the plain page, long after any fixed window
     captured?.(FETCH_URL, fetchBody('current'));
     expect(listings).toEqual([{ source: 'seed', ids: ['current'] }]);
-
-    clock.value = 20_000; // well past the extended window
+    releaseLiveNav();
+    const handle = await open;
+    clock.value = 70_000; // past the post-live seed window
     captured?.(FETCH_URL, fetchBody('fresh'));
     expect(listings.at(-1)).toEqual({ source: 'live', ids: ['fresh'] });
     await handle.close();
