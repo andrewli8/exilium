@@ -36,7 +36,7 @@ export interface SnipeFileConfig {
 /** Resolved snipe settings (defaults ← file ← env). */
 export interface SnipeSettings {
   readonly folder: string | undefined;
-  /** Minimum profit margin (%) to alert on; null alerts on everything. */
+  /** Minimum profit margin (%) to surface; defaults to 20. */
   readonly minMarginPct: number | null;
   readonly sound: boolean;
   /** JSON webhook per snipe alert (structured payload, not Discord format). */
@@ -108,7 +108,7 @@ function parseSnipeMinMargin(envRaw: string | undefined, fileValue: number | und
     if (Number.isNaN(parsed)) throw new Error(`EXILIUM_SNIPE_MIN_MARGIN must be a number (percent), got "${envRaw}"`);
     return parsed;
   }
-  return fileValue ?? null;
+  return fileValue ?? 20;
 }
 
 function loadSnipeSettings(env: NodeJS.ProcessEnv, file: SnipeFileConfig): SnipeSettings {

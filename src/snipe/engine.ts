@@ -9,7 +9,10 @@ import { toChaos, type MarginAssessment, passesMarginGate } from './margin.js';
  * with a reason. Pure — sockets, clipboards, and browsers live in the CLI. */
 
 export interface SnipeAlert {
+  /** Stable Better Trading search identity used for candidate grouping. */
+  readonly targetId: string;
   readonly targetLabel: string;
+  readonly source: SnipeAlertSource;
   readonly listingId: string;
   readonly itemName: string;
   readonly priceText: string;
@@ -25,7 +28,13 @@ export interface SnipeAlert {
   readonly stale: boolean;
   /** A margin threshold was set but this item has no reference price. */
   readonly unknownMargin: boolean;
+  /** Effective target/global floor used for this candidate. */
+  readonly minMarginPct: number;
+  /** Known margin meets the effective floor. Unknown margins never qualify. */
+  readonly qualifiesMargin: boolean;
 }
+
+export type SnipeAlertSource = 'current' | 'live';
 
 export type SnipeDecision =
   | { readonly kind: 'alert'; readonly alert: SnipeAlert }
@@ -60,6 +69,8 @@ export interface DecideSnipeOptions {
   readonly snapshots: readonly MarketSnapshot[];
   /** Folder-wide minimum margin (percent); per-target overrides win. */
   readonly globalMinMarginPct: number | null;
+  /** Startup snapshot or subsequent WebSocket delivery. */
+  readonly source: SnipeAlertSource;
   /** Resolved league every search runs under (default: Allflame). */
   readonly league: string;
   readonly seen: ReadonlySet<string>;
@@ -90,18 +101,17 @@ export function decideSnipe(opts: DecideSnipeOptions): SnipeDecision {
       reason: `above max buy (${listing.priceText} > ${target.maxBuy!.amount} ${target.maxBuy!.currency}) for "${target.label}"`,
     };
   }
-  const threshold = target.minMarginPct ?? opts.globalMinMarginPct;
+  const threshold = target.minMarginPct ?? opts.globalMinMarginPct ?? 20;
   const gate = passesMarginGate(assessment, threshold);
-  if (!gate.pass) {
-    const pct = assessment.marginPct === null ? '?' : assessment.marginPct.toFixed(1);
-    return { kind: 'suppressed', reason: `margin ${pct}% below the ${threshold}% minimum for "${target.label}"` };
-  }
+  const qualifiesMargin = gate.pass && !gate.unknownMargin;
 
   const stale = assessment.freshness !== null && assessment.freshness.level !== 'live';
   return {
     kind: 'alert',
     alert: {
+      targetId: `${target.realm}:${target.searchId}`,
       targetLabel: target.label,
+      source: opts.source,
       listingId: listing.id,
       itemName: listing.itemName,
       priceText: listing.priceText,
@@ -115,6 +125,8 @@ export function decideSnipe(opts: DecideSnipeOptions): SnipeDecision {
       freshnessText: assessment.freshness === null ? 'ref age unknown' : `ref ${assessment.freshness.label}`,
       stale,
       unknownMargin: gate.unknownMargin,
+      minMarginPct: threshold,
+      qualifiesMargin,
     },
   };
 }

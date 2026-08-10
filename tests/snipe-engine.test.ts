@@ -53,6 +53,7 @@ function decide(over: {
   target?: SnipeTarget;
   globalMinMarginPct?: number | null;
   seen?: ReadonlySet<string>;
+  source?: 'current' | 'live';
 }) {
   const l = over.listing ?? listing();
   return decideSnipe({
@@ -60,7 +61,8 @@ function decide(over: {
     target: over.target ?? TARGET,
     assessment: assessMargin({ itemName: l.referenceName, price: l.price, snapshots: SNAPSHOTS, nowMs: NOW }),
     snapshots: SNAPSHOTS,
-    globalMinMarginPct: over.globalMinMarginPct ?? null,
+    globalMinMarginPct: over.globalMinMarginPct ?? 20,
+    source: over.source ?? 'live',
     league: 'Allflame',
     seen: over.seen ?? new Set(),
   });
@@ -76,6 +78,10 @@ describe('decideSnipe', () => {
     expect(result.alert.freshnessText).toContain('4m ago');
     expect(result.alert.stale).toBe(false);
     expect(result.alert.listedAt).toBe('2026-08-09T11:59:00Z');
+    expect(result.alert.targetId).toBe('trade:AbC123');
+    expect(result.alert.source).toBe('live');
+    expect(result.alert.minMarginPct).toBe(20);
+    expect(result.alert.qualifiesMargin).toBe(true);
     expect(result.alert).not.toHaveProperty('whisper');
   });
 
@@ -104,22 +110,40 @@ describe('decideSnipe', () => {
   });
 
   test('per-target min margin overrides the global threshold', () => {
-    expect(decide({ target: { ...TARGET, minMarginPct: 30 }, globalMinMarginPct: 10 }).kind).toBe('suppressed');
-    expect(decide({ target: { ...TARGET, minMarginPct: 20 }, globalMinMarginPct: 90 }).kind).toBe('alert');
+    const below = decide({ target: { ...TARGET, minMarginPct: 30 }, globalMinMarginPct: 10 });
+    const above = decide({ target: { ...TARGET, minMarginPct: 20 }, globalMinMarginPct: 90 });
+    expect(below.kind).toBe('alert');
+    expect(above.kind).toBe('alert');
+    if (below.kind !== 'alert' || above.kind !== 'alert') return;
+    expect(below.alert).toMatchObject({ minMarginPct: 30, qualifiesMargin: false });
+    expect(above.alert).toMatchObject({ minMarginPct: 20, qualifiesMargin: true });
   });
 
   test('the global min margin applies when the target has none', () => {
-    expect(decide({ globalMinMarginPct: 30 }).kind).toBe('suppressed');
-    expect(decide({ globalMinMarginPct: 20 }).kind).toBe('alert');
+    const below = decide({ globalMinMarginPct: 30 });
+    const above = decide({ globalMinMarginPct: 20 });
+    expect(below.kind).toBe('alert');
+    expect(above.kind).toBe('alert');
+    if (below.kind !== 'alert' || above.kind !== 'alert') return;
+    expect(below.alert.qualifiesMargin).toBe(false);
+    expect(above.alert.qualifiesMargin).toBe(true);
   });
 
-  test('unpriceable items pass a margin threshold flagged as unknown', () => {
+  test('unpriceable items remain visible to the queue but do not qualify', () => {
     const rare = listing({ itemName: 'Loath Cut Ring', referenceName: 'Loath Cut Ring', price: { amount: 10, currency: 'chaos' } });
     const result = decide({ listing: rare, globalMinMarginPct: 30 });
     expect(result.kind).toBe('alert');
     if (result.kind !== 'alert') return;
     expect(result.alert.unknownMargin).toBe(true);
+    expect(result.alert.qualifiesMargin).toBe(false);
     expect(result.alert.marginText).toContain('no reference price');
+  });
+
+  test('startup candidates preserve their current source', () => {
+    const result = decide({ source: 'current' });
+    expect(result.kind).toBe('alert');
+    if (result.kind !== 'alert') return;
+    expect(result.alert.source).toBe('current');
   });
 });
 
@@ -144,7 +168,8 @@ describe('formatAlert', () => {
       target: TARGET,
       assessment: assessMargin({ itemName: l.referenceName, price: l.price, snapshots: staleSnapshots, nowMs: NOW }),
       snapshots: staleSnapshots,
-      globalMinMarginPct: null,
+      globalMinMarginPct: 20,
+      source: 'live',
       league: 'Allflame',
       seen: new Set(),
     });

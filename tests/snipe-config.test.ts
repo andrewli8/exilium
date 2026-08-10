@@ -5,7 +5,7 @@ describe('snipe settings', () => {
   test('defaults contain only stable source, alert, league, and Chrome settings', () => {
     expect(loadConfig({}).snipe).toEqual({
       folder: undefined,
-      minMarginPct: null,
+      minMarginPct: 20,
       sound: false,
       webhookUrl: undefined,
       league: undefined,

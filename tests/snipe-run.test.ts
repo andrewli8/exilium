@@ -82,6 +82,7 @@ function makeHarness(options: {
   readonly promptImport?: () => Promise<string | null>;
   readonly globalLeague?: string;
   readonly snipeLeague?: string;
+  readonly snipeMinMargin?: number;
   readonly seedIds?: readonly string[];
   readonly manifest?: SnipeManifest;
 } = {}) {
@@ -100,6 +101,7 @@ function makeHarness(options: {
     snipe: {
       folder,
       chromeCdpUrl: 'http://127.0.0.1:9222',
+      ...(options.snipeMinMargin === undefined ? {} : { minMarginPct: options.snipeMinMargin }),
       ...(options.snipeLeague === undefined ? {} : { league: options.snipeLeague }),
     },
   });
@@ -248,11 +250,30 @@ describe('runSnipe orchestration', () => {
     await harness.waitForAlerts(1);
     expect(harness.seedCalls).toEqual(['aaa']);
     expect(harness.consoleAlerts.map((alert) => alert.listingId)).toEqual(['seed-1']);
+    expect(harness.consoleAlerts[0]?.source).toBe('current');
     expect(harness.notify).not.toHaveBeenCalled();
 
     await harness.emitListing('aaa', 'live-1');
     expect(harness.consoleAlerts.map((alert) => alert.listingId)).toEqual(['seed-1', 'live-1']);
+    expect(harness.consoleAlerts[1]?.source).toBe('live');
     expect(harness.notify).toHaveBeenCalledTimes(1);
+    harness.exit();
+    await running;
+  });
+
+  test('queues below-floor live candidates for hidden counts without notifying', async () => {
+    const harness = makeHarness({ snipeMinMargin: 30 });
+    const running = runSnipe(FLAGS, harness.deps);
+    await harness.started;
+    await harness.emitListing('aaa', 'below-floor');
+    expect(harness.consoleAlerts).toHaveLength(1);
+    expect(harness.consoleAlerts[0]).toMatchObject({
+      listingId: 'below-floor',
+      source: 'live',
+      minMarginPct: 30,
+      qualifiesMargin: false,
+    });
+    expect(harness.notify).not.toHaveBeenCalled();
     harness.exit();
     await running;
   });

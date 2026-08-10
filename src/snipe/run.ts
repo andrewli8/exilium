@@ -408,6 +408,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
           assessment: assessMargin({ itemName: listing.referenceName, price: listing.price, snapshots, nowMs: now() }),
           snapshots,
           globalMinMarginPct: minMarginPct,
+          source: source === 'seed' ? 'current' : 'live',
           league: entry.search.league,
           seen: NO_PRIOR_LISTINGS,
         });
@@ -418,13 +419,15 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
         const alert = decision.alert;
         consoleHandle.addAlert(alert);
         queued += 1;
-        if (source === 'live') {
+        if (source === 'live' && alert.qualifiesMargin) {
           const rendered = formatAlert(alert);
           sound();
           void notify!(rendered.title, rendered.body);
           recordWebhook(alert, 'queued', 'waiting for Enter');
-        } else {
+        } else if (source === 'seed') {
           record(alert, 'seeded', 'current result at startup');
+        } else {
+          record(alert, 'hidden', 'below the configured margin floor or reference price unknown');
         }
       }
       return queued;
