@@ -1,0 +1,85 @@
+import { describe, expect, test } from 'vitest';
+import type { CatalogEntry } from '../src/snipe/catalog.js';
+import type { SnipeAlert } from '../src/snipe/engine.js';
+import { SnipeStore } from '../src/snipe/store.js';
+
+function target(id: string): CatalogEntry {
+  return {
+    key: `trade:${id}`,
+    label: `Target ${id}`,
+    realm: 'trade',
+    searchId: id,
+    league: 'Allflame',
+    enabled: true,
+    source: 'Exilium',
+  };
+}
+
+function alert(id: string, overrides: Partial<SnipeAlert> = {}): SnipeAlert {
+  return {
+    targetId: `trade:${id}`,
+    targetLabel: `Target ${id}`,
+    source: 'current',
+    listingId: id,
+    itemName: `Item ${id}`,
+    priceText: '10 divine',
+    seller: 'Seller',
+    listedAt: '2026-08-09T12:00:00.000Z',
+    searchUrl: `https://www.pathofexile.com/trade/search/Allflame/${id}`,
+    listedChaos: 2_000,
+    marginChaos: -100,
+    marginPct: 19,
+    marginText: '-100c (-1.0%)',
+    freshnessText: 'ref 1m ago',
+    stale: false,
+    unknownMargin: false,
+    minMarginPct: 20,
+    targetMinMarginPct: null,
+    qualifiesMargin: false,
+    ...overrides,
+  };
+}
+
+describe('SnipeStore', () => {
+  test('keeps every enabled search navigable when all candidates miss the floor', () => {
+    const store = new SnipeStore([target('one'), target('two')], { minMarginPct: 20 });
+    store.ingest(alert('one'));
+
+    const snapshot = store.snapshot();
+    expect(snapshot.board.groups.map((group) => group.targetId)).toEqual(['trade:one', 'trade:two']);
+    expect(snapshot.board.groups[0]).toMatchObject({ best: null, hiddenCount: 1 });
+    expect(snapshot.board.groups[1]).toMatchObject({ best: null, hiddenCount: 0 });
+    expect(snapshot.queue.selectedTargetId).toBe('trade:one');
+
+    store.dispatch({ type: 'move', delta: 1 });
+    expect(store.snapshot().queue.selectedTargetId).toBe('trade:two');
+  });
+
+  test('notifies subscribers with connection and seed progress state', () => {
+    const store = new SnipeStore([target('one')], { minMarginPct: 20 });
+    let notifications = 0;
+    store.subscribe(() => { notifications += 1; });
+    store.setSearchState('trade:one', 'live');
+    store.setProgress(1, 1);
+
+    expect(notifications).toBe(2);
+    expect(store.snapshot()).toMatchObject({
+      searches: [{ state: 'live' }],
+      progress: { seeded: 1, total: 1 },
+    });
+  });
+
+  test('does not resurrect dismissed or queue-evicted listing ids', () => {
+    const store = new SnipeStore([target('one')], { minMarginPct: 0, maxEntries: 2 });
+    store.ingest(alert('anchor', { targetId: 'trade:one', marginPct: 30, qualifiesMargin: true }));
+    store.ingest(alert('dismissed', { targetId: 'trade:one', marginPct: 30, qualifiesMargin: true }));
+    store.dispatch({ type: 'dismiss', listingId: 'dismissed' });
+    store.ingest(alert('old', { targetId: 'trade:one', marginPct: 30, qualifiesMargin: true }));
+    store.ingest(alert('new', { targetId: 'trade:one', marginPct: 31, qualifiesMargin: true }));
+    store.ingest(alert('newest', { targetId: 'trade:one', marginPct: 32, qualifiesMargin: true }));
+    store.ingest(alert('dismissed', { targetId: 'trade:one', marginPct: 40, qualifiesMargin: true }));
+    store.ingest(alert('old', { targetId: 'trade:one', marginPct: 40, qualifiesMargin: true }));
+
+    expect(store.snapshot().queue.entries.map((entry) => entry.alert.listingId)).toEqual(['newest', 'anchor']);
+  });
+});

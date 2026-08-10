@@ -1,0 +1,161 @@
+import type { CatalogEntry } from './catalog.js';
+import type { SnipeAlert } from './engine.js';
+import {
+  projectSearchCandidateBoard,
+  type SearchCandidateBoard,
+} from './board.js';
+import {
+  createQueueState,
+  queueReducer,
+  type SnipeQueueAction,
+  type SnipeQueueState,
+} from './queue.js';
+
+export type SnipeSearchState =
+  | 'stopped'
+  | 'connecting'
+  | 'live'
+  | 'seeding'
+  | 'cooldown'
+  | 'rate-limited'
+  | 'reconnecting'
+  | 'auth-required';
+
+export interface SnipeSearchSnapshot {
+  readonly target: CatalogEntry;
+  readonly state: SnipeSearchState;
+  readonly detail: string | null;
+}
+
+export interface SnipeSnapshot {
+  readonly searches: readonly SnipeSearchSnapshot[];
+  readonly queue: SnipeQueueState;
+  readonly board: SearchCandidateBoard;
+  readonly floor: number;
+  readonly progress: { readonly seeded: number; readonly total: number };
+  readonly status: string | null;
+}
+
+export interface SnipeStoreOptions {
+  readonly minMarginPct?: number;
+  readonly maxEntries?: number;
+  readonly maxRememberedIds?: number;
+}
+
+export class SnipeStore {
+  private searches: SnipeSearchSnapshot[];
+  private queue: SnipeQueueState;
+  private floor: number;
+  private progress: SnipeSnapshot['progress'];
+  private status: string | null = null;
+  private readonly listeners = new Set<() => void>();
+  private readonly rememberedIds = new Set<string>();
+  private readonly rememberedOrder: string[] = [];
+  private readonly maxRememberedIds: number;
+  private current: SnipeSnapshot;
+
+  constructor(targets: readonly CatalogEntry[], options: SnipeStoreOptions = {}) {
+    this.searches = targets.map((target) => ({ target, state: 'stopped', detail: null }));
+    this.floor = options.minMarginPct ?? 20;
+    this.queue = {
+      ...createQueueState(options.maxEntries ?? 200),
+      selectedTargetId: targets[0]?.key ?? null,
+    };
+    this.progress = { seeded: 0, total: targets.length };
+    this.maxRememberedIds = options.maxRememberedIds ?? Math.max(1_000, (options.maxEntries ?? 200) * 10);
+    this.current = this.buildSnapshot();
+  }
+
+  readonly snapshot = (): SnipeSnapshot => this.current;
+
+  readonly subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  };
+
+  ingest(alert: SnipeAlert, receivedAt = new Date().toISOString()): void {
+    if (this.rememberedIds.has(alert.listingId)) return;
+    this.remember(alert.listingId);
+    this.queue = queueReducer(this.queue, { type: 'add', alert, receivedAt });
+    this.rebuild();
+  }
+
+  dispatch(action: SnipeQueueAction): void {
+    if (action.type === 'move' && this.queue.view === 'board') {
+      const groups = this.current.board.groups;
+      if (groups.length === 0) return;
+      const currentIndex = Math.max(0, groups.findIndex((group) => group.targetId === this.queue.selectedTargetId));
+      const nextIndex = Math.max(0, Math.min(groups.length - 1, currentIndex + action.delta));
+      const group = groups[nextIndex]!;
+      this.queue = {
+        ...this.queue,
+        selectedTargetId: group.targetId,
+        selectedListingId: group.best?.alert.listingId ?? null,
+      };
+    } else {
+      this.queue = queueReducer(this.queue, action);
+    }
+    this.rebuild();
+  }
+
+  setSearchState(targetId: string, state: SnipeSearchState, detail: string | null = null): void {
+    this.searches = this.searches.map((search) =>
+      search.target.key === targetId ? { ...search, state, detail } : search,
+    );
+    this.rebuild();
+  }
+
+  setProgress(seeded: number, total: number): void {
+    this.progress = { seeded, total };
+    this.rebuild();
+  }
+
+  setFloor(floor: number): void {
+    if (!Number.isFinite(floor) || floor < 0) return;
+    this.floor = floor;
+    this.queue = queueReducer(this.queue, { type: 'reconcile-floor', minMarginPct: floor });
+    this.rebuild();
+  }
+
+  setStatus(status: string | null): void {
+    this.status = status;
+    this.rebuild();
+  }
+
+  private remember(listingId: string): void {
+    this.rememberedIds.add(listingId);
+    this.rememberedOrder.push(listingId);
+    while (this.rememberedOrder.length > this.maxRememberedIds) {
+      const expired = this.rememberedOrder.shift();
+      if (expired !== undefined) this.rememberedIds.delete(expired);
+    }
+  }
+
+  private buildSnapshot(): SnipeSnapshot {
+    const board = projectSearchCandidateBoard(this.queue, {
+      showHidden: this.queue.showHidden,
+      minMarginPct: this.floor,
+      targets: this.searches.map((search) => ({
+        targetId: search.target.key,
+        targetLabel: search.target.label,
+      })),
+    });
+    return {
+      searches: this.searches,
+      queue: this.queue,
+      board,
+      floor: this.floor,
+      progress: this.progress,
+      status: this.status,
+    };
+  }
+
+  private rebuild(): void {
+    this.current = this.buildSnapshot();
+    if (this.current.board.groups.length > 0 && this.queue.selectedTargetId === null) {
+      this.queue = { ...this.queue, selectedTargetId: this.current.board.groups[0]!.targetId };
+      this.current = this.buildSnapshot();
+    }
+    for (const listener of this.listeners) listener();
+  }
+}

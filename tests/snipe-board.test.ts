@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { projectCandidateBoard } from '../src/snipe/board.js';
+import { projectCandidateBoard, projectSearchCandidateBoard } from '../src/snipe/board.js';
 import type { SnipeAlert } from '../src/snipe/engine.js';
 import { createQueueState, queueReducer, type SnipeQueueState } from '../src/snipe/queue.js';
 
@@ -87,6 +87,21 @@ describe('candidate board projection', () => {
     expect(board.groups).toEqual([]);
     expect(board.qualifyingCount).toBe(0);
     expect(board.belowFloorCount).toBe(1);
+  });
+
+  test('search projection keeps configured targets when every listing misses the floor', () => {
+    const state = add(createQueueState(), candidate({ listingId: 'near-miss', marginPct: 19.9, qualifiesMargin: false }));
+    const board = projectSearchCandidateBoard(state, {
+      showHidden: false,
+      targets: [
+        { targetId: 'trade:mageblood', targetLabel: 'Mageblood' },
+        { targetId: 'trade:nimis', targetLabel: 'Nimis' },
+      ],
+    });
+
+    expect(board.groups.map((group) => group.targetLabel)).toEqual(['Mageblood', 'Nimis']);
+    expect(board.groups[0]).toMatchObject({ best: null, hiddenCount: 1 });
+    expect(board.groups[1]).toMatchObject({ best: null, hiddenCount: 0 });
   });
 
   test('a per-target floor still wins over a changed session floor', () => {
