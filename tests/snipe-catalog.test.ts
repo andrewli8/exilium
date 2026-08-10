@@ -9,6 +9,7 @@ import {
   resolveCatalogEntry,
   saveSnipeManifest,
   targetKey,
+  updateSnipeCatalog,
 } from '../src/snipe/catalog.js';
 
 function folder(): string {
@@ -103,5 +104,31 @@ describe('snipe catalog', () => {
 
   test('targetKey includes the realm', () => {
     expect(targetKey({ realm: 'trade2', searchId: 'same' })).toBe('trade2:same');
+  });
+
+  test('applies batch configuration edits in one manifest write', () => {
+    const dir = folder();
+    writeImported(dir);
+    const entries = updateSnipeCatalog(dir, [
+      { key: 'trade:aaa111', enabled: false, label: 'Configured Sublime', minMarginPct: 25 },
+      { key: 'trade:bbb222', enabled: true },
+    ]);
+
+    expect(entries[0]).toMatchObject({ label: 'Configured Sublime', enabled: false, minMarginPct: 25 });
+    expect(loadSnipeManifest(dir).overrides['trade:aaa111']).toMatchObject({ enabled: false, label: 'Configured Sublime', minMarginPct: 25 });
+  });
+
+  test('replacing a trade URL disables the old target and creates a managed replacement', () => {
+    const dir = folder();
+    writeImported(dir);
+    const entries = updateSnipeCatalog(dir, [{
+      key: 'trade:aaa111',
+      url: 'https://www.pathofexile.com/trade/search/Allflame/replacement9',
+      label: 'Replacement',
+      enabled: true,
+    }]);
+
+    expect(entries.find((entry) => entry.key === 'trade:aaa111')?.enabled).toBe(false);
+    expect(entries.find((entry) => entry.key === 'trade:replacement9')).toMatchObject({ label: 'Replacement', enabled: true, source: 'Exilium' });
   });
 });

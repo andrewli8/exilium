@@ -2,6 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync,
 import { join } from 'node:path';
 import { z } from 'zod';
 import { loadSnipeFolder, readSnipeFolderFiles, type SnipeTarget } from './bettertrading.js';
+import { parseTradeUrl } from '../trade/live-search.js';
 
 export const SNIPE_MANIFEST_NAME = '.exilium-snipes.json';
 
@@ -144,4 +145,62 @@ export function resolveCatalogEntry(entries: readonly CatalogEntry[], selector: 
   if (labels.length === 0) throw new Error(`Unknown snipe selector "${selector}"`);
   if (labels.length > 1) throw new Error(`Ambiguous snipe selector "${selector}"`);
   return labels[0]!;
+}
+
+export interface CatalogEdit {
+  readonly key: string;
+  readonly label?: string;
+  readonly url?: string;
+  readonly minMarginPct?: number | null;
+  readonly enabled?: boolean;
+}
+
+export function updateSnipeCatalog(
+  folder: string,
+  edits: readonly CatalogEdit[],
+): readonly CatalogEntry[] {
+  const current = loadSnipeCatalog(folder, () => undefined);
+  const manifest = loadSnipeManifest(folder);
+  const managed = [...manifest.managed];
+  const overrides = { ...manifest.overrides };
+
+  for (const edit of edits) {
+    const entry = current.find((candidate) => candidate.key === edit.key);
+    if (entry === undefined) throw new Error(`Unknown snipe selector "${edit.key}"`);
+    if (edit.label !== undefined && edit.label.trim() === '') throw new Error('Snipe label cannot be empty');
+    if (edit.minMarginPct !== undefined && edit.minMarginPct !== null && (!Number.isFinite(edit.minMarginPct) || edit.minMarginPct < 0)) {
+      throw new Error('Minimum margin must be a non-negative number or blank');
+    }
+
+    let destinationKey = edit.key;
+    if (edit.url !== undefined) {
+      const parsed = parseTradeUrl(edit.url);
+      destinationKey = targetKey(parsed);
+      if (destinationKey !== edit.key) {
+        overrides[edit.key] = { ...overrides[edit.key], enabled: false };
+        if (!managed.some((target) => targetKey(target) === destinationKey)) {
+          managed.push({
+            label: edit.label?.trim() || entry.label,
+            realm: parsed.realm,
+            searchId: parsed.searchId,
+            league: parsed.league,
+            ...(entry.maxBuy === undefined ? {} : { maxBuy: entry.maxBuy }),
+            ...(edit.minMarginPct == null
+              ? entry.minMarginPct === undefined ? {} : { minMarginPct: entry.minMarginPct }
+              : { minMarginPct: edit.minMarginPct }),
+          });
+        }
+      }
+    }
+
+    overrides[destinationKey] = {
+      ...overrides[destinationKey],
+      ...(edit.label === undefined ? {} : { label: edit.label.trim() }),
+      ...(edit.minMarginPct === undefined ? {} : { minMarginPct: edit.minMarginPct }),
+      ...(edit.enabled === undefined ? {} : { enabled: edit.enabled }),
+    };
+  }
+
+  saveSnipeManifest(folder, { version: 1, managed, overrides });
+  return loadSnipeCatalog(folder, () => undefined);
 }
