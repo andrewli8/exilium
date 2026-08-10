@@ -76,6 +76,21 @@ describe('SnipeBoardView', () => {
     expect(store.snapshot().queue.selectedTargetId).toBe('trade:two');
   });
 
+  test('Shift+arrows jump ten rows at a time', async () => {
+    const store = new SnipeStore([target('one')]);
+    for (let i = 0; i < 15; i += 1) {
+      store.ingest(alert(`row-${i}`, 25, { listedAt: new Date(Date.parse('2026-08-09T12:00:00Z') - i * 60_000).toISOString() }));
+    }
+    const ui = render(<SnipeBoardView store={store} onTravel={async () => ({ action: 'failed', detail: 'unused' })} />);
+    expect(store.snapshot().queue.selectedListingId).toBe('row-0');
+    ui.stdin.write('\u001b[1;2B'); // Shift+Down
+    await flush();
+    expect(store.snapshot().queue.selectedListingId).toBe('row-10');
+    ui.stdin.write('\u001b[1;2A'); // Shift+Up
+    await flush();
+    expect(store.snapshot().queue.selectedListingId).toBe('row-0');
+  });
+
   test('Shift+Enter opens the selected listing search detail', async () => {
     const store = new SnipeStore([target('one')]);
     store.ingest(alert('hidden', 10));

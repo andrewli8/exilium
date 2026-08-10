@@ -205,8 +205,8 @@ export function SnipeQueueApp({ alerts, onTravel, onExit, now, searchCount, minM
       else if (/^[0-9.]+$/.test(input) && !(input.includes('.') && floorInput.includes('.'))) setFloorInput(`${floorInput}${input}`);
       return;
     }
-    if (key.upArrow) dispatch({ type: 'move', delta: -1, minMarginPct: floor });
-    else if (key.downArrow) dispatch({ type: 'move', delta: 1, minMarginPct: floor });
+    if (key.upArrow) dispatch({ type: 'move', delta: key.shift ? -10 : -1, minMarginPct: floor });
+    else if (key.downArrow) dispatch({ type: 'move', delta: key.shift ? 10 : 1, minMarginPct: floor });
     else if (key.return && key.shift) dispatch({ type: 'open-detail', minMarginPct: floor });
     else if (key.tab && key.shift) dispatch({ type: 'previous-view', minMarginPct: floor });
     else if (key.tab) dispatch({ type: 'next-view', minMarginPct: floor });

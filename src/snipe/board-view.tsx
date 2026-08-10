@@ -74,8 +74,10 @@ export function SnipeBoardView({ store, onTravel, active = true, embedded = fals
       return;
     }
     if (input.toLowerCase() === 'q' && !embedded) onExit?.();
-    else if (key.upArrow) store.dispatch({ type: 'move', delta: -1, minMarginPct: snapshot.floor });
-    else if (key.downArrow) store.dispatch({ type: 'move', delta: 1, minMarginPct: snapshot.floor });
+    else if (key.upArrow) store.dispatch({ type: 'move', delta: key.shift ? -10 : -1, minMarginPct: snapshot.floor });
+    else if (key.downArrow) store.dispatch({ type: 'move', delta: key.shift ? 10 : 1, minMarginPct: snapshot.floor });
+    else if (key.pageUp) store.dispatch({ type: 'move', delta: -MAX_TABLE_ROWS, minMarginPct: snapshot.floor });
+    else if (key.pageDown) store.dispatch({ type: 'move', delta: MAX_TABLE_ROWS, minMarginPct: snapshot.floor });
     else if (key.return && key.shift) {
       if (selectedGroup?.best === null && selectedGroup.hiddenCount > 0 && !snapshot.queue.showHidden) {
         store.dispatch({ type: 'toggle-hidden', minMarginPct: snapshot.floor });
@@ -153,7 +155,7 @@ export function SnipeBoardView({ store, onTravel, active = true, embedded = fals
           {hiddenBelow > 0 && <Text dimColor>{`  ↓ ${hiddenBelow} older hidden`}</Text>}
           <Text dimColor>{fold(`${snapshot.table.qualifyingCount} above threshold ${glyphs.sep} ${snapshot.table.belowFloorCount} below ${glyphs.sep} ${snapshot.table.unknownCount} unknown`)}</Text>
         </>}
-        <Text dimColor>{fold(`${glyphs.upDown} select ${glyphs.sep} Enter travel ${glyphs.sep} Shift+Enter inspect ${glyphs.sep} t threshold ${glyphs.sep} c configure`)}</Text>
+        <Text dimColor>{fold(`${glyphs.upDown} select (Shift jumps 10) ${glyphs.sep} Enter travel ${glyphs.sep} Shift+Enter inspect ${glyphs.sep} t threshold ${glyphs.sep} c configure`)}</Text>
       </> : <>
         <Text bold>{fold(selectedGroup?.targetLabel ?? 'SNIPE DETAILS')}</Text>
         {selectedGroup?.entries.map((entry) => (

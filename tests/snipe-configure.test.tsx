@@ -92,6 +92,23 @@ describe('SnipeConfigureOverlay', () => {
     expect(onStart).toHaveBeenCalledWith(['trade:three']);
   });
 
+  test('Shift+Down jumps ten rows and long lists window with more markers', async () => {
+    const onSave = vi.fn(async (entries: readonly CatalogEntry[]) => entries);
+    const many = Array.from({ length: 20 }, (_, i) => entry(`e${i}`));
+    const ui = render(
+      <SnipeConfigureOverlay entries={many} onSave={onSave} onStart={async () => undefined} onClose={() => undefined} />,
+    );
+    expect(ui.lastFrame()).toMatch(/more below/);
+    expect(ui.lastFrame()).not.toContain('Target e19');
+    ui.stdin.write('\u001b[1;2B'); // Shift+Down → row 10
+    await flush();
+    ui.stdin.write(' ');
+    await flush();
+    ui.stdin.write('\r');
+    await flush();
+    expect(onSave.mock.calls[0]?.[0][10]).toMatchObject({ key: 'trade:e10', enabled: false });
+  });
+
   test('Backspace on a folder asks for confirmation before deleting', async () => {
     const onDeleteFolder = vi.fn(async () => [grouped('three', 'gambles')]);
     const ui = render(

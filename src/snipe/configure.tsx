@@ -6,6 +6,9 @@ import { fold, glyphs } from '../tui/glyphs.js';
 
 type Mode = 'list' | 'import' | 'edit' | 'confirm-delete';
 
+/** Visible list rows; the cursor scrolls the window through longer lists. */
+const MAX_LIST_ROWS = 14;
+
 type Row =
   | { readonly kind: 'folder'; readonly group: string; readonly indices: readonly number[] }
   | { readonly kind: 'entry'; readonly index: number };
@@ -187,8 +190,10 @@ export function SnipeConfigureOverlay({ entries, onSave, onStart, onClose, onImp
       setError(null);
       return;
     }
-    if (key.upArrow) { setCursor((index) => Math.max(0, index - 1)); return; }
-    if (key.downArrow) { setCursor((index) => Math.min(Math.max(0, rows.length - 1), index + 1)); return; }
+    if (key.upArrow) { setCursor((index) => Math.max(0, index - (key.shift ? 10 : 1))); return; }
+    if (key.downArrow) { setCursor((index) => Math.min(Math.max(0, rows.length - 1), index + (key.shift ? 10 : 1))); return; }
+    if (key.pageUp) { setCursor((index) => Math.max(0, index - MAX_LIST_ROWS)); return; }
+    if (key.pageDown) { setCursor((index) => Math.min(Math.max(0, rows.length - 1), index + MAX_LIST_ROWS)); return; }
     if (key.rightArrow) {
       if (selected?.kind === 'folder') setExpanded((current) => new Set([...current, selected.group]));
       return;
@@ -236,13 +241,22 @@ export function SnipeConfigureOverlay({ entries, onSave, onStart, onClose, onImp
   });
 
   const cursorIndex = Math.min(cursor, Math.max(0, rows.length - 1));
+  const windowStart = Math.min(
+    Math.max(0, cursorIndex - MAX_LIST_ROWS + 1),
+    Math.max(0, rows.length - MAX_LIST_ROWS),
+  );
+  const visibleRows = rows.slice(windowStart, windowStart + MAX_LIST_ROWS);
+  const hiddenAbove = windowStart;
+  const hiddenBelow = Math.max(0, rows.length - windowStart - visibleRows.length);
 
   return (
     <Box flexDirection="column" borderStyle={glyphs.border} borderColor="yellow" paddingX={1}>
       <Text bold color="yellow">CONFIGURE SNIPES</Text>
       {mode === 'list' && <>
         <Text dimColor>{fold(`${glyphs.upDown} move ${glyphs.sep} Space toggle ${glyphs.sep} ${glyphs.leftRight} close/open folder ${glyphs.sep} ⌫ delete folder ${glyphs.sep} a all ${glyphs.sep} e edit ${glyphs.sep} i import ${glyphs.sep} Enter save/start ${glyphs.sep} Esc save`)}</Text>
-        {rows.map((row, index) => {
+        {hiddenAbove > 0 && <Text dimColor>{`  ↑ ${hiddenAbove} more above`}</Text>}
+        {visibleRows.map((row, visibleIndex) => {
+          const index = windowStart + visibleIndex;
           if (row.kind === 'folder') {
             const enabledCount = row.indices.filter((entryIndex) => drafts[entryIndex]?.enabled === true).length;
             const box = enabledCount === row.indices.length ? '[x]' : enabledCount === 0 ? '[ ]' : '[~]';
@@ -262,6 +276,7 @@ export function SnipeConfigureOverlay({ entries, onSave, onStart, onClose, onImp
             </Text>
           );
         })}
+        {hiddenBelow > 0 && <Text dimColor>{`  ↓ ${hiddenBelow} more below`}</Text>}
         {drafts.length === 0 && <Text dimColor>No snipes configured — press i to import Better Trading.</Text>}
       </>}
       {mode === 'confirm-delete' && deleteGroup !== null && <>
