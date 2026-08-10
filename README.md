@@ -171,7 +171,7 @@ exilium snipe remove 9zRjda6KHK
 
 Exilium stores additions and overrides in `.exilium-snipes.json` inside the BetterTrading folder. Extension exports are never rewritten: removing an imported search disables it reversibly, while removing an Exilium-added search deletes that managed entry.
 
-Imports keep their Better Trading folder identity: each pasted export lands in a subdirectory named after its folder title, and the configure overlay (`c`) groups searches under collapsible folder rows — `→`/`←` open and close a folder, Space on the folder row enables or disables every search inside it, and Space on an individual search toggles just that one. Sources with no folder (plain URL lists) keep the flat view.
+Imports keep their Better Trading folder identity: each pasted export lands in a subdirectory named after its folder title, and the configure overlay (`c`) groups searches under collapsible folder rows — `→`/`←` open and close a folder, Space on the folder row enables or disables every search inside it, and Space on an individual search toggles just that one. Sources with no folder (plain URL lists) keep the flat view. Backspace on a folder row deletes it after a y/n confirmation — import-created folders are removed from disk, while groups living inside shared root files are reversibly disabled instead.
 
 Every run starts with a multi-select. Use Up/Down, Space, `a`, or number keys to choose searches, then Enter to enable only those searches. The choice is not saved. For scripts and non-interactive terminals, use `--all` or repeat `--search ID`.
 

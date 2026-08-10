@@ -92,6 +92,34 @@ describe('SnipeConfigureOverlay', () => {
     expect(onStart).toHaveBeenCalledWith(['trade:three']);
   });
 
+  test('Backspace on a folder asks for confirmation before deleting', async () => {
+    const onDeleteFolder = vi.fn(async () => [grouped('three', 'gambles')]);
+    const ui = render(
+      <SnipeConfigureOverlay
+        entries={[grouped('one', 'valdos'), grouped('two', 'valdos'), grouped('three', 'gambles')]}
+        onSave={async (entries) => entries}
+        onStart={async () => undefined}
+        onClose={() => undefined}
+        onDeleteFolder={onDeleteFolder}
+      />,
+    );
+    ui.stdin.write(''); // backspace on the valdos folder row
+    await flush();
+    expect(ui.lastFrame()).toMatch(/delete folder .*valdos.*2 search/i);
+    ui.stdin.write('n');
+    await flush();
+    expect(onDeleteFolder).not.toHaveBeenCalled();
+    expect(ui.lastFrame()).toContain('valdos');
+
+    ui.stdin.write('');
+    await flush();
+    ui.stdin.write('y');
+    await flush();
+    expect(onDeleteFolder).toHaveBeenCalledWith('valdos');
+    expect(ui.lastFrame()).not.toContain('valdos');
+    expect(ui.lastFrame()).toContain('gambles');
+  });
+
   test('invalid import remains open with an actionable error', async () => {
     const onClose = vi.fn();
     const onImport = vi.fn(async () => { throw new Error('expected "2:<base64>" or "3:<base64>"'); });

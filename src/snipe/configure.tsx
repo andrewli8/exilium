@@ -4,7 +4,7 @@ import type { CatalogEntry } from './catalog.js';
 import { parseTradeUrl } from '../trade/live-search.js';
 import { fold, glyphs } from '../tui/glyphs.js';
 
-type Mode = 'list' | 'import' | 'edit';
+type Mode = 'list' | 'import' | 'edit' | 'confirm-delete';
 
 type Row =
   | { readonly kind: 'folder'; readonly group: string; readonly indices: readonly number[] }
@@ -16,6 +16,8 @@ export interface SnipeConfigureOverlayProps {
   readonly onStart: (enabledKeys: readonly string[]) => Promise<void>;
   readonly onClose: () => void;
   readonly onImport?: (source: string) => Promise<readonly CatalogEntry[]>;
+  /** Delete one folder group (Backspace on its row, after confirmation). */
+  readonly onDeleteFolder?: (group: string) => Promise<readonly CatalogEntry[]>;
 }
 
 function tradeUrl(entry: CatalogEntry): string {
@@ -61,7 +63,7 @@ function entryDisplayLabel(entry: CatalogEntry): string {
   return separator > 0 ? entry.label.slice(separator + 3) : entry.label;
 }
 
-export function SnipeConfigureOverlay({ entries, onSave, onStart, onClose, onImport }: SnipeConfigureOverlayProps) {
+export function SnipeConfigureOverlay({ entries, onSave, onStart, onClose, onImport, onDeleteFolder }: SnipeConfigureOverlayProps) {
   const [drafts, setDrafts] = useState<readonly CatalogEntry[]>(entries);
   const [cursor, setCursor] = useState(0);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
@@ -70,6 +72,7 @@ export function SnipeConfigureOverlay({ entries, onSave, onStart, onClose, onImp
   const [editField, setEditField] = useState(0);
   const [editTarget, setEditTarget] = useState<number | null>(null);
   const [editValues, setEditValues] = useState<readonly [string, string, string]>(['', '', '']);
+  const [deleteGroup, setDeleteGroup] = useState<{ readonly group: string; readonly count: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -156,7 +159,34 @@ export function SnipeConfigureOverlay({ entries, onSave, onStart, onClose, onImp
       return;
     }
 
+    if (mode === 'confirm-delete') {
+      if (key.escape || value.toLowerCase() === 'n') { setMode('list'); setDeleteGroup(null); return; }
+      if (value.toLowerCase() === 'y') {
+        const target = deleteGroup;
+        if (target === null || onDeleteFolder === undefined) { setMode('list'); setDeleteGroup(null); return; }
+        setBusy(true);
+        void onDeleteFolder(target.group).then((next) => {
+          setDrafts(next);
+          setCursor(0);
+          setMode('list');
+          setDeleteGroup(null);
+          setError(null);
+        }).catch((reason: unknown) => {
+          setError(reason instanceof Error ? reason.message : String(reason));
+          setMode('list');
+          setDeleteGroup(null);
+        }).finally(() => setBusy(false));
+      }
+      return;
+    }
+
     if (key.escape) { void save(false); return; }
+    if ((key.backspace || key.delete) && selected?.kind === 'folder' && onDeleteFolder !== undefined) {
+      setDeleteGroup({ group: selected.group, count: selected.indices.length });
+      setMode('confirm-delete');
+      setError(null);
+      return;
+    }
     if (key.upArrow) { setCursor((index) => Math.max(0, index - 1)); return; }
     if (key.downArrow) { setCursor((index) => Math.min(Math.max(0, rows.length - 1), index + 1)); return; }
     if (key.rightArrow) {
@@ -211,7 +241,7 @@ export function SnipeConfigureOverlay({ entries, onSave, onStart, onClose, onImp
     <Box flexDirection="column" borderStyle={glyphs.border} borderColor="yellow" paddingX={1}>
       <Text bold color="yellow">CONFIGURE SNIPES</Text>
       {mode === 'list' && <>
-        <Text dimColor>{fold(`${glyphs.upDown} move ${glyphs.sep} Space toggle ${glyphs.sep} ${glyphs.leftRight} close/open folder ${glyphs.sep} a all ${glyphs.sep} e edit ${glyphs.sep} i import ${glyphs.sep} Enter save/start ${glyphs.sep} Esc save`)}</Text>
+        <Text dimColor>{fold(`${glyphs.upDown} move ${glyphs.sep} Space toggle ${glyphs.sep} ${glyphs.leftRight} close/open folder ${glyphs.sep} ⌫ delete folder ${glyphs.sep} a all ${glyphs.sep} e edit ${glyphs.sep} i import ${glyphs.sep} Enter save/start ${glyphs.sep} Esc save`)}</Text>
         {rows.map((row, index) => {
           if (row.kind === 'folder') {
             const enabledCount = row.indices.filter((entryIndex) => drafts[entryIndex]?.enabled === true).length;
@@ -233,6 +263,10 @@ export function SnipeConfigureOverlay({ entries, onSave, onStart, onClose, onImp
           );
         })}
         {drafts.length === 0 && <Text dimColor>No snipes configured — press i to import Better Trading.</Text>}
+      </>}
+      {mode === 'confirm-delete' && deleteGroup !== null && <>
+        <Text color="red">{fold(`Delete folder "${deleteGroup.group}" (${deleteGroup.count} search${deleteGroup.count === 1 ? '' : 'es'})?`)}</Text>
+        <Text dimColor>{fold('Imported folders are removed from disk; searches from shared files are disabled instead. y delete · n cancel')}</Text>
       </>}
       {mode === 'import' && <>
         <Text>Paste Better Trading export:</Text>

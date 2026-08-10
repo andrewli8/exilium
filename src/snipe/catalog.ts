@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { loadSnipeFolder, readSnipeFolderFiles, type SnipeTarget } from './bettertrading.js';
@@ -133,6 +133,31 @@ export function loadSnipeCatalog(folder: string, warn: (message: string) => void
     entries.push(applyOverride(item.target, item.source, manifest.overrides[key]));
   }
   return entries;
+}
+
+/** Delete one configure-UI folder. When the group is backed by its own
+ * import subdirectory, the directory is removed from disk along with the
+ * member overrides; a group living inside shared root files (which may hold
+ * other searches and were often written by the user) is never deleted —
+ * its searches are reversibly disabled instead. */
+export function deleteSnipeFolderGroup(folder: string, group: string): readonly CatalogEntry[] {
+  const entries = loadSnipeCatalog(folder, () => undefined);
+  const members = entries.filter((entry) => entry.group === group);
+  if (members.length === 0) throw new Error(`Unknown snipe folder "${group}"`);
+  const manifest = loadSnipeManifest(folder);
+  const overrides = { ...manifest.overrides };
+  // A payload title can contain anything; only a plain directory name may
+  // ever be joined onto the folder path.
+  const isPlainDirName = !group.includes('/') && !group.includes('\\') && group !== '.' && group !== '..';
+  const dir = isPlainDirName ? join(folder, group) : null;
+  if (dir !== null && existsSync(dir)) {
+    rmSync(dir, { recursive: true, force: true });
+    for (const member of members) delete overrides[member.key];
+  } else {
+    for (const member of members) overrides[member.key] = { ...overrides[member.key], enabled: false };
+  }
+  saveSnipeManifest(folder, { ...manifest, overrides });
+  return loadSnipeCatalog(folder, () => undefined);
 }
 
 export function resolveCatalogEntry(entries: readonly CatalogEntry[], selector: string): CatalogEntry {

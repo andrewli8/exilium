@@ -400,6 +400,11 @@ async function cmdTui(): Promise<void> {
           snipeStore.setTargets(snipeEntries.filter((entry) => entry.enabled));
           return snipeEntries;
         },
+        removeFolder: async (group: string) => {
+          snipeEntries = catalogApi.deleteSnipeFolderGroup(snipeFolder, group);
+          snipeStore.setTargets(snipeEntries.filter((entry) => entry.enabled));
+          return snipeEntries;
+        },
         start: async (enabledKeys: readonly string[]) => {
           if (snipeRuntime !== undefined) await snipeRuntime.stop();
           const enabled = snipeEntries.filter((entry) => enabledKeys.includes(entry.key));

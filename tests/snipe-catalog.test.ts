@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import {
+  deleteSnipeFolderGroup,
   emptySnipeManifest,
   loadSnipeCatalog,
   loadSnipeManifest,
@@ -11,6 +12,10 @@ import {
   targetKey,
   updateSnipeCatalog,
 } from '../src/snipe/catalog.js';
+
+const EXPORT_VALDOS = `3:${Buffer.from(JSON.stringify({
+  tit: 'valdos', ver: '1', trs: [{ tit: 'mageblood', loc: '1:search:DelDir1' }],
+})).toString('base64')}`;
 
 function folder(): string {
   return mkdtempSync(join(tmpdir(), 'exilium-catalog-'));
@@ -130,5 +135,35 @@ describe('snipe catalog', () => {
 
     expect(entries.find((entry) => entry.key === 'trade:aaa111')?.enabled).toBe(false);
     expect(entries.find((entry) => entry.key === 'trade:replacement9')).toMatchObject({ label: 'Replacement', enabled: true, source: 'Exilium' });
+  });
+
+  test('deleting an import-directory folder removes the directory and its overrides', () => {
+    const dir = folder();
+    mkdirSync(join(dir, 'valdos'), { recursive: true });
+    writeFileSync(join(dir, 'valdos', 'import-abc.bt'), `${EXPORT_VALDOS}\n`);
+    writeImported(dir); // unrelated root file stays
+    saveSnipeManifest(dir, {
+      ...emptySnipeManifest(),
+      overrides: { 'trade:DelDir1': { enabled: false } },
+    });
+
+    const before = loadSnipeCatalog(dir, () => undefined);
+    expect(before.find((entry) => entry.key === 'trade:DelDir1')).toMatchObject({ group: 'valdos' });
+
+    const result = deleteSnipeFolderGroup(dir, 'valdos');
+    expect(existsSync(join(dir, 'valdos'))).toBe(false);
+    expect(result.some((entry) => entry.key === 'trade:DelDir1')).toBe(false);
+    expect(loadSnipeManifest(dir).overrides['trade:DelDir1']).toBeUndefined();
+    expect(result.some((entry) => entry.key === 'trade:aaa111')).toBe(true);
+  });
+
+  test('deleting a group backed by a shared root file disables its searches instead', () => {
+    const dir = folder();
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'saved.txt'), `${EXPORT_VALDOS}\n`);
+
+    const result = deleteSnipeFolderGroup(dir, 'valdos');
+    expect(existsSync(join(dir, 'saved.txt'))).toBe(true);
+    expect(result.find((entry) => entry.key === 'trade:DelDir1')).toMatchObject({ enabled: false });
   });
 });

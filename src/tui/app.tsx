@@ -28,6 +28,8 @@ export interface SnipeWorkspaceAdapter {
   readonly import: (source: string) => Promise<readonly CatalogEntry[]>;
   readonly start: (enabledKeys: readonly string[]) => Promise<void>;
   readonly travel: (listingId: string) => Promise<TravelResult>;
+  /** Delete one folder group; returns the remaining catalog. */
+  readonly removeFolder?: (group: string) => Promise<readonly CatalogEntry[]>;
 }
 
 export interface TuiProps {
@@ -660,6 +662,13 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
             setSnipeEntries(saved);
             return saved;
           }}
+          {...(snipe.removeFolder === undefined ? {} : {
+            onDeleteFolder: async (group: string) => {
+              const remaining = await snipe.removeFolder!(group);
+              setSnipeEntries(remaining);
+              return remaining;
+            },
+          })}
           onImport={async (source) => {
             const imported = await snipe.import(source);
             setSnipeEntries(imported);
