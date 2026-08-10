@@ -126,9 +126,17 @@ export async function fetchCurrentResultIds(
   return result.data.result;
 }
 
-const fetchResponseSchema = z.object({
-  result: z.array(
-    z.object({
+// Mod lines come in two shapes: our own API fetches return plain strings,
+// while the trade site's live page requests structured objects whose text
+// lives in `description`. Both must parse — the browser-live capture reads
+// the page's payloads verbatim.
+const modLineSchema = z.union([
+  z.string(),
+  z.object({ description: z.string().optional() }),
+]);
+const modLinesSchema = z.array(modLineSchema).optional();
+
+const fetchResultEntrySchema = z.object({
       id: z.string(),
       listing: z.object({
         whisper: z.string().optional(),
@@ -139,21 +147,25 @@ const fetchResponseSchema = z.object({
       item: z.object({
         name: z.string().optional(),
         typeLine: z.string().optional(),
-        implicitMods: z.array(z.string()).optional(),
-        explicitMods: z.array(z.string()).optional(),
-        enchantMods: z.array(z.string()).optional(),
-        utilityMods: z.array(z.string()).optional(),
-        fracturedMods: z.array(z.string()).optional(),
+        implicitMods: modLinesSchema,
+        explicitMods: modLinesSchema,
+        enchantMods: modLinesSchema,
+        utilityMods: modLinesSchema,
+        fracturedMods: modLinesSchema,
         properties: z.array(z.object({
           name: z.string().optional(),
           values: z.array(z.array(z.unknown())).optional(),
         })).optional(),
       }).optional(),
-    }),
-  ),
 });
 
-type FetchedItem = NonNullable<z.infer<typeof fetchResponseSchema>['result'][number]['item']>;
+// The fetch endpoint pads its result array with nulls for ids it no longer
+// knows (already sold, evicted) — a null entry must never sink the batch.
+const fetchResponseSchema = z.object({
+  result: z.array(z.union([fetchResultEntrySchema, z.null()])),
+});
+
+type FetchedItem = NonNullable<z.infer<typeof fetchResultEntrySchema>['item']>;
 
 const REWARD_LINE = /^Reward:\s*(.+?)\s*$/;
 const REWARD_STACK_PREFIX = /^\d+x\s+/i;
@@ -161,6 +173,11 @@ const REWARD_STACK_PREFIX = /^\d+x\s+/i;
 /** Valdo's Puzzle Box maps carry their actual prize as a "Reward: …" line;
  * that reward — not the map name — is what the listing is worth and what
  * poe.ninja prices (foil uniques get a "(Foil)" variant suffix). */
+function modText(line: z.infer<typeof modLineSchema>): string | null {
+  if (typeof line === 'string') return line;
+  return typeof line.description === 'string' ? line.description : null;
+}
+
 function extractReward(item: FetchedItem): string | null {
   const modLines = [
     ...item.implicitMods ?? [],
@@ -170,7 +187,9 @@ function extractReward(item: FetchedItem): string | null {
     ...item.fracturedMods ?? [],
   ];
   for (const line of modLines) {
-    const match = REWARD_LINE.exec(line);
+    const text = modText(line);
+    if (text === null) continue;
+    const match = REWARD_LINE.exec(text);
     if (match !== null) return match[1]!;
   }
   for (const property of item.properties ?? []) {
@@ -249,7 +268,7 @@ export async function fetchListings(
 export function parseFetchResponseBody(payload: unknown): readonly LiveListing[] {
   const parsed = fetchResponseSchema.safeParse(payload);
   if (!parsed.success) throw new Error('trade fetch response did not match the expected shape');
-  return parsed.data.result.map((r) => {
+  return parsed.data.result.filter((r) => r !== null).map((r) => {
     const reward = r.item === undefined ? null : extractReward(r.item);
     const name = reward
       ?? ([r.item?.name, r.item?.typeLine].filter((s) => s !== undefined && s !== '').join(' ') || r.id);

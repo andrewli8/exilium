@@ -221,6 +221,34 @@ describe('parseFetchResponseBody Valdo rewards', () => {
     expect(listing?.referenceName).toBe('Divine Orb');
   });
 
+  test('parses the browser-live payload shape: structured mod objects and null result entries', () => {
+    const listings = parseFetchResponseBody({
+      result: [
+        null,
+        {
+          id: 'live-1',
+          listing: { price: { amount: 1, currency: 'chaos' }, account: { name: 'Seller' } },
+          item: {
+            name: 'Damnation Goad',
+            typeLine: 'Omen Wand',
+            implicitMods: [{ description: '28% increased Spell Damage', domain: 'implicit', mods: [] }],
+            explicitMods: [{ description: 'Adds 9 to 16 Cold Damage', domain: 'explicit', mods: [] }],
+          },
+        },
+      ],
+    });
+    expect(listings).toHaveLength(1);
+    expect(listings[0]?.itemName).toBe('Damnation Goad Omen Wand');
+  });
+
+  test('extracts a reward from a structured mod object description', () => {
+    const [listing] = parseFetchResponseBody(valdoResult({
+      explicitMods: [{ description: 'Reward: Mageblood (Foil)', domain: 'explicit' }],
+    }));
+    expect(listing?.itemName).toBe('Mageblood (Foil)');
+    expect(listing?.referenceName).toBe('Mageblood (Foil)');
+  });
+
   test('keeps the joined item name when no reward is present', () => {
     const [listing] = parseFetchResponseBody(valdoResult({}));
     expect(listing?.itemName).toBe('Squandered Highlands Valdo Map');
