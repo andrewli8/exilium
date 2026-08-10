@@ -9,9 +9,11 @@ import {
 
 const RECEIVED_AT = '2026-08-09T12:00:00.000Z';
 
-function alert(id: string): SnipeAlert {
+function alert(id: string, overrides: Partial<SnipeAlert> = {}): SnipeAlert {
   return {
+    targetId: `trade:${id}`,
     targetLabel: `Target ${id}`,
+    source: 'live',
     listingId: id,
     itemName: `Item ${id}`,
     priceText: '10 divine',
@@ -25,6 +27,9 @@ function alert(id: string): SnipeAlert {
     freshnessText: 'ref 1m ago',
     stale: false,
     unknownMargin: false,
+    minMarginPct: 20,
+    qualifiesMargin: true,
+    ...overrides,
   };
 }
 
@@ -92,5 +97,51 @@ describe('travel lifecycle', () => {
     const state = withAlert('x');
     expect(queueReducer(state, { type: 'travel-success', listingId: 'x', detail: 'wrong' })).toEqual(state);
     expect(queueReducer(state, { type: 'travel-failure', listingId: 'x', detail: 'wrong' })).toEqual(state);
+  });
+});
+
+describe('candidate-board navigation', () => {
+  test('selection remains on a target when a better listing for it arrives', () => {
+    let state = createQueueState();
+    state = queueReducer(state, { type: 'add', alert: alert('first', { targetId: 'trade:mb', targetLabel: 'Mageblood', marginPct: 25 }), receivedAt: RECEIVED_AT });
+    state = queueReducer(state, { type: 'add', alert: alert('nimis', { targetId: 'trade:nimis', targetLabel: 'Nimis', marginPct: 24 }), receivedAt: RECEIVED_AT });
+    state = queueReducer(state, { type: 'add', alert: alert('better', { targetId: 'trade:mb', targetLabel: 'Mageblood', marginPct: 40 }), receivedAt: RECEIVED_AT });
+    expect(state.selectedTargetId).toBe('trade:mb');
+    expect(selectedQueueEntry(state)?.alert.listingId).toBe('better');
+  });
+
+  test('detail, tab, previous tab, and board transitions preserve target selection', () => {
+    let state = withAlert('x');
+    state = queueReducer(state, { type: 'open-detail' });
+    expect(state.view).toBe('detail');
+    state = queueReducer(state, { type: 'next-view' });
+    expect(state.view).toBe('board');
+    state = queueReducer(state, { type: 'previous-view' });
+    expect(state.view).toBe('detail');
+    state = queueReducer(state, { type: 'board' });
+    expect(state).toMatchObject({ view: 'board', selectedTargetId: 'trade:x' });
+  });
+
+  test('gone removes only that listing and recalculates the target best without auto-travel', () => {
+    let state = createQueueState();
+    state = queueReducer(state, { type: 'add', alert: alert('backup', { targetId: 'trade:mb', targetLabel: 'Mageblood', marginPct: 25 }), receivedAt: RECEIVED_AT });
+    state = queueReducer(state, { type: 'add', alert: alert('best', { targetId: 'trade:mb', targetLabel: 'Mageblood', marginPct: 35 }), receivedAt: RECEIVED_AT });
+    state = queueReducer(state, { type: 'remove-gone', listingId: 'best' });
+    expect(state.entries.map((entry) => entry.alert.listingId)).toEqual(['backup']);
+    expect(selectedQueueEntry(state)?.alert.listingId).toBe('backup');
+    expect(state.entries[0]?.status).toBe('new');
+    expect(state.notice).toBe('Mageblood: listing sold or removed — queue updated');
+  });
+
+  test('toggle-hidden reveals a below-floor-only target to grouped movement', () => {
+    let state = queueReducer(createQueueState(), {
+      type: 'add',
+      alert: alert('hidden', { qualifiesMargin: false, marginPct: 10 }),
+      receivedAt: RECEIVED_AT,
+    });
+    expect(selectedQueueEntry(state)).toBeUndefined();
+    state = queueReducer(state, { type: 'toggle-hidden' });
+    expect(state.showHidden).toBe(true);
+    expect(selectedQueueEntry(state)?.alert.listingId).toBe('hidden');
   });
 });
