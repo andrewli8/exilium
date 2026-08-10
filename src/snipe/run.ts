@@ -25,6 +25,12 @@ import {
   type SnipeTarget,
 } from './bettertrading.js';
 import { createTravelController, type TravelController } from './browser.js';
+import {
+  liveTabTravelPage,
+  openBrowserLiveSearch,
+  type BrowserLiveSearchHandle,
+} from './browser-live.js';
+import { travelSelectedAlert } from './travel.js';
 import { loadSnipeCatalog } from './catalog.js';
 import {
   promptSnipeTargets,
@@ -48,6 +54,9 @@ export interface SnipeFlags {
   readonly minMargin: string | undefined;
   readonly all: boolean;
   readonly searches: readonly string[];
+  /** Ride the trade site's own /live pages in Chrome instead of Exilium
+   * calling the trade API (no Exilium-side fetches or rate-limit budget). */
+  readonly browserLive?: boolean;
 }
 
 export interface SnipeSocket {
@@ -98,6 +107,7 @@ export interface SnipeDeps {
   readonly shutdownTimeoutMs?: number;
   readonly store?: SnipeStore;
   readonly scheduler?: TradeRequestScheduler;
+  readonly openLiveSearch?: typeof openBrowserLiveSearch;
 }
 
 export const MAX_SNIPE_SOCKETS = 20;
@@ -108,11 +118,17 @@ export function snipeStartupMessages(
   searchCount: number,
   league: string,
   minMarginPct: number | null,
+  browserLive = false,
 ): readonly string[] {
   return [
     `Exilium snipe — ${searchCount} enabled search${searchCount === 1 ? '' : 'es'} · league ${league} · min margin ${minMarginPct ?? 'off'}`,
-    'Monitoring is headless. Current results seed quietly; new live hits notify.',
-    'Chrome is only needed after you press Enter to travel; no whisper is sent or copied.',
+    ...(browserLive ? [
+      'Browser-live: Chrome opens each search\'s /live page and Exilium reads listings straight off those tabs — no trade API calls of its own.',
+      'Run `exilium chrome` and log into pathofexile.com first. Enter clicks Travel to Hideout in the already-open tab.',
+    ] : [
+      'Monitoring is headless. Current results seed quietly; new live hits notify.',
+      'Chrome is only needed after you press Enter to travel; no whisper is sent or copied.',
+    ]),
   ];
 }
 
@@ -202,10 +218,11 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     return;
   }
 
-  const sessionId = config.poesessid;
-  if (sessionId === undefined || sessionId === '') {
+  const browserLive = flags.browserLive === true || config.snipe.browserLive;
+  const sessionId = config.poesessid ?? '';
+  if (!browserLive && sessionId === '') {
     throw new Error(
-      'No session cookie configured. Run `exilium setup`, or set EXILIUM_POESESSID for this run. The cookie stays on this machine and is sent only to pathofexile.com.',
+      'No session cookie configured. Run `exilium setup`, or set EXILIUM_POESESSID for this run. The cookie stays on this machine and is sent only to pathofexile.com. (Browser-live mode with --browser-live needs no cookie — the Chrome tab is already logged in.)',
     );
   }
 
@@ -319,7 +336,14 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     }
   };
 
+  const liveTabs = new Map<string, BrowserLiveSearchHandle>();
   const onTravel = async (alert: SnipeAlert): Promise<TravelResult> => {
+    const liveTab = liveTabs.get(alert.targetId);
+    if (liveTab !== undefined) {
+      const result = await travelSelectedAlert(alert, liveTabTravelPage(liveTab.page, alert.searchUrl));
+      recordWebhook(alert, result.action, result.detail, result.technicalDetail ?? result.detail);
+      return result;
+    }
     try {
       const result = await (await ensureController()).travel(alert);
       recordWebhook(alert, result.action, result.detail, result.technicalDetail ?? result.detail);
@@ -419,6 +443,51 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     void task.finally(() => pending.delete(task));
   };
 
+  const processListings = (
+    entry: RuntimeTarget,
+    listings: readonly LiveListing[],
+    source: 'seed' | 'live',
+    dedupe: boolean,
+  ): number => {
+    const fresh = dedupe ? listings.filter((listing) => !entry.seen.has(listing.id)) : listings;
+    if (fresh.length === 0) return 0;
+    if (dedupe) for (const listing of fresh) entry.seen.add(listing.id);
+    const snapshots = repo.latestAll(config.game, entry.search.league);
+    let queued = 0;
+    for (const listing of fresh) {
+      if (stopped || stopIntent) return queued;
+      const decision = decideSnipe({
+        listing,
+        target: entry.target,
+        assessment: assessMargin({ itemName: listing.referenceName, price: listing.price, snapshots, nowMs: now() }),
+        snapshots,
+        globalMinMarginPct: minMarginPct,
+        source: source === 'seed' ? 'current' : 'live',
+        league: entry.search.league,
+        seen: NO_PRIOR_LISTINGS,
+      });
+      if (decision.kind === 'suppressed') {
+        log(`skip ${listing.itemName}: ${decision.reason}`);
+        continue;
+      }
+      const alert = decision.alert;
+      consoleHandle?.addAlert(alert);
+      sharedStore.ingest(alert);
+      queued += 1;
+      if (source === 'live' && alert.qualifiesMargin) {
+        const rendered = formatAlert(alert);
+        sound();
+        void notify!(rendered.title, rendered.body);
+        recordWebhook(alert, 'queued', 'waiting for Enter');
+      } else if (source === 'seed') {
+        record(alert, 'seeded', 'current result at startup');
+      } else {
+        record(alert, 'hidden', 'below the configured margin floor or reference price unknown');
+      }
+    }
+    return queued;
+  };
+
   const processIds = async (
     entry: RuntimeTarget,
     ids: readonly string[],
@@ -431,42 +500,44 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
       const listings = await fetchListings(fresh, entry.search, sessionId, networkAbort.signal);
       if (stopped || stopIntent) return 0;
       for (const id of fresh) entry.seen.add(id);
-      const snapshots = repo.latestAll(config.game, entry.search.league);
-      let queued = 0;
-      for (const listing of listings) {
-        if (stopped || stopIntent) return queued;
-        const decision = decideSnipe({
-          listing,
-          target: entry.target,
-          assessment: assessMargin({ itemName: listing.referenceName, price: listing.price, snapshots, nowMs: now() }),
-          snapshots,
-          globalMinMarginPct: minMarginPct,
-          source: source === 'seed' ? 'current' : 'live',
-          league: entry.search.league,
-          seen: NO_PRIOR_LISTINGS,
-        });
-        if (decision.kind === 'suppressed') {
-          log(`skip ${listing.itemName}: ${decision.reason}`);
-          continue;
-        }
-        const alert = decision.alert;
-        consoleHandle?.addAlert(alert);
-        sharedStore.ingest(alert);
-        queued += 1;
-        if (source === 'live' && alert.qualifiesMargin) {
-          const rendered = formatAlert(alert);
-          sound();
-          void notify!(rendered.title, rendered.body);
-          recordWebhook(alert, 'queued', 'waiting for Enter');
-        } else if (source === 'seed') {
-          record(alert, 'seeded', 'current result at startup');
-        } else {
-          record(alert, 'hidden', 'below the configured margin floor or reference price unknown');
-        }
-      }
-      return queued;
+      return processListings(entry, listings, source, false);
     } finally {
       for (const id of fresh) entry.inFlight.delete(id);
+    }
+  };
+
+  let liveTabsOpened = 0;
+  const openLiveTab = async (entry: RuntimeTarget): Promise<void> => {
+    if (stopped || stopIntent) return;
+    const targetId = `${entry.target.realm}:${entry.target.searchId}`;
+    sharedStore.setSearchState(targetId, 'connecting');
+    try {
+      const handle = await (deps.openLiveSearch ?? openBrowserLiveSearch)({
+        cdpUrl: config.snipe.chromeCdpUrl,
+        search: entry.search,
+        log,
+        onListings: (listings, source) => {
+          if (stopped || stopIntent) return;
+          processListings(entry, listings, source, true);
+        },
+        onDisconnect: () => {
+          liveTabs.delete(targetId);
+          if (stopped || stopIntent) return;
+          sharedStore.setSearchState(targetId, 'stopped', 'live tab lost — run exilium chrome, then restart snipe');
+          log(`browser-live tab for "${entry.target.label}" disconnected`);
+        },
+      });
+      if (stopped || stopIntent) {
+        void handle.close();
+        return;
+      }
+      liveTabs.set(targetId, handle);
+      liveTabsOpened += 1;
+      sharedStore.setProgress(liveTabsOpened, runtimeTargets.length);
+      sharedStore.setSearchState(targetId, 'live');
+    } catch (error) {
+      sharedStore.setSearchState(targetId, 'stopped', 'Chrome unavailable — run exilium chrome');
+      log(`could not open a browser-live tab for "${entry.target.label}": ${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
@@ -598,6 +669,11 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
       });
     };
     await settleWithin(Promise.allSettled([...pending]));
+    if (liveTabs.size > 0) {
+      const tabs = [...liveTabs.values()];
+      liveTabs.clear();
+      await settleWithin(Promise.allSettled(tabs.map((tab) => tab.close())));
+    }
     if (refreshTask !== undefined) await settleWithin(refreshTask);
     if (controllerPromise !== undefined) {
       let controller: TravelController | undefined;
@@ -610,7 +686,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
   const onSigint = (): void => requestStop();
   process.once('SIGINT', onSigint);
   try {
-    for (const message of snipeStartupMessages(runnable.length, league, minMarginPct)) out(message);
+    for (const message of snipeStartupMessages(runnable.length, league, minMarginPct, browserLive)) out(message);
     for (const { target } of runnable) out(`  ${target.label} (${target.searchId})`);
 
     consoleHandle = (deps.makeConsole ?? ((options) => renderSnipeConsole(options)))({
@@ -627,17 +703,21 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     refreshTimer = setInterval(startRefresh, config.refreshSec * 1_000);
     const stagger = deps.connectStaggerMs ?? CONNECT_STAGGER_MS;
     runtimeTargets.forEach((entry, index) => {
+      const start = (): void => {
+        if (browserLive) startTask(openLiveTab(entry));
+        else connectTarget(entry);
+      };
       const delay = index * stagger;
-      if (delay === 0) connectTarget(entry);
+      if (delay === 0) start();
       else {
         const timer = setTimeout(() => {
           timers.delete(timer);
-          connectTarget(entry);
+          start();
         }, delay);
         timers.add(timer);
       }
     });
-    startTask(seedCurrentResults());
+    if (!browserLive) startTask(seedCurrentResults());
     await Promise.race([consoleHandle.waitUntilExit().then(() => undefined), stopRequested]);
   } finally {
     process.removeListener('SIGINT', onSigint);

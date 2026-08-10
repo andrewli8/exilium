@@ -36,7 +36,13 @@ class FakeSocket implements CdpSocket {
   }
 }
 
-function harness(options: { evaluateValues?: Array<'clicked' | 'gone' | 'unavailable'>; stallMethod?: string } = {}) {
+function harness(options: {
+  evaluateValues?: Array<'clicked' | 'gone' | 'unavailable'>;
+  stallMethod?: string;
+  onTradeFetchBody?: (url: string, body: string) => void;
+  onDisconnect?: () => void;
+  responseBodies?: Record<string, { body: string; base64Encoded?: boolean }>;
+} = {}) {
   const socket = new FakeSocket();
   const evaluateValues = [...(options.evaluateValues ?? ['clicked'])];
   socket.onSend = (message) => {
@@ -44,6 +50,11 @@ function harness(options: { evaluateValues?: Array<'clicked' | 'gone' | 'unavail
     queueMicrotask(() => {
       if (message.method === 'Runtime.evaluate') {
         socket.respond(message.id, { result: { type: 'string', value: evaluateValues.shift() ?? 'gone' } });
+      } else if (message.method === 'Network.getResponseBody') {
+        const requestId = (message.params as { requestId: string }).requestId;
+        const stored = options.responseBodies?.[requestId];
+        if (stored === undefined) socket.emit('message', Buffer.from(JSON.stringify({ id: message.id, error: { message: 'No resource with given identifier' } })));
+        else socket.respond(message.id, { body: stored.body, base64Encoded: stored.base64Encoded ?? false });
       } else {
         socket.respond(message.id);
         if (message.method === 'Page.navigate' || message.method === 'Page.reload') {
@@ -71,9 +82,13 @@ function harness(options: { evaluateValues?: Array<'clicked' | 'gone' | 'unavail
     },
     timeoutMs: 50,
     log: () => undefined,
+    ...(options.onTradeFetchBody === undefined ? {} : { onTradeFetchBody: options.onTradeFetchBody }),
+    ...(options.onDisconnect === undefined ? {} : { onDisconnect: options.onDisconnect }),
   });
   return { socket, fetchCalls, create };
 }
+
+const flush = () => new Promise((resolve) => setTimeout(resolve, 10));
 
 describe('direct CDP page control', () => {
   test('creates one native target, navigates, evaluates, reloads once, and clicks', async () => {
@@ -96,6 +111,62 @@ describe('direct CDP page control', () => {
       'Page.reload',
       'Runtime.evaluate',
     ]);
+  });
+
+  test('captures the trade fetch bodies the page itself requests', async () => {
+    const captured: Array<{ url: string; body: string }> = [];
+    const testHarness = harness({
+      onTradeFetchBody: (url, body) => captured.push({ url, body }),
+      responseBodies: { 'req-1': { body: '{"result":[]}' } },
+    });
+    await testHarness.create;
+    expect(testHarness.socket.sent.some((message) => message.method === 'Network.enable')).toBe(true);
+
+    testHarness.socket.event('Network.responseReceived', {
+      requestId: 'req-1',
+      response: { url: 'https://www.pathofexile.com/api/trade/fetch/abc,def?query=xyz' },
+    });
+    testHarness.socket.event('Network.loadingFinished', { requestId: 'req-1' });
+    await flush();
+    expect(captured).toEqual([{
+      url: 'https://www.pathofexile.com/api/trade/fetch/abc,def?query=xyz',
+      body: '{"result":[]}',
+    }]);
+  });
+
+  test('ignores non-trade network responses and decodes base64 bodies', async () => {
+    const captured: Array<{ url: string; body: string }> = [];
+    const testHarness = harness({
+      onTradeFetchBody: (url, body) => captured.push({ url, body }),
+      responseBodies: { 'trade': { body: Buffer.from('{"result":[]}').toString('base64'), base64Encoded: true } },
+    });
+    await testHarness.create;
+    testHarness.socket.event('Network.responseReceived', {
+      requestId: 'other',
+      response: { url: 'https://www.pathofexile.com/api/trade/data/stats' },
+    });
+    testHarness.socket.event('Network.loadingFinished', { requestId: 'other' });
+    testHarness.socket.event('Network.responseReceived', {
+      requestId: 'trade',
+      response: { url: 'https://www.pathofexile.com/api/trade2/fetch/ghi?query=xyz' },
+    });
+    testHarness.socket.event('Network.loadingFinished', { requestId: 'trade' });
+    await flush();
+    expect(captured).toEqual([{
+      url: 'https://www.pathofexile.com/api/trade2/fetch/ghi?query=xyz',
+      body: '{"result":[]}',
+    }]);
+  });
+
+  test('reports socket disconnects through onDisconnect', async () => {
+    let disconnects = 0;
+    const testHarness = harness({ onDisconnect: () => { disconnects += 1; } });
+    const page = await testHarness.create;
+    testHarness.socket.emit('close');
+    await flush();
+    expect(disconnects).toBe(1);
+    await page.close();
+    expect(disconnects).toBe(1);
   });
 
   test('times out a stalled CDP command with a bounded error', async () => {

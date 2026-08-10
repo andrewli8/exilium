@@ -198,24 +198,31 @@ export async function fetchListings(
     }
     if (res.status === 429) throw new RateLimitError(limiter.health().cooldownRemainingSec || 60);
     if (!res.ok) throw new Error(`trade fetch failed (${res.status})`);
-    const parsed = fetchResponseSchema.safeParse(await res.json());
-    if (!parsed.success) throw new Error('trade fetch response did not match the expected shape');
-    for (const r of parsed.data.result) {
-      const name = [r.item?.name, r.item?.typeLine].filter((s) => s !== undefined && s !== '').join(' ') || r.id;
-      const price = r.listing.price == null ? 'no price' : `${r.listing.price.amount} ${r.listing.price.currency}`;
-      listings.push({
-        id: r.id,
-        itemName: name,
-        referenceName: r.item?.name || r.item?.typeLine || r.id,
-        priceText: price,
-        price: r.listing.price ?? null,
-        listedAt: r.listing.indexed ?? null,
-        seller: r.listing.account?.lastCharacterName ?? r.listing.account?.name ?? 'unknown',
-        whisper: r.listing.whisper ?? '',
-      });
-    }
+    listings.push(...parseFetchResponseBody(await res.json()));
   }
   return listings;
+}
+
+/** Normalize one trade fetch response payload (`{result: [...]}`) into
+ * structured listings. Shared by our own API fetches and the browser-live
+ * capture, which reads the same payload off the trade page's own XHRs. */
+export function parseFetchResponseBody(payload: unknown): readonly LiveListing[] {
+  const parsed = fetchResponseSchema.safeParse(payload);
+  if (!parsed.success) throw new Error('trade fetch response did not match the expected shape');
+  return parsed.data.result.map((r) => {
+    const name = [r.item?.name, r.item?.typeLine].filter((s) => s !== undefined && s !== '').join(' ') || r.id;
+    const price = r.listing.price == null ? 'no price' : `${r.listing.price.amount} ${r.listing.price.currency}`;
+    return {
+      id: r.id,
+      itemName: name,
+      referenceName: r.item?.name || r.item?.typeLine || r.id,
+      priceText: price,
+      price: r.listing.price ?? null,
+      listedAt: r.listing.indexed ?? null,
+      seller: r.listing.account?.lastCharacterName ?? r.listing.account?.name ?? 'unknown',
+      whisper: r.listing.whisper ?? '',
+    };
+  });
 }
 
 /** The `live` command's flow: fetch new listings, copy the newest whisper to

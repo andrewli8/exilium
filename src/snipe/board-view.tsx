@@ -127,7 +127,7 @@ export function SnipeBoardView({ store, onTravel, active = true, embedded = fals
       {failure !== null && <Text color="red">{fold(failure)}</Text>}
       {failure === null && otherNotice !== null && <Text color="yellow">{fold(otherNotice)}</Text>}
       <Text color="cyan">{fold(`${headerStatus} ${glyphs.sep} Chrome on demand`)}</Text>
-      <Text dimColor>{fold(`Threshold: +${snapshot.floor}% profit`)}</Text>
+      <Text dimColor>{fold(`Threshold: +${snapshot.floor}% profit ${glyphs.sep} press t to change`)}</Text>
       {snapshot.queue.view === 'board' ? <>
         {rows.length === 0 ? <>
           <Text dimColor>{fold(`Watching ${snapshot.searches.length} search${snapshot.searches.length === 1 ? '' : 'es'} — waiting for listings`)}</Text>

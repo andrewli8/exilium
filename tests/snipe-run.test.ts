@@ -556,3 +556,128 @@ describe('runSnipe orchestration', () => {
     expect(harness.consoleAlerts).toEqual([]);
   });
 });
+
+describe('runSnipe browser-live mode', () => {
+  function browserLiveHarness() {
+    const target: CatalogEntry = {
+      key: 'trade:aaa', label: 'Currency', realm: 'trade', searchId: 'aaa', league: null, enabled: true, source: 'Better Trading',
+    };
+    const store = new SnipeStore([target], { minMarginPct: 20 });
+    const harness = makeHarness({ store });
+    const opened: Array<{ search: TradeSearch; cdpUrl: string }> = [];
+    const clicks: string[] = [];
+    const tabClosed = { count: 0 };
+    let emitListings: ((listings: readonly LiveListing[], source: 'seed' | 'live') => void) | undefined;
+    let disconnect: (() => void) | undefined;
+    const openLiveSearch: NonNullable<SnipeDeps['openLiveSearch']> = async (options) => {
+      opened.push({ search: options.search, cdpUrl: options.cdpUrl });
+      emitListings = options.onListings;
+      disconnect = options.onDisconnect;
+      return {
+        page: {
+          url: () => `https://www.pathofexile.com/trade/search/Allflame/aaa/live`,
+          goto: async () => { throw new Error('the capture tab must never navigate'); },
+          clickTravelButton: async (listingId: string) => { clicks.push(listingId); return 'clicked' as const; },
+          close: async () => { tabClosed.count += 1; },
+        },
+        close: async () => { tabClosed.count += 1; },
+      };
+    };
+    return {
+      ...harness,
+      store,
+      opened,
+      clicks,
+      tabClosed,
+      deps: { ...harness.deps, openLiveSearch } satisfies SnipeDeps,
+      emit: (listings: readonly LiveListing[], source: 'seed' | 'live') => emitListings?.(listings, source),
+      disconnect: () => disconnect?.(),
+    };
+  }
+
+  test('opens live tabs instead of sockets or API seeds and ingests captured listings', async () => {
+    const harness = browserLiveHarness();
+    const running = runSnipe({ ...FLAGS, browserLive: true }, harness.deps);
+    await harness.consoleReady;
+    for (let i = 0; i < 20 && harness.store.snapshot().searches[0]?.state !== 'live'; i += 1) await new Promise((r) => setTimeout(r, 0));
+
+    expect(harness.opened).toEqual([{
+      search: { realm: 'trade', league: 'Allflame', searchId: 'aaa' },
+      cdpUrl: 'http://127.0.0.1:9222',
+    }]);
+    expect(harness.openedSearchIds).toEqual([]);
+    expect(harness.seedCalls).toEqual([]);
+    expect(harness.store.snapshot().searches[0]?.state).toBe('live');
+
+    harness.emit([LISTING], 'live');
+    await harness.waitForAlerts(1);
+    expect(harness.consoleAlerts.map((alert) => alert.listingId)).toEqual(['listing-1']);
+    expect(harness.consoleAlerts[0]?.source).toBe('live');
+    expect(harness.notify).toHaveBeenCalledTimes(1);
+
+    harness.exit();
+    await running;
+    expect(harness.tabClosed.count).toBeGreaterThan(0);
+  });
+
+  test('seed captures queue quietly and repeats are deduped', async () => {
+    const harness = browserLiveHarness();
+    const running = runSnipe({ ...FLAGS, browserLive: true }, harness.deps);
+    await harness.consoleReady;
+    for (let i = 0; i < 20 && harness.opened.length === 0; i += 1) await new Promise((r) => setTimeout(r, 0));
+
+    harness.emit([LISTING], 'seed');
+    harness.emit([LISTING], 'live');
+    await harness.waitForAlerts(1);
+    expect(harness.consoleAlerts).toHaveLength(1);
+    expect(harness.consoleAlerts[0]?.source).toBe('current');
+    expect(harness.notify).not.toHaveBeenCalled();
+
+    harness.exit();
+    await running;
+  });
+
+  test('Enter travels inside the already-open live tab without a controller', async () => {
+    const harness = browserLiveHarness();
+    const running = runSnipe({ ...FLAGS, browserLive: true }, harness.deps);
+    await harness.consoleReady;
+    for (let i = 0; i < 20 && harness.opened.length === 0; i += 1) await new Promise((r) => setTimeout(r, 0));
+
+    harness.emit([LISTING], 'live');
+    await harness.waitForAlerts(1);
+    const result = await harness.pressTravel();
+    expect(result.action).toBe('traveled');
+    expect(harness.clicks).toEqual(['listing-1']);
+    expect(harness.controllerCreateCalls).toBe(0);
+
+    harness.exit();
+    await running;
+  });
+
+  test('a dropped tab marks the search stopped with recovery guidance', async () => {
+    const harness = browserLiveHarness();
+    const running = runSnipe({ ...FLAGS, browserLive: true }, harness.deps);
+    await harness.consoleReady;
+    for (let i = 0; i < 20 && harness.opened.length === 0; i += 1) await new Promise((r) => setTimeout(r, 0));
+
+    harness.disconnect();
+    expect(harness.store.snapshot().searches[0]?.state).toBe('stopped');
+    expect(harness.store.snapshot().searches[0]?.detail).toMatch(/exilium chrome/);
+
+    harness.exit();
+    await running;
+  });
+
+  test('browser-live does not require a POESESSID', async () => {
+    const harness = browserLiveHarness();
+    const config = loadConfig({}, {
+      game: 'poe1',
+      league: 'Allflame',
+      snipe: { folder: harness.deps.config.snipe.folder!, chromeCdpUrl: 'http://127.0.0.1:9222' },
+    });
+    const running = runSnipe({ ...FLAGS, browserLive: true }, { ...harness.deps, config });
+    await harness.consoleReady;
+    harness.exit();
+    await expect(running).resolves.toBeUndefined();
+  });
+});

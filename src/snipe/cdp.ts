@@ -43,6 +43,7 @@ class CdpConnection {
   private nextId = 0;
   private readonly pending = new Map<number, PendingCommand>();
   private readonly eventWaiters = new Map<string, Set<EventWaiter>>();
+  private readonly eventListeners = new Map<string, Set<(params: unknown) => void>>();
   private closed = false;
 
   constructor(
@@ -71,6 +72,13 @@ class CdpConnection {
         reject(error instanceof Error ? error : new Error(String(error)));
       }
     });
+  }
+
+  /** Persistent event subscription (waitFor resolves once; this keeps firing). */
+  on(method: string, listener: (params: unknown) => void): void {
+    const listeners = this.eventListeners.get(method) ?? new Set<(params: unknown) => void>();
+    listeners.add(listener);
+    this.eventListeners.set(method, listeners);
   }
 
   waitFor(method: string): Promise<unknown> {
@@ -130,6 +138,7 @@ class CdpConnection {
       return;
     }
     if (message.method !== undefined) {
+      for (const listener of this.eventListeners.get(message.method) ?? []) listener(message.params);
       const waiters = this.eventWaiters.get(message.method);
       if (waiters === undefined) return;
       for (const waiter of [...waiters]) {
@@ -152,7 +161,16 @@ export interface CreateCdpPageOptions {
   readonly openSocket?: OpenCdpSocket;
   readonly timeoutMs?: number;
   readonly log: (message: string) => void;
+  /** Browser-live capture: receives the body of every trade fetch XHR the
+   * page itself performs (`/api/trade{,2}/fetch/...`). Enabling this turns
+   * on the CDP Network domain for the tab. */
+  readonly onTradeFetchBody?: (url: string, body: string) => void;
+  /** Fired once if the page socket drops without an explicit close(). */
+  readonly onDisconnect?: () => void;
 }
+
+const TRADE_FETCH_PATTERN = /\/api\/trade2?\/fetch\//;
+const MAX_PENDING_BODIES = 200;
 
 async function defaultOpenSocket(url: string): Promise<CdpSocket> {
   const { default: WebSocket } = await import('ws');
@@ -216,6 +234,50 @@ export async function createCdpPage(options: CreateCdpPageOptions): Promise<CdpT
   await Promise.all([connection.send('Page.enable'), connection.send('Runtime.enable')]);
   let currentUrl = typeof target.url === 'string' ? target.url : 'about:blank';
   let closed = false;
+  if (options.onDisconnect !== undefined) {
+    const onDisconnect = options.onDisconnect;
+    let disconnectNotified = false;
+    socket.on('close', () => {
+      if (closed || disconnectNotified) return;
+      disconnectNotified = true;
+      onDisconnect();
+    });
+  }
+  if (options.onTradeFetchBody !== undefined) {
+    const onBody = options.onTradeFetchBody;
+    const pendingBodies = new Map<string, string>();
+    connection.on('Network.responseReceived', (params) => {
+      const event = params as { requestId?: unknown; response?: { url?: unknown } };
+      const url = event.response?.url;
+      if (typeof event.requestId !== 'string' || typeof url !== 'string') return;
+      if (!TRADE_FETCH_PATTERN.test(url)) return;
+      pendingBodies.set(event.requestId, url);
+      while (pendingBodies.size > MAX_PENDING_BODIES) {
+        const oldest = pendingBodies.keys().next().value;
+        if (oldest === undefined) break;
+        pendingBodies.delete(oldest);
+      }
+    });
+    connection.on('Network.loadingFinished', (params) => {
+      const event = params as { requestId?: unknown };
+      if (typeof event.requestId !== 'string') return;
+      const url = pendingBodies.get(event.requestId);
+      if (url === undefined) return;
+      pendingBodies.delete(event.requestId);
+      void connection.send('Network.getResponseBody', { requestId: event.requestId })
+        .then((result) => {
+          const payload = result as { body?: unknown; base64Encoded?: unknown };
+          if (typeof payload.body !== 'string') return;
+          onBody(url, payload.base64Encoded === true
+            ? Buffer.from(payload.body, 'base64').toString('utf8')
+            : payload.body);
+        })
+        .catch((error: unknown) => {
+          options.log(`browser-live: could not read a trade fetch body: ${error instanceof Error ? error.message : String(error)}`);
+        });
+    });
+    await connection.send('Network.enable');
+  }
 
   const waitForLoad = async (command: Promise<unknown>): Promise<void> => {
     const loaded = connection.waitFor('Page.loadEventFired');

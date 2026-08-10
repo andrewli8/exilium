@@ -27,6 +27,9 @@ export interface SnipeFileConfig {
   readonly league?: string;
   /** CDP endpoint of a user-launched Chrome for manual travel to attach to. */
   readonly chromeCdpUrl?: string;
+  /** Watch searches through the trade site's own /live pages in Chrome
+   * instead of Exilium's trade API calls (no Exilium-side rate budget). */
+  readonly browserLive?: boolean;
   /** Saved Chrome/Chromium executable path. EXILIUM_CHROME still wins. */
   readonly chromePath?: string;
   /** Saved dedicated browser profile path. */
@@ -44,6 +47,8 @@ export interface SnipeSettings {
   readonly league: string | undefined;
   /** Chrome CDP endpoint for manual travel; defaults to the local debug port. */
   readonly chromeCdpUrl: string;
+  /** Browser-live mode: listings come off Chrome's own /live pages. */
+  readonly browserLive: boolean;
   readonly chromePath: string | undefined;
   readonly chromeProfile: string | undefined;
 }
@@ -121,6 +126,8 @@ function loadSnipeSettings(env: NodeJS.ProcessEnv, file: SnipeFileConfig): Snipe
     webhookUrl: env['EXILIUM_SNIPE_WEBHOOK'] ?? file.webhookUrl,
     league: file.league,
     chromeCdpUrl: env['EXILIUM_CHROME_CDP'] ?? file.chromeCdpUrl ?? 'http://127.0.0.1:9222',
+    browserLive: env['EXILIUM_SNIPE_BROWSER_LIVE'] === '1'
+      || (env['EXILIUM_SNIPE_BROWSER_LIVE'] === undefined && file.browserLive === true),
     chromePath: env['EXILIUM_CHROME'] ?? file.chromePath,
     chromeProfile: file.chromeProfile,
   };

@@ -23,6 +23,7 @@ describe('SnipeBoardView', () => {
     expect(ui.lastFrame()).toContain('Target one');
     expect(ui.lastFrame()).toContain('Target two');
     expect(ui.lastFrame()).toContain('Threshold: +20% profit');
+    expect(ui.lastFrame()).toContain('press t to change');
     expect(ui.lastFrame()).toMatch(/waiting for listings/i);
   });
 
