@@ -10,14 +10,16 @@ describe('snipe settings', () => {
       webhookUrl: undefined,
       league: undefined,
       chromeCdpUrl: 'http://127.0.0.1:9222',
-      browserLive: false,
+      browserLive: null,
       chromePath: undefined,
       chromeProfile: undefined,
     });
   });
 
-  test('browser-live comes from the file and the env override wins', () => {
+  test('browser-live defaults to auto (null), file sets it, env override wins', () => {
+    expect(loadConfig({}, {}).snipe.browserLive).toBeNull();
     expect(loadConfig({}, { snipe: { browserLive: true } }).snipe.browserLive).toBe(true);
+    expect(loadConfig({}, { snipe: { browserLive: false } }).snipe.browserLive).toBe(false);
     expect(loadConfig({ EXILIUM_SNIPE_BROWSER_LIVE: '0' }, { snipe: { browserLive: true } }).snipe.browserLive).toBe(false);
     expect(loadConfig({ EXILIUM_SNIPE_BROWSER_LIVE: '1' }, {}).snipe.browserLive).toBe(true);
   });

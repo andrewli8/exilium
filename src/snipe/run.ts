@@ -55,8 +55,9 @@ export interface SnipeFlags {
   readonly all: boolean;
   readonly searches: readonly string[];
   /** Ride the trade site's own /live pages in Chrome instead of Exilium
-   * calling the trade API (no Exilium-side fetches or rate-limit budget). */
-  readonly browserLive?: boolean;
+   * calling the trade API (no Exilium-side fetches or rate-limit budget).
+   * Unset = auto: probe the Chrome CDP endpoint and use it when it answers. */
+  readonly browserLive?: boolean | undefined;
 }
 
 export interface SnipeSocket {
@@ -108,6 +109,8 @@ export interface SnipeDeps {
   readonly store?: SnipeStore;
   readonly scheduler?: TradeRequestScheduler;
   readonly openLiveSearch?: typeof openBrowserLiveSearch;
+  /** Auto-mode Chrome detection; defaults to a short CDP /json/version probe. */
+  readonly probeChrome?: (cdpUrl: string) => Promise<boolean>;
 }
 
 export const MAX_SNIPE_SOCKETS = 20;
@@ -134,6 +137,16 @@ export function snipeStartupMessages(
 
 function snipeLogPath(): string {
   return join(homedir(), '.exilium', 'snipes.jsonl');
+}
+
+async function probeChromeCdp(cdpUrl: string): Promise<boolean> {
+  try {
+    const base = cdpUrl.endsWith('/') ? cdpUrl : `${cdpUrl}/`;
+    const response = await fetch(new URL('json/version', base), { signal: AbortSignal.timeout(1_000) });
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 function recordSnipe(alert: SnipeAlert, action: string, detail: string, log: (message: string) => void): void {
@@ -218,7 +231,16 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     return;
   }
 
-  const browserLive = flags.browserLive === true || config.snipe.browserLive;
+  // Mode: explicit flag/config wins; otherwise auto — ride Chrome's own /live
+  // pages whenever the Exilium Chrome endpoint responds, because that mode has
+  // no trade API budget (no COOLDOWN) and shows current results immediately.
+  const modePreference = flags.browserLive ?? config.snipe.browserLive;
+  const browserLive = modePreference
+    ?? await (deps.probeChrome ?? probeChromeCdp)(config.snipe.chromeCdpUrl);
+  if (modePreference === null || modePreference === undefined) {
+    if (browserLive) log('Chrome detected — browser-live mode: listings come off the live tabs, no trade API calls. Use --no-browser-live to force API mode.');
+    else log('Chrome is not running — using trade API mode. Tip: start `exilium chrome` first to snipe through live tabs with no API cooldowns.');
+  }
   const sessionId = config.poesessid ?? '';
   if (!browserLive && sessionId === '') {
     throw new Error(

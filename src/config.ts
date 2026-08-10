@@ -47,8 +47,9 @@ export interface SnipeSettings {
   readonly league: string | undefined;
   /** Chrome CDP endpoint for manual travel; defaults to the local debug port. */
   readonly chromeCdpUrl: string;
-  /** Browser-live mode: listings come off Chrome's own /live pages. */
-  readonly browserLive: boolean;
+  /** Browser-live mode: listings come off Chrome's own /live pages.
+   * null = auto: use it whenever the Exilium Chrome CDP endpoint responds. */
+  readonly browserLive: boolean | null;
   readonly chromePath: string | undefined;
   readonly chromeProfile: string | undefined;
 }
@@ -127,7 +128,10 @@ function loadSnipeSettings(env: NodeJS.ProcessEnv, file: SnipeFileConfig): Snipe
     league: file.league,
     chromeCdpUrl: env['EXILIUM_CHROME_CDP'] ?? file.chromeCdpUrl ?? 'http://127.0.0.1:9222',
     browserLive: env['EXILIUM_SNIPE_BROWSER_LIVE'] === '1'
-      || (env['EXILIUM_SNIPE_BROWSER_LIVE'] === undefined && file.browserLive === true),
+      ? true
+      : env['EXILIUM_SNIPE_BROWSER_LIVE'] === '0'
+        ? false
+        : file.browserLive ?? null,
     chromePath: env['EXILIUM_CHROME'] ?? file.chromePath,
     chromeProfile: file.chromeProfile,
   };

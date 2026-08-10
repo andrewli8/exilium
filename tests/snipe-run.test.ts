@@ -153,6 +153,7 @@ function makeHarness(options: {
       return options.seedIds ?? [];
     },
     refreshPrices: async () => undefined,
+    probeChrome: async () => false,
     notify,
     recordAlert: (alert, action, detail) => records.push({ listingId: alert.listingId, action, detail }),
     now: () => NOW,
@@ -697,6 +698,38 @@ describe('runSnipe browser-live mode', () => {
     expect(harness.store.snapshot().searches[0]?.state).toBe('stopped');
     expect(harness.store.snapshot().searches[0]?.detail).toMatch(/exilium chrome/);
 
+    harness.exit();
+    await running;
+  });
+
+  test('auto mode picks browser-live when Chrome answers the probe', async () => {
+    const harness = browserLiveHarness();
+    const running = runSnipe(FLAGS, { ...harness.deps, probeChrome: async () => true });
+    await harness.consoleReady;
+    for (let i = 0; i < 20 && harness.opened.length === 0; i += 1) await new Promise((r) => setTimeout(r, 0));
+    expect(harness.opened).toHaveLength(1);
+    expect(harness.openedSearchIds).toEqual([]);
+    expect(harness.seedCalls).toEqual([]);
+    harness.exit();
+    await running;
+  });
+
+  test('auto mode falls back to API sockets when Chrome is not running', async () => {
+    const harness = browserLiveHarness();
+    const running = runSnipe(FLAGS, harness.deps); // harness probe answers false
+    await harness.started;
+    expect(harness.openedSearchIds).toEqual(['aaa']);
+    expect(harness.opened).toEqual([]);
+    harness.exit();
+    await running;
+  });
+
+  test('--no-browser-live wins over a reachable Chrome', async () => {
+    const harness = browserLiveHarness();
+    const running = runSnipe({ ...FLAGS, browserLive: false }, { ...harness.deps, probeChrome: async () => true });
+    await harness.started;
+    expect(harness.openedSearchIds).toEqual(['aaa']);
+    expect(harness.opened).toEqual([]);
     harness.exit();
     await running;
   });

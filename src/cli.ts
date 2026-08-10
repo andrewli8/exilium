@@ -412,7 +412,7 @@ async function cmdTui(): Promise<void> {
               minMargin: String(snipeStore.snapshot().floor),
               all: false,
               searches: enabledKeys,
-              browserLive: config.snipe.browserLive,
+              browserLive: config.snipe.browserLive ?? undefined,
             },
             store: snipeStore,
           }, {
@@ -717,7 +717,9 @@ async function cmdSnipe(): Promise<void> {
       minMargin: flagValue('--min-margin'),
       all: process.argv.includes('--all'),
       searches: flagValues('--search'),
-      browserLive: process.argv.includes('--browser-live'),
+      browserLive: process.argv.includes('--browser-live')
+        ? true
+        : process.argv.includes('--no-browser-live') ? false : undefined,
     },
     {
       config,
@@ -934,9 +936,9 @@ Trading
   exilium live <trade-url>      Live-search monitor; whisper copied to clipboard
   exilium snipe                 Choose Better Trading searches for this run; queue live hits
                                 [--folder DIR] [--min-margin PCT] [--all] [--search ID ...]
-                                [--league NAME] [--keep-league] [--browser-live]
+                                [--league NAME] [--keep-league] [--browser-live] [--no-browser-live]
                                 Reuses one Chrome tab; Enter clicks Travel to Hideout; no whisper is sent/copied
-                                --browser-live rides the trade site's own /live pages in Chrome (no Exilium API calls)
+                                Browser-live (auto when exilium chrome is running) rides the site's own /live pages — no Exilium API calls or cooldowns
   exilium snipe import          Import a Better Trading folder export [--file FILE]
   exilium snipe list            List imported and managed searches
   exilium snipe add URL         Add a trade URL [--name NAME] [--max-buy 20div] [--min-margin PCT]
