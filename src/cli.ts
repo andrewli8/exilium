@@ -501,6 +501,71 @@ async function cmdLive(): Promise<void> {
 }
 
 async function cmdSnipe(): Promise<void> {
+  const subcommand = process.argv[3];
+  if (subcommand === 'list' || subcommand === 'add' || subcommand === 'edit' || subcommand === 'remove') {
+    const { homedir } = await import('node:os');
+    const { resolveSnipeFolder } = await import('./snipe/bettertrading.js');
+    const { loadSnipeCatalog } = await import('./snipe/catalog.js');
+    const { addSnipe, editSnipe, formatSnipeCatalog, parseMaxBuy, removeSnipe } = await import('./snipe/manage.js');
+    const folder = resolveSnipeFolder({
+      flagValue: flagValue('--folder') ?? config.snipe.folder,
+      cwd: process.cwd(),
+      home: homedir(),
+    });
+    if (subcommand === 'list') {
+      const entries = loadSnipeCatalog(folder, (message) => console.error(message));
+      console.log(entries.length === 0 ? 'No snipes configured.' : formatSnipeCatalog(entries));
+      return;
+    }
+    if (subcommand === 'add') {
+      const url = process.argv[4];
+      if (url === undefined || url.startsWith('--')) throw new Error('Usage: exilium snipe add <trade-url> [--name NAME] [--max-buy 20div] [--min-margin PCT]');
+      const maxBuyRaw = flagValue('--max-buy');
+      const marginRaw = flagValue('--min-margin');
+      const margin = marginRaw === undefined ? undefined : Number(marginRaw);
+      if (margin !== undefined && !Number.isFinite(margin)) throw new Error('--min-margin must be a finite number');
+      const entry = addSnipe({
+        folder,
+        url,
+        ...(flagValue('--name') === undefined ? {} : { name: flagValue('--name')! }),
+        ...(maxBuyRaw === undefined ? {} : { maxBuy: parseMaxBuy(maxBuyRaw) }),
+        ...(margin === undefined ? {} : { minMarginPct: margin }),
+      });
+      console.log(`Added ${entry.label} (${entry.searchId}) to ${folder}.`);
+      return;
+    }
+    const selector = process.argv[4];
+    if (selector === undefined || selector.startsWith('--')) {
+      if (subcommand === 'edit') throw new Error('Interactive snipe editor is not available in this build yet; use `exilium snipe edit <id> [options]`.');
+      throw new Error('Usage: exilium snipe remove <id-or-label>');
+    }
+    if (subcommand === 'remove') {
+      const entry = removeSnipe({ folder, selector });
+      console.log(`${entry.source === 'Better Trading' ? 'Disabled' : 'Removed'} ${entry.label} (${entry.searchId}).`);
+      return;
+    }
+    const maxBuyRaw = flagValue('--max-buy');
+    const marginRaw = flagValue('--min-margin');
+    const enable = process.argv.includes('--enable');
+    const disable = process.argv.includes('--disable');
+    if (enable && disable) throw new Error('Use only one of --enable or --disable');
+    let margin: number | null | undefined;
+    if (marginRaw === 'none') margin = null;
+    else if (marginRaw !== undefined) {
+      margin = Number(marginRaw);
+      if (!Number.isFinite(margin)) throw new Error('--min-margin must be a finite number or "none"');
+    }
+    const entry = editSnipe({
+      folder,
+      selector,
+      ...(flagValue('--name') === undefined ? {} : { name: flagValue('--name')! }),
+      ...(maxBuyRaw === undefined ? {} : { maxBuy: maxBuyRaw.toLowerCase() === 'none' ? null : parseMaxBuy(maxBuyRaw) }),
+      ...(margin === undefined ? {} : { minMarginPct: margin }),
+      ...(!enable && !disable ? {} : { enabled: enable }),
+    });
+    console.log(`Updated ${entry.label} (${entry.searchId}) — ${entry.enabled ? 'enabled' : 'disabled'}.`);
+    return;
+  }
   if (process.argv[3] === 'import') {
     const { persistSnipeImport } = await import('./snipe/import.js');
     const { resolveSnipeFolder } = await import('./snipe/bettertrading.js');
@@ -766,6 +831,10 @@ Trading
                                 [--league NAME] [--keep-league]
                                 Reuses one Chrome tab; Enter clicks Travel to Hideout; no whisper is sent/copied
   exilium snipe import          Import a Better Trading folder export [--file FILE]
+  exilium snipe list            List imported and managed searches
+  exilium snipe add URL         Add a trade URL [--name NAME] [--max-buy 20div] [--min-margin PCT]
+  exilium snipe edit [ID]       Interactive editor, or update ID with flags
+  exilium snipe remove ID       Disable an import or remove an Exilium-owned search
   exilium chrome                Open a debug-enabled Chrome for CLI-triggered travel [--port N] [--profile DIR] [--print]
   exilium stash                 Value your stash, net worth, trade-check delta [--account NAME]
   exilium sellsheet --file F    Price a dump tab into a bulk WTS message [--discount N]

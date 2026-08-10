@@ -1,0 +1,147 @@
+import { parseTradeUrl } from '../trade/live-search.js';
+import {
+  loadSnipeCatalog,
+  loadSnipeManifest,
+  resolveCatalogEntry,
+  saveSnipeManifest,
+  targetKey,
+  type CatalogEntry,
+  type SnipeManifest,
+  type SnipeOverride,
+} from './catalog.js';
+
+export interface BuyPrice {
+  readonly amount: number;
+  readonly currency: string;
+}
+
+const MAX_BUY_PATTERN = /^([0-9]+(?:\.[0-9]+)?)\s*(div(?:ine)?s?|c|chaos)$/i;
+
+export function parseMaxBuy(raw: string): BuyPrice {
+  const match = MAX_BUY_PATTERN.exec(raw.trim());
+  const amount = Number(match?.[1]);
+  if (match === null || !Number.isFinite(amount) || amount <= 0) {
+    throw new Error(`Invalid max buy "${raw}" — use a positive value such as 20div or 150c.`);
+  }
+  const unit = match[2]!.toLowerCase();
+  return { amount, currency: unit === 'c' || unit === 'chaos' ? 'chaos' : 'divine' };
+}
+
+function requireName(name: string | undefined, fallback: string): string {
+  const resolved = name?.trim() || fallback;
+  if (resolved === '') throw new Error('Snipe name cannot be empty');
+  return resolved;
+}
+
+function updatedOverrides(
+  manifest: SnipeManifest,
+  key: string,
+  override: SnipeOverride,
+): SnipeManifest['overrides'] {
+  return { ...manifest.overrides, [key]: override };
+}
+
+export interface AddSnipeInput {
+  readonly folder: string;
+  readonly url: string;
+  readonly name?: string;
+  readonly maxBuy?: BuyPrice;
+  readonly minMarginPct?: number;
+}
+
+export function addSnipe(input: AddSnipeInput): CatalogEntry {
+  const parsed = parseTradeUrl(input.url);
+  const key = targetKey(parsed);
+  const catalog = loadSnipeCatalog(input.folder, () => undefined);
+  const existing = catalog.find((entry) => entry.key === key);
+  const manifest = loadSnipeManifest(input.folder);
+  if (existing !== undefined) {
+    const current = manifest.overrides[key] ?? {};
+    const override: SnipeOverride = {
+      ...current,
+      enabled: true,
+      ...(input.name === undefined ? {} : { label: requireName(input.name, existing.label) }),
+      ...(input.maxBuy === undefined ? {} : { maxBuy: input.maxBuy }),
+      ...(input.minMarginPct === undefined ? {} : { minMarginPct: input.minMarginPct }),
+    };
+    saveSnipeManifest(input.folder, { ...manifest, overrides: updatedOverrides(manifest, key, override) });
+  } else {
+    const target = {
+      label: requireName(input.name, parsed.searchId),
+      realm: parsed.realm,
+      searchId: parsed.searchId,
+      league: parsed.league,
+      ...(input.maxBuy === undefined ? {} : { maxBuy: input.maxBuy }),
+      ...(input.minMarginPct === undefined ? {} : { minMarginPct: input.minMarginPct }),
+    };
+    saveSnipeManifest(input.folder, { ...manifest, managed: [...manifest.managed, target] });
+  }
+  return resolveCatalogEntry(loadSnipeCatalog(input.folder, () => undefined), key);
+}
+
+export interface EditSnipeInput {
+  readonly folder: string;
+  readonly selector: string;
+  readonly name?: string;
+  readonly maxBuy?: BuyPrice | null;
+  readonly minMarginPct?: number | null;
+  readonly enabled?: boolean;
+}
+
+export function editSnipe(input: EditSnipeInput): CatalogEntry {
+  const entry = resolveCatalogEntry(loadSnipeCatalog(input.folder, () => undefined), input.selector);
+  const manifest = loadSnipeManifest(input.folder);
+  const current = manifest.overrides[entry.key] ?? {};
+  const override: SnipeOverride = {
+    ...current,
+    ...(input.name === undefined ? {} : { label: requireName(input.name, entry.label) }),
+    ...(input.maxBuy === undefined ? {} : { maxBuy: input.maxBuy }),
+    ...(input.minMarginPct === undefined ? {} : { minMarginPct: input.minMarginPct }),
+    ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
+  };
+  saveSnipeManifest(input.folder, {
+    ...manifest,
+    overrides: updatedOverrides(manifest, entry.key, override),
+  });
+  return resolveCatalogEntry(loadSnipeCatalog(input.folder, () => undefined), entry.key);
+}
+
+export interface RemoveSnipeInput {
+  readonly folder: string;
+  readonly selector: string;
+}
+
+export function removeSnipe(input: RemoveSnipeInput): CatalogEntry {
+  const entry = resolveCatalogEntry(loadSnipeCatalog(input.folder, () => undefined), input.selector);
+  const manifest = loadSnipeManifest(input.folder);
+  if (entry.source === 'Exilium') {
+    const overrides = { ...manifest.overrides };
+    delete overrides[entry.key];
+    saveSnipeManifest(input.folder, {
+      ...manifest,
+      managed: manifest.managed.filter((target) => targetKey(target) !== entry.key),
+      overrides,
+    });
+    return { ...entry, enabled: false };
+  }
+  const override: SnipeOverride = { ...(manifest.overrides[entry.key] ?? {}), enabled: false };
+  saveSnipeManifest(input.folder, {
+    ...manifest,
+    overrides: updatedOverrides(manifest, entry.key, override),
+  });
+  return resolveCatalogEntry(loadSnipeCatalog(input.folder, () => undefined), entry.key);
+}
+
+export function formatSnipeCatalog(entries: readonly CatalogEntry[]): string {
+  const header = 'STATE\tID\tNAME\tLEAGUE\tMAX BUY\tMIN MARGIN\tSOURCE';
+  const rows = entries.map((entry) => [
+    entry.enabled ? 'enabled' : 'disabled',
+    entry.searchId,
+    entry.label,
+    entry.league ?? 'current',
+    entry.maxBuy === undefined ? '-' : `${entry.maxBuy.amount} ${entry.maxBuy.currency}`,
+    entry.minMarginPct === undefined ? '-' : `${entry.minMarginPct}%`,
+    entry.source,
+  ].join('\t'));
+  return [header, ...rows].join('\n');
+}

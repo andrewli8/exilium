@@ -109,7 +109,7 @@ function applyOverride(
 
 export function loadSnipeCatalog(folder: string, warn: (message: string) => void): readonly CatalogEntry[] {
   const manifest = loadSnipeManifest(folder);
-  const raw = loadSnipeFolder(readSnipeFolderFiles(folder), warn);
+  const raw = existsSync(folder) ? loadSnipeFolder(readSnipeFolderFiles(folder), warn) : [];
   const managed: readonly SnipeTarget[] = manifest.managed.map((target) => ({
     label: target.label,
     realm: target.realm,

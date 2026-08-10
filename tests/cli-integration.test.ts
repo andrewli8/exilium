@@ -138,6 +138,34 @@ describe('CLI integration', () => {
     expect(readdirSync(folder)).toHaveLength(1);
   }, 40_000);
 
+  test('packaged CLI adds, lists, edits, enables, disables, and removes snipes without POESESSID', async () => {
+    const folder = join(dir, 'BetterTrading-manage');
+    const manageEnv = {
+      ...env,
+      EXILIUM_CONFIG: join(dir, 'no-manage-session.json'),
+      EXILIUM_BETTERTRADING: folder,
+      EXILIUM_POESESSID: '',
+    };
+    const manage = (...args: readonly string[]) => exec('node', ['bin/exilium.js', 'snipe', ...args], {
+      env: manageEnv,
+      timeout: 30_000,
+    });
+
+    const added = await manage('add', 'https://www.pathofexile.com/trade/search/Allflame/9zRjda6KHK/live', '--name', 'Sublime Vision', '--max-buy', '20div');
+    expect(added.stdout).toMatch(/Added.*Sublime Vision/i);
+    expect((await manage('list')).stdout).toMatch(/9zRjda6KHK.*Sublime Vision/s);
+
+    await manage('edit', '9zRjda6KHK', '--name', 'Cheap Sublime', '--min-margin', '15', '--disable');
+    const disabled = (await manage('list')).stdout;
+    expect(disabled).toMatch(/disabled.*9zRjda6KHK.*Cheap Sublime/s);
+    expect(disabled).toContain('15%');
+
+    await manage('edit', '9zRjda6KHK', '--enable', '--max-buy', 'none');
+    expect((await manage('list')).stdout).toMatch(/enabled.*9zRjda6KHK/s);
+    await manage('remove', '9zRjda6KHK');
+    expect((await manage('list')).stdout).not.toContain('9zRjda6KHK');
+  }, 80_000);
+
   test('non-interactive snipe requires an explicit per-run search selection', async () => {
     const folder = join(dir, 'BetterTrading-selection');
     const { mkdirSync } = await import('node:fs');
