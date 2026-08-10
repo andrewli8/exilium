@@ -1,10 +1,13 @@
 import { describe, expect, test } from 'vitest';
+import type { CdpTravelPage } from '../src/snipe/cdp.js';
 import type { SnipeAlert } from '../src/snipe/engine.js';
 import { createTravelController } from '../src/snipe/browser.js';
 
 function alert(id: string): SnipeAlert {
   return {
+    targetId: `trade:${id}`,
     targetLabel: `Target ${id}`,
+    source: 'live',
     listingId: id,
     itemName: `Item ${id}`,
     priceText: '10 divine',
@@ -18,125 +21,81 @@ function alert(id: string): SnipeAlert {
     freshnessText: 'ref 1m ago',
     stale: false,
     unknownMargin: false,
+    minMarginPct: 20,
+    targetMinMarginPct: null,
+    qualifiesMargin: true,
   };
 }
 
-interface FakeOptions {
-  readonly cdpError?: Error;
-  readonly persistentExistingPage?: boolean;
-  readonly waitFailures?: number;
-}
-
-function fakePlaywright(options: FakeOptions = {}) {
+function fakePage() {
   let currentUrl = '';
-  let remainingWaitFailures = options.waitFailures ?? 0;
-  let releaseFirstGoto: (() => void) | undefined;
-  let blockFirstGoto = false;
+  let blocked = false;
+  let release: (() => void) | undefined;
   const state = {
-    newPageCalls: 0,
-    browserCloseCalls: 0,
-    contextCloseCalls: 0,
-    pageCloseCalls: 0,
-    reloadCalls: 0,
     gotoUrls: [] as string[],
-    clickSelectors: [] as string[],
-    chromeProcessAlive: true,
+    clickedIds: [] as string[],
+    closeCalls: 0,
     blockNextGoto() {
-      blockFirstGoto = true;
-      return new Promise<void>((resolve) => { releaseFirstGoto = resolve; });
+      blocked = true;
     },
     releaseGoto() {
-      releaseFirstGoto?.();
+      release?.();
     },
   };
-  const page = {
+  const page: CdpTravelPage = {
     url: () => currentUrl,
-    goto: async (url: string) => {
+    goto: async (url) => {
       state.gotoUrls.push(url);
-      if (blockFirstGoto) {
-        blockFirstGoto = false;
-        await new Promise<void>((resolve) => { releaseFirstGoto = resolve; });
+      if (blocked) {
+        blocked = false;
+        await new Promise<void>((resolve) => { release = resolve; });
       }
       currentUrl = url;
     },
-    reload: async () => { state.reloadCalls += 1; },
-    waitForSelector: async () => {
-      if (remainingWaitFailures > 0) {
-        remainingWaitFailures -= 1;
-        throw new Error('not indexed');
-      }
+    clickTravelButton: async (listingId) => {
+      state.clickedIds.push(listingId);
+      return true;
     },
-    locator: (selector: string) => ({
-      count: async () => 1,
-      first: () => ({
-        click: async () => { state.clickSelectors.push(selector); },
-      }),
-    }),
-    close: async () => { state.pageCloseCalls += 1; },
-  };
-  const context = {
-    pages: () => options.persistentExistingPage ? [page] : [],
-    newPage: async () => {
-      state.newPageCalls += 1;
-      return page;
-    },
-    close: async () => { state.contextCloseCalls += 1; },
-  };
-  const browser = {
-    contexts: () => [context],
-    close: async () => { state.browserCloseCalls += 1; },
-  };
-  const playwright = {
-    chromium: {
-      connectOverCDP: async () => {
-        if (options.cdpError !== undefined) throw options.cdpError;
-        return browser;
-      },
-      launchPersistentContext: async () => context,
+    close: async () => {
+      state.closeCalls += 1;
+      release?.();
     },
   };
-  return { playwright, state };
+  return { page, state };
 }
 
 describe('createTravelController', () => {
-  test('opens an enabled search in the same owned page before any listing action', async () => {
-    const fake = fakePlaywright();
+  test('creates one direct-CDP page and reuses it for native search actions', async () => {
+    const fake = fakePage();
+    let createCalls = 0;
     const controller = await createTravelController({
       cdpUrl: 'http://127.0.0.1:9222',
-      profileDir: 'C:\\profile',
+      profileDir: 'unused',
       log: () => undefined,
-      loadPlaywright: async () => fake.playwright,
+      createPage: async () => {
+        createCalls += 1;
+        return fake.page;
+      },
     });
     await controller.openSearch('https://www.pathofexile.com/trade/search/Allflame/selected');
-    expect(fake.state.newPageCalls).toBe(1);
-    expect(fake.state.gotoUrls).toEqual([
-      'https://www.pathofexile.com/trade/search/Allflame/selected',
-    ]);
-    expect(fake.state.clickSelectors).toEqual([]);
-  });
-
-  test('CDP creates one owned page and reuses it for multiple manual actions', async () => {
-    const fake = fakePlaywright();
-    const controller = await createTravelController({
-      cdpUrl: 'http://127.0.0.1:9222',
-      profileDir: 'C:\\profile',
-      log: () => undefined,
-      loadPlaywright: async () => fake.playwright,
-    });
     expect(await controller.travel(alert('one'))).toMatchObject({ action: 'traveled' });
     expect(await controller.travel(alert('two'))).toMatchObject({ action: 'traveled' });
-    expect(fake.state.newPageCalls).toBe(1);
-    expect(fake.state.gotoUrls).toEqual([alert('one').searchUrl, alert('two').searchUrl]);
-    expect(fake.state.clickSelectors).toHaveLength(2);
+    expect(createCalls).toBe(1);
+    expect(fake.state.gotoUrls).toEqual([
+      'https://www.pathofexile.com/trade/search/Allflame/selected',
+      alert('one').searchUrl,
+      alert('two').searchUrl,
+    ]);
+    expect(fake.state.clickedIds).toEqual(['one', 'two']);
   });
 
-  test('serializes rapid travel requests so page navigation cannot race', async () => {
-    const fake = fakePlaywright();
+  test('serializes rapid travel requests so native page navigation cannot race', async () => {
+    const fake = fakePage();
     const controller = await createTravelController({
       cdpUrl: 'http://127.0.0.1:9222',
-      profileDir: 'C:\\profile',
+      profileDir: 'unused',
       log: () => undefined,
-      loadPlaywright: async () => fake.playwright,
+      createPage: async () => fake.page,
     });
     fake.state.blockNextGoto();
     const first = controller.travel(alert('one'));
@@ -149,62 +108,34 @@ describe('createTravelController', () => {
     expect(fake.state.gotoUrls).toEqual([alert('one').searchUrl, alert('two').searchUrl]);
   });
 
-  test('reloads once for indexing lag but clicks exactly once', async () => {
-    const fake = fakePlaywright({ waitFailures: 1 });
+  test('close bypasses a stalled navigation and closes only the owned page', async () => {
+    const fake = fakePage();
     const controller = await createTravelController({
       cdpUrl: 'http://127.0.0.1:9222',
-      profileDir: 'C:\\profile',
+      profileDir: 'unused',
       log: () => undefined,
-      loadPlaywright: async () => fake.playwright,
-    });
-    expect(await controller.travel(alert('one'))).toMatchObject({ action: 'traveled' });
-    expect(fake.state.reloadCalls).toBe(1);
-    expect(fake.state.clickSelectors).toHaveLength(1);
-  });
-
-  test('closing an attached controller closes its page and disconnects without terminating Chrome', async () => {
-    const fake = fakePlaywright();
-    const controller = await createTravelController({
-      cdpUrl: 'http://127.0.0.1:9222',
-      profileDir: 'C:\\profile',
-      log: () => undefined,
-      loadPlaywright: async () => fake.playwright,
-    });
-    await controller.close();
-    expect(fake.state.pageCloseCalls).toBe(1);
-    expect(fake.state.browserCloseCalls).toBe(1);
-    expect(fake.state.contextCloseCalls).toBe(0);
-    expect(fake.state.chromeProcessAlive).toBe(true);
-  });
-
-  test('close does not wait behind a stalled page navigation', async () => {
-    const fake = fakePlaywright();
-    const controller = await createTravelController({
-      cdpUrl: 'http://127.0.0.1:9222',
-      profileDir: 'C:\\profile',
-      log: () => undefined,
-      loadPlaywright: async () => fake.playwright,
+      createPage: async () => fake.page,
     });
     fake.state.blockNextGoto();
     const traveling = controller.travel(alert('one'));
     await Promise.resolve();
     await Promise.resolve();
     await controller.close();
-    expect(fake.state.pageCloseCalls).toBe(1);
-    fake.state.releaseGoto();
+    expect(fake.state.closeCalls).toBe(1);
     await traveling;
   });
 
-  test('CDP failure does not silently launch a different browser profile', async () => {
-    const fake = fakePlaywright({ cdpError: new Error('not listening'), persistentExistingPage: true });
+  test('direct CDP creation failure does not launch another browser profile', async () => {
+    let attempts = 0;
     await expect(createTravelController({
       cdpUrl: 'http://127.0.0.1:9222',
-      profileDir: 'C:\\profile',
+      profileDir: 'unused',
       log: () => undefined,
-      loadPlaywright: async () => fake.playwright,
-    })).rejects.toThrow(/Could not attach.*not listening/i);
-    expect(fake.state.newPageCalls).toBe(0);
-    expect(fake.state.contextCloseCalls).toBe(0);
-    expect(fake.state.browserCloseCalls).toBe(0);
+      createPage: async () => {
+        attempts += 1;
+        throw new Error('not listening');
+      },
+    })).rejects.toThrow(/not listening/i);
+    expect(attempts).toBe(1);
   });
 });

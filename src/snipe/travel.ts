@@ -27,8 +27,8 @@ export async function travelSelectedAlert(alert: SnipeAlert, page: TravelPage): 
     const clicked = await page.clickTravelButton(alert.listingId);
     if (!clicked) {
       return {
-        action: 'failed',
-        detail: `Travel to Hideout button not found for listing ${alert.listingId}`,
+        action: 'gone',
+        detail: `listing ${alert.listingId} was sold or removed`,
       };
     }
     return {

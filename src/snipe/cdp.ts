@@ -1,0 +1,237 @@
+import type { TravelPage } from './travel.js';
+
+export interface CdpSocket {
+  on(event: 'open', listener: () => void): this;
+  on(event: 'message', listener: (data: Buffer | string) => void): this;
+  on(event: 'close', listener: () => void): this;
+  on(event: 'error', listener: (error: Error) => void): this;
+  send(data: string): void;
+  close(): void;
+}
+
+export type OpenCdpSocket = (url: string) => CdpSocket | Promise<CdpSocket>;
+
+interface CdpTarget {
+  readonly id: string;
+  readonly type: string;
+  readonly url: string;
+  readonly webSocketDebuggerUrl: string;
+}
+
+interface CdpResponse {
+  readonly id?: number;
+  readonly method?: string;
+  readonly params?: unknown;
+  readonly result?: unknown;
+  readonly error?: { readonly message?: string };
+}
+
+interface PendingCommand {
+  readonly method: string;
+  readonly resolve: (value: unknown) => void;
+  readonly reject: (error: Error) => void;
+  readonly timer: ReturnType<typeof setTimeout>;
+}
+
+class CdpConnection {
+  private nextId = 0;
+  private readonly pending = new Map<number, PendingCommand>();
+  private readonly eventWaiters = new Map<string, Set<(params: unknown) => void>>();
+  private closed = false;
+
+  constructor(
+    private readonly socket: CdpSocket,
+    private readonly timeoutMs: number,
+  ) {
+    socket.on('message', (data) => this.onMessage(data));
+    socket.on('close', () => this.dispose(new Error('Chrome CDP page connection closed')));
+    socket.on('error', (error) => this.dispose(error));
+  }
+
+  send(method: string, params?: unknown): Promise<unknown> {
+    if (this.closed) return Promise.reject(new Error('Chrome CDP page connection is closed'));
+    const id = ++this.nextId;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`Chrome CDP timed out after ${this.timeoutMs}ms waiting for ${method}`));
+      }, this.timeoutMs);
+      this.pending.set(id, { method, resolve, reject, timer });
+      try {
+        this.socket.send(JSON.stringify({ id, method, ...(params === undefined ? {} : { params }) }));
+      } catch (error) {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  }
+
+  waitFor(method: string): Promise<unknown> {
+    if (this.closed) return Promise.reject(new Error('Chrome CDP page connection is closed'));
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        listeners.delete(onEvent);
+        reject(new Error(`Chrome CDP timed out after ${this.timeoutMs}ms waiting for ${method}`));
+      }, this.timeoutMs);
+      const onEvent = (params: unknown): void => {
+        clearTimeout(timer);
+        listeners.delete(onEvent);
+        resolve(params);
+      };
+      const listeners = this.eventWaiters.get(method) ?? new Set();
+      listeners.add(onEvent);
+      this.eventWaiters.set(method, listeners);
+    });
+  }
+
+  dispose(error = new Error('Chrome CDP page connection closed')): void {
+    if (this.closed) return;
+    this.closed = true;
+    for (const pending of this.pending.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(error);
+    }
+    this.pending.clear();
+    this.eventWaiters.clear();
+    try {
+      this.socket.close();
+    } catch {
+      // The page or Chrome may already have closed the socket.
+    }
+  }
+
+  private onMessage(data: Buffer | string): void {
+    let message: CdpResponse;
+    try {
+      message = JSON.parse(data.toString()) as CdpResponse;
+    } catch {
+      return;
+    }
+    if (message.id !== undefined) {
+      const pending = this.pending.get(message.id);
+      if (pending === undefined) return;
+      clearTimeout(pending.timer);
+      this.pending.delete(message.id);
+      if (message.error !== undefined) {
+        pending.reject(new Error(`${pending.method}: ${message.error.message ?? 'CDP command failed'}`));
+      } else {
+        pending.resolve(message.result);
+      }
+      return;
+    }
+    if (message.method !== undefined) {
+      for (const listener of this.eventWaiters.get(message.method) ?? []) listener(message.params);
+    }
+  }
+}
+
+export interface CdpTravelPage extends TravelPage {
+  close(): Promise<void>;
+}
+
+export interface CreateCdpPageOptions {
+  readonly cdpUrl: string;
+  readonly fetchFn?: typeof fetch;
+  readonly openSocket?: OpenCdpSocket;
+  readonly timeoutMs?: number;
+  readonly log: (message: string) => void;
+}
+
+async function defaultOpenSocket(url: string): Promise<CdpSocket> {
+  const { default: WebSocket } = await import('ws');
+  return new WebSocket(url) as unknown as CdpSocket;
+}
+
+async function waitForOpen(socket: CdpSocket, timeoutMs: number): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Chrome CDP socket did not open within ${timeoutMs}ms`)), timeoutMs);
+    socket.on('open', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    socket.on('error', (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+  });
+}
+
+function targetUrl(cdpUrl: string): string {
+  const base = cdpUrl.endsWith('/') ? cdpUrl : `${cdpUrl}/`;
+  return new URL('json/new?about%3Ablank', base).toString();
+}
+
+function clickExpression(listingId: string): string {
+  return `(() => {
+    const listingId = ${JSON.stringify(listingId)};
+    const row = Array.from(document.querySelectorAll('[data-id]'))
+      .find((element) => element.getAttribute('data-id') === listingId);
+    if (!row) return false;
+    const direct = row.querySelector('button.direct-btn');
+    const button = direct || Array.from(row.querySelectorAll('button'))
+      .find((element) => element.textContent?.trim() === 'Travel to Hideout');
+    if (!(button instanceof HTMLElement)) return false;
+    button.click();
+    return true;
+  })()`;
+}
+
+export async function createCdpPage(options: CreateCdpPageOptions): Promise<CdpTravelPage> {
+  const timeoutMs = options.timeoutMs ?? 6_000;
+  const fetchFn = options.fetchFn ?? fetch;
+  let response: Response;
+  try {
+    response = await fetchFn(targetUrl(options.cdpUrl), {
+      method: 'PUT',
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (error) {
+    throw new Error(`Chrome unavailable at ${options.cdpUrl}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!response.ok) throw new Error(`Chrome target creation failed with HTTP ${response.status}`);
+  const target = await response.json() as Partial<CdpTarget>;
+  if (typeof target.webSocketDebuggerUrl !== 'string') {
+    throw new Error('Chrome target response did not include a page WebSocket URL');
+  }
+  const socket = await (options.openSocket ?? defaultOpenSocket)(target.webSocketDebuggerUrl);
+  await waitForOpen(socket, timeoutMs);
+  const connection = new CdpConnection(socket, timeoutMs);
+  await Promise.all([connection.send('Page.enable'), connection.send('Runtime.enable')]);
+  let currentUrl = typeof target.url === 'string' ? target.url : 'about:blank';
+  let closed = false;
+
+  const waitForLoad = async (command: Promise<unknown>): Promise<void> => {
+    const loaded = connection.waitFor('Page.loadEventFired');
+    await Promise.all([command, loaded]);
+  };
+  const evaluateClick = async (listingId: string): Promise<boolean> => {
+    const result = await connection.send('Runtime.evaluate', {
+      expression: clickExpression(listingId),
+      returnByValue: true,
+      awaitPromise: true,
+    }) as { result?: { value?: unknown }; exceptionDetails?: unknown };
+    if (result.exceptionDetails !== undefined) throw new Error('Chrome could not inspect the trade listing row');
+    return result.result?.value === true;
+  };
+
+  options.log(`Travel controller attached directly to Chrome at ${options.cdpUrl}.`);
+  return {
+    url: () => currentUrl,
+    async goto(url: string) {
+      await waitForLoad(connection.send('Page.navigate', { url }));
+      currentUrl = url;
+    },
+    async clickTravelButton(listingId: string) {
+      if (await evaluateClick(listingId)) return true;
+      await waitForLoad(connection.send('Page.reload', { ignoreCache: true }));
+      return evaluateClick(listingId);
+    },
+    async close() {
+      if (closed) return;
+      closed = true;
+      void connection.send('Page.close').catch(() => undefined);
+      connection.dispose();
+    },
+  };
+}
