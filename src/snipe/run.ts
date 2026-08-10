@@ -435,6 +435,10 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
   let rateHealthTimer: ReturnType<typeof setInterval> | undefined;
 
   const refreshAbort = new AbortController();
+  // Margins are only as honest as the reference data: the boot refresh always
+  // refetches poe.ninja in full (no dedupe window), so a snipe session never
+  // starts against prices left behind by an earlier process.
+  let bootRefreshDone = false;
   const refresh = deps.refreshPrices ?? (async (signal: AbortSignal) => {
     try {
       const client = new NinjaClient({
@@ -446,8 +450,11 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
         league,
         categories: config.categories,
         now: () => new Date(now()).toISOString(),
-        itemsMinIntervalSec: Math.max(300, config.refreshSec),
+        ...(bootRefreshDone
+          ? { itemsMinIntervalSec: Math.max(300, config.refreshSec) }
+          : { minIntervalSec: 0, itemsMinIntervalSec: 0 }),
       });
+      bootRefreshDone = true;
       if (result.saved.length > 0) log(`refreshed ${result.saved.length} categories`);
     } catch (error) {
       log(`price refresh failed: ${error instanceof Error ? error.message : String(error)}`);

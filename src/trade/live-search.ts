@@ -300,8 +300,14 @@ export function parseFetchResponseBody(payload: unknown): readonly LiveListing[]
       id: r.id,
       itemName: name,
       identified,
+      // Valdo maps: poe.ninja prices each map+reward combination as its own
+      // line named "<Map> (<Reward>)" — a bare reward name would substring-
+      // match an arbitrary (often cheaper) map's line. When ninja lacks the
+      // exact combo, the search-floor fallback takes over downstream.
       referenceName: reward !== null
-        ? reward.replace(REWARD_STACK_PREFIX, '')
+        ? (r.item?.name
+          ? `${r.item.name} (${reward.replace(REWARD_STACK_PREFIX, '')})`
+          : reward.replace(REWARD_STACK_PREFIX, ''))
         : variant ?? baseReference,
       priceText: price,
       price: r.listing.price ?? null,

@@ -205,12 +205,14 @@ describe('parseFetchResponseBody Valdo rewards', () => {
     }],
   });
 
-  test('surfaces the Reward line as the item and reference name', () => {
+  test('prices a Valdo map by its exact map+reward variant line', () => {
     const [listing] = parseFetchResponseBody(valdoResult({
-      explicitMods: ['Area is influenced by something', 'Reward: Mageblood (Foil)'],
+      explicitMods: ['Area is influenced by something', 'Reward: Foil Mageblood'],
     }));
-    expect(listing?.itemName).toBe('Mageblood (Foil)');
-    expect(listing?.referenceName).toBe('Mageblood (Foil)');
+    expect(listing?.itemName).toBe('Foil Mageblood');
+    // poe.ninja names Valdo map lines "<Map> (<Reward>)"; a bare reward name
+    // would substring-match an arbitrary map's price.
+    expect(listing?.referenceName).toBe('Squandered Highlands (Foil Mageblood)');
   });
 
   test('reads a Reward property and strips a stack-count prefix for pricing', () => {
@@ -218,7 +220,7 @@ describe('parseFetchResponseBody Valdo rewards', () => {
       properties: [{ name: 'Reward', values: [['5x Divine Orb', 0]] }],
     }));
     expect(listing?.itemName).toBe('5x Divine Orb');
-    expect(listing?.referenceName).toBe('Divine Orb');
+    expect(listing?.referenceName).toBe('Squandered Highlands (Divine Orb)');
   });
 
   test('parses the browser-live payload shape: structured mod objects and null result entries', () => {
@@ -243,10 +245,10 @@ describe('parseFetchResponseBody Valdo rewards', () => {
 
   test('extracts a reward from a structured mod object description', () => {
     const [listing] = parseFetchResponseBody(valdoResult({
-      explicitMods: [{ description: 'Reward: Mageblood (Foil)', domain: 'explicit' }],
+      explicitMods: [{ description: 'Reward: Foil Mageblood', domain: 'explicit' }],
     }));
-    expect(listing?.itemName).toBe('Mageblood (Foil)');
-    expect(listing?.referenceName).toBe('Mageblood (Foil)');
+    expect(listing?.itemName).toBe('Foil Mageblood');
+    expect(listing?.referenceName).toBe('Squandered Highlands (Foil Mageblood)');
   });
 
   test('prices Forbidden jewels by their allocated passive variant', () => {
