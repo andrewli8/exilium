@@ -12,9 +12,11 @@ const TARGETS: readonly SnipeTarget[] = [
   { label: 'Uniques', realm: 'trade', searchId: 'bbb', league: null },
 ];
 
-function alert(id: string): SnipeAlert {
+function alert(id: string, overrides: Partial<SnipeAlert> = {}): SnipeAlert {
   return {
+    targetId: `trade:${id}`,
     targetLabel: `Target ${id}`,
+    source: 'live',
     listingId: id,
     itemName: `Item ${id}`,
     priceText: '10 divine',
@@ -28,6 +30,9 @@ function alert(id: string): SnipeAlert {
     freshnessText: 'ref 1m ago',
     stale: false,
     unknownMargin: false,
+    minMarginPct: 20,
+    qualifiesMargin: true,
+    ...overrides,
   };
 }
 
@@ -102,11 +107,11 @@ describe('SnipeQueueApp', () => {
     const alerts: SnipeAlert[] = [];
     const onTravel = async (): Promise<TravelResult> => ({ action: 'failed', detail: 'unused' });
     const ui = render(<SnipeQueueApp alerts={alerts} onTravel={onTravel} />);
-    expect(ui.lastFrame()).toContain('No snipe alerts yet');
+    expect(ui.lastFrame()).toContain('0 candidates');
     alerts.push(alert('one'));
     ui.rerender(<SnipeQueueApp alerts={alerts} onTravel={onTravel} />);
     await flush();
-    expect(ui.lastFrame()).toContain('Item one');
+    expect(ui.lastFrame()).toContain('Target one');
   });
 
   test('a dismissed alert is not replayed when a later cumulative snapshot arrives', async () => {
@@ -117,8 +122,8 @@ describe('SnipeQueueApp', () => {
     await flush();
     ui.rerender(<SnipeQueueApp alerts={[alert('one'), alert('two')]} onTravel={onTravel} />);
     await flush();
-    expect(ui.lastFrame()).not.toContain('Item one');
-    expect(ui.lastFrame()).toContain('Item two');
+    expect(ui.lastFrame()).not.toContain('Target one');
+    expect(ui.lastFrame()).toContain('Target two');
   });
 
   test('a dismissed listing is not re-added by a non-consecutive duplicate event', async () => {
@@ -131,8 +136,8 @@ describe('SnipeQueueApp', () => {
     await flush();
     ui.rerender(<SnipeQueueApp alerts={[alert('one')]} onTravel={onTravel} />);
     await flush();
-    expect(ui.lastFrame()).not.toContain('Item one');
-    expect(ui.lastFrame()).toContain('Item two');
+    expect(ui.lastFrame()).not.toContain('Target one');
+    expect(ui.lastFrame()).toContain('Target two');
   });
 
   test('an entry evicted by the queue bound is not resurrected by the next snapshot', async () => {
@@ -144,11 +149,11 @@ describe('SnipeQueueApp', () => {
     const onTravel = async (): Promise<TravelResult> => ({ action: 'failed', detail: 'unused' });
     const ui = render(<SnipeQueueApp alerts={initial} onTravel={onTravel} />);
     await flush();
-    expect(ui.lastFrame()).not.toContain('Item evicted');
+    expect(ui.lastFrame()).not.toContain('Target evicted');
     ui.rerender(<SnipeQueueApp alerts={[...initial, alert('newest')]} onTravel={onTravel} />);
     await flush();
-    expect(ui.lastFrame()).not.toContain('Item evicted');
-    expect(ui.lastFrame()).toContain('Item newest');
+    expect(ui.lastFrame()).not.toContain('Target evicted');
+    expect(ui.lastFrame()).toContain('Target newest');
   });
 
   test('Enter travels only the selected row and duplicate Enter is suppressed while traveling', async () => {
@@ -173,7 +178,7 @@ describe('SnipeQueueApp', () => {
     expect(ui.lastFrame()).toContain('5s');
     gate.resolve({ action: 'traveled', detail: 'clicked Travel to Hideout for Item one' });
     await flush();
-    expect(ui.lastFrame()).toContain('TRAVELED');
+    expect(ui.lastFrame()).not.toContain('Target one');
   });
 
   test('new alerts do not move selection and failed rows retry with r', async () => {
@@ -188,11 +193,11 @@ describe('SnipeQueueApp', () => {
       <SnipeQueueApp alerts={[alert('one'), alert('two')]} onTravel={onTravel} />,
     );
     await flush();
-    expect(ui.lastFrame()).toContain(`${glyphs.select} NEW`);
-    expect(ui.lastFrame()).toMatch(new RegExp(`${glyphs.select} NEW.*Item one`));
+    expect(ui.lastFrame()).toContain(`${glyphs.select}`);
+    expect(ui.lastFrame()).toMatch(new RegExp(`${glyphs.select}.*Target one`));
     ui.rerender(<SnipeQueueApp alerts={[alert('one'), alert('two'), alert('three')]} onTravel={onTravel} />);
     await flush();
-    expect(ui.lastFrame()).toMatch(new RegExp(`${glyphs.select} NEW.*Item one`));
+    expect(ui.lastFrame()).toMatch(new RegExp(`${glyphs.select}.*Target one`));
     ui.stdin.write('\r');
     await flush();
     expect(ui.lastFrame()).toContain('FAILED');
@@ -200,7 +205,7 @@ describe('SnipeQueueApp', () => {
     ui.stdin.write('r');
     await flush();
     expect(calls).toBe(2);
-    expect(ui.lastFrame()).toContain('TRAVELED');
+    expect(ui.lastFrame()).not.toContain('Target one');
   });
 
   test('d dismisses the selected row and q exits', async () => {
@@ -215,9 +220,141 @@ describe('SnipeQueueApp', () => {
     await flush();
     ui.stdin.write('d');
     await flush();
-    expect(ui.lastFrame()).toContain('No snipe alerts yet');
+    expect(ui.lastFrame()).toContain('0 candidates');
     ui.stdin.write('q');
     await flush();
     expect(exited).toHaveBeenCalledTimes(1);
+  });
+
+  test('renders a compact grouped board with hidden counts and no NEW seed label', async () => {
+    const ui = render(
+      <SnipeQueueApp
+        alerts={[
+          alert('best', { targetId: 'trade:mb', targetLabel: 'Mageblood', source: 'current', marginPct: 30, marginText: '+3,000c (+30.0%)' }),
+          alert('more', { targetId: 'trade:mb', targetLabel: 'Mageblood', source: 'current', marginPct: 25 }),
+          alert('below', { targetId: 'trade:nimis', targetLabel: 'Nimis', marginPct: 10, qualifiesMargin: false }),
+          alert('unknown', { targetId: 'trade:sublime', targetLabel: 'Sublime Vision', marginPct: null, marginChaos: null, unknownMargin: true, qualifiesMargin: false }),
+        ]}
+        onTravel={async () => ({ action: 'failed', detail: 'unused' })}
+        searchCount={6}
+        minMarginPct={20}
+      />,
+    );
+    await flush();
+    const frame = ui.lastFrame() ?? '';
+    expect(frame).toContain('EXILIUM SNIPES');
+    expect(frame).toContain('6 LIVE');
+    expect(frame).toContain('Floor +20%');
+    expect(frame).toContain('Mageblood');
+    expect(frame).toContain('+30.0%');
+    expect(frame).toContain('+1');
+    expect(frame).toContain('1 shown · 1 below floor · 1 unknown');
+    expect(frame).not.toContain('Nimis');
+    expect(frame).not.toContain('NEW');
+  });
+
+  test('keeps an empty board when no candidate clears the floor and u reveals hidden rows', async () => {
+    const ui = render(
+      <SnipeQueueApp
+        alerts={[alert('near', { marginPct: 19, qualifiesMargin: false })]}
+        onTravel={async () => ({ action: 'failed', detail: 'unused' })}
+      />,
+    );
+    await flush();
+    expect(ui.lastFrame()).toContain('0 candidates');
+    expect(ui.lastFrame()).not.toContain('Target near');
+    ui.stdin.write('u');
+    await flush();
+    expect(ui.lastFrame()).toContain('Target near');
+  });
+
+  test('Enter travels the group best and gone removes it without auto-traveling its replacement', async () => {
+    const calls: string[] = [];
+    const ui = render(
+      <SnipeQueueApp
+        alerts={[
+          alert('backup', { targetId: 'trade:mb', targetLabel: 'Mageblood', marginPct: 25 }),
+          alert('best', { targetId: 'trade:mb', targetLabel: 'Mageblood', marginPct: 35 }),
+        ]}
+        onTravel={async (item) => {
+          calls.push(item.listingId);
+          return { action: 'gone', detail: 'listing sold or removed' };
+        }}
+      />,
+    );
+    await flush();
+    ui.stdin.write('\r');
+    await flush();
+    expect(calls).toEqual(['best']);
+    expect(ui.lastFrame()).toContain('listing sold or removed — queue updated');
+    expect(ui.lastFrame()).toContain('+25.0%');
+  });
+
+  test('Shift+Enter opens Valdo detail and Shift+Tab returns to the board', async () => {
+    const ui = render(
+      <SnipeQueueApp
+        alerts={[
+          alert('one', { targetId: 'trade:mb', targetLabel: 'Mageblood', itemName: 'Ancestral Gallery' }),
+          alert('two', { targetId: 'trade:mb', targetLabel: 'Mageblood', itemName: 'Twisted Refuge', marginPct: 24 }),
+        ]}
+        onTravel={async () => ({ action: 'failed', detail: 'unused' })}
+      />,
+    );
+    await flush();
+    ui.stdin.write('\u001b[13;2u');
+    await flush();
+    expect(ui.lastFrame()).toContain('/ MAGEBLOOD');
+    expect(ui.lastFrame()).toContain('Ancestral Gallery');
+    expect(ui.lastFrame()).toContain('Twisted Refuge');
+    ui.stdin.write('\u001b[Z');
+    await flush();
+    expect(ui.lastFrame()).not.toContain('/ MAGEBLOOD');
+    expect(ui.lastFrame()).toContain('BEST PRICE');
+  });
+
+  test('f changes the session floor and immediately recomputes the board', async () => {
+    const ui = render(
+      <SnipeQueueApp
+        alerts={[alert('candidate', { marginPct: 25, marginText: '+500c (+25.0%)' })]}
+        onTravel={async () => ({ action: 'failed', detail: 'unused' })}
+        minMarginPct={20}
+      />,
+    );
+    await flush();
+    expect(ui.lastFrame()).toContain('Target candidate');
+    ui.stdin.write('f');
+    await flush();
+    expect(ui.lastFrame()).toContain('Set session floor');
+    ui.stdin.write('3');
+    await flush();
+    ui.stdin.write('0');
+    await flush();
+    ui.stdin.write('\r');
+    await flush();
+    expect(ui.lastFrame()).toContain('Floor +30%');
+    expect(ui.lastFrame()).not.toContain('Target candidate');
+    expect(ui.lastFrame()).toContain('1 below floor');
+  });
+
+  test('keeps raw Chrome traces out of the board and reveals them only with question mark', async () => {
+    const technical = 'browserType.connectOverCDP: Protocol error (Browser.setDownloadBehavior): Browser context management is not supported';
+    const ui = render(
+      <SnipeQueueApp
+        alerts={[alert('one')]}
+        onTravel={async () => ({
+          action: 'failed',
+          detail: 'Chrome unavailable — run exilium chrome, then press Enter again',
+          technicalDetail: technical,
+        })}
+      />,
+    );
+    await flush();
+    ui.stdin.write('\r');
+    await flush();
+    expect(ui.lastFrame()).toContain('Chrome unavailable');
+    expect(ui.lastFrame()).not.toContain('Browser.setDownloadBehavior');
+    ui.stdin.write('?');
+    await flush();
+    expect(ui.lastFrame()).toContain('Browser.setDownloadBehavior');
   });
 });

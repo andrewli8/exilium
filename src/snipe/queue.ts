@@ -16,6 +16,7 @@ export interface SnipeQueueState {
   readonly selectedTargetId: string | null;
   readonly selectedListingId: string | null;
   readonly showHidden: boolean;
+  readonly showDetails: boolean;
   readonly notice: string | null;
   readonly maxEntries: number;
 }
@@ -32,7 +33,8 @@ export type SnipeQueueAction =
   | { readonly type: 'next-view' }
   | { readonly type: 'previous-view' }
   | { readonly type: 'board' }
-  | { readonly type: 'toggle-hidden' };
+  | { readonly type: 'toggle-hidden' }
+  | { readonly type: 'toggle-details' };
 
 export function createQueueState(maxEntries = 200): SnipeQueueState {
   return {
@@ -41,13 +43,17 @@ export function createQueueState(maxEntries = 200): SnipeQueueState {
     selectedTargetId: null,
     selectedListingId: null,
     showHidden: false,
+    showDetails: false,
     notice: null,
     maxEntries,
   };
 }
 
-export function selectedQueueEntry(state: SnipeQueueState): SnipeQueueEntry | undefined {
-  const board = projectCandidateBoard(state, { showHidden: state.showHidden });
+export function selectedQueueEntry(state: SnipeQueueState, minMarginPct?: number): SnipeQueueEntry | undefined {
+  const board = projectCandidateBoard(state, {
+    showHidden: state.showHidden,
+    ...(minMarginPct === undefined ? {} : { minMarginPct }),
+  });
   const group = board.groups.find((candidate) => candidate.targetId === state.selectedTargetId);
   if (group === undefined) return undefined;
   if (state.view === 'board') return group.best;
@@ -174,5 +180,7 @@ export function queueReducer(state: SnipeQueueState, action: SnipeQueueAction): 
         selectedListingId: selected?.best.alert.listingId ?? next.selectedListingId,
       };
     }
+    case 'toggle-details':
+      return { ...state, showDetails: !state.showDetails };
   }
 }

@@ -21,6 +21,7 @@ function candidate(overrides: Partial<SnipeAlert> & Pick<SnipeAlert, 'listingId'
     stale: false,
     unknownMargin: false,
     minMarginPct: 20,
+    targetMinMarginPct: null,
     qualifiesMargin: true,
     ...overrides,
   };
@@ -85,6 +86,19 @@ describe('candidate board projection', () => {
     const board = projectCandidateBoard(state, { showHidden: false });
     expect(board.groups).toEqual([]);
     expect(board.qualifyingCount).toBe(0);
+    expect(board.belowFloorCount).toBe(1);
+  });
+
+  test('a per-target floor still wins over a changed session floor', () => {
+    const state = add(createQueueState(), candidate({
+      listingId: 'strict-target',
+      marginPct: 35,
+      minMarginPct: 40,
+      targetMinMarginPct: 40,
+      qualifiesMargin: false,
+    }));
+    const board = projectCandidateBoard(state, { showHidden: false, minMarginPct: 20 });
+    expect(board.groups).toEqual([]);
     expect(board.belowFloorCount).toBe(1);
   });
 });

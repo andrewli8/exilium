@@ -13,8 +13,9 @@ export interface TravelPage {
 }
 
 export interface TravelResult {
-  readonly action: 'traveled' | 'failed';
+  readonly action: 'traveled' | 'gone' | 'failed';
   readonly detail: string;
+  readonly technicalDetail?: string;
 }
 
 /** One human-triggered travel action. Merely receiving an alert never calls

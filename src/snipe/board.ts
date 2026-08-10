@@ -17,6 +17,7 @@ export interface CandidateBoard {
 
 export interface CandidateBoardOptions {
   readonly showHidden: boolean;
+  readonly minMarginPct?: number;
 }
 
 function listedTime(entry: SnipeQueueEntry): number {
@@ -44,12 +45,19 @@ export function projectCandidateBoard(
   options: CandidateBoardOptions,
 ): CandidateBoard {
   const entries = state.entries.filter(active);
+  const qualifies = (entry: SnipeQueueEntry): boolean => {
+    if (entry.alert.unknownMargin || entry.alert.marginPct === null) return false;
+    const floor = entry.alert.targetMinMarginPct ?? options.minMarginPct;
+    return floor === undefined
+      ? entry.alert.qualifiesMargin
+      : entry.alert.marginPct >= floor;
+  };
   const unknownCount = entries.filter((entry) => entry.alert.unknownMargin).length;
   const belowFloorCount = entries.filter((entry) =>
-    !entry.alert.unknownMargin && !entry.alert.qualifiesMargin,
+    !entry.alert.unknownMargin && !qualifies(entry),
   ).length;
-  const qualifyingCount = entries.filter((entry) => entry.alert.qualifiesMargin).length;
-  const visible = options.showHidden ? entries : entries.filter((entry) => entry.alert.qualifiesMargin);
+  const qualifyingCount = entries.filter(qualifies).length;
+  const visible = options.showHidden ? entries : entries.filter(qualifies);
   const grouped = new Map<string, SnipeQueueEntry[]>();
   for (const entry of visible) {
     const group = grouped.get(entry.alert.targetId) ?? [];

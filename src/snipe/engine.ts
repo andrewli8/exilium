@@ -30,6 +30,8 @@ export interface SnipeAlert {
   readonly unknownMargin: boolean;
   /** Effective target/global floor used for this candidate. */
   readonly minMarginPct: number;
+  /** Target-specific floor, or null when the session/global floor applies. */
+  readonly targetMinMarginPct: number | null;
   /** Known margin meets the effective floor. Unknown margins never qualify. */
   readonly qualifiesMargin: boolean;
 }
@@ -126,6 +128,7 @@ export function decideSnipe(opts: DecideSnipeOptions): SnipeDecision {
       stale,
       unknownMargin: gate.unknownMargin,
       minMarginPct: threshold,
+      targetMinMarginPct: target.minMarginPct ?? null,
       qualifiesMargin,
     },
   };
