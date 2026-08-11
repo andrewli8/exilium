@@ -206,9 +206,10 @@ function targetUrl(cdpUrl: string): string {
  * Must stay below the CDP command timeout (default 6s) with headroom. */
 const CLICK_POLL_DEADLINE_MS = 4_000;
 const CLICK_POLL_INTERVAL_MS = 250;
-/** After the row click, an in-demand listing often pops an "Are you sure you
- * want to travel?" confirmation — wait this long for it and click it too. */
-const CONFIRM_WAIT_MS = 2_500;
+/** After the row click, an in-demand listing asks "In Demand. Teleport
+ * anyway?" — wait this long for the prompt and click it too. The prompt
+ * appears after a server round-trip, so give it real time. */
+const CONFIRM_WAIT_MS = 4_000;
 
 /** Exported for tests only. */
 export function clickExpression(listingId: string): string {
@@ -218,16 +219,26 @@ export function clickExpression(listingId: string): string {
     const listingId = ${JSON.stringify(listingId)};
     const deadline = Date.now() + ${CLICK_POLL_DEADLINE_MS};
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-    const confirmDialog = async () => {
-      // Only a button that APPEARED after our click can be the confirmation —
-      // pre-existing Travel buttons belong to other rows and must never fire.
+    const confirmDialog = async (row) => {
+      // In-demand listings ask again after the first click: the row's own
+      // button relabels to "In Demand. Teleport anyway?" (or a dialog pops).
+      // Click through it. For NEW buttons, only ones that appeared after our
+      // click count — pre-existing Travel buttons belong to other rows.
       const before = new Set(document.querySelectorAll('button'));
       const confirmDeadline = Date.now() + ${CONFIRM_WAIT_MS};
+      const confirmText = /in demand|teleport|travel|confirm|yes/i;
       while (Date.now() < confirmDeadline) {
         await sleep(${CLICK_POLL_INTERVAL_MS});
+        const relabeled = Array.from(row.querySelectorAll('button'))
+          .find((element) => element instanceof HTMLButtonElement && !element.disabled
+            && /in demand|teleport anyway/i.test(element.textContent || ''));
+        if (relabeled) {
+          relabeled.click();
+          return;
+        }
         const fresh = Array.from(document.querySelectorAll('button'))
           .filter((element) => !before.has(element) && element instanceof HTMLButtonElement && !element.disabled)
-          .find((element) => /travel|confirm|yes|ok/i.test((element.textContent || '').trim()));
+          .find((element) => confirmText.test((element.textContent || '').trim()));
         if (fresh) {
           fresh.click();
           return;
@@ -242,7 +253,7 @@ export function clickExpression(listingId: string): string {
         const button = direct || Array.from(row.querySelectorAll('button'))
           .find((element) => element.textContent && element.textContent.trim() === 'Travel to Hideout');
         if (button instanceof HTMLButtonElement && !button.disabled) {
-          const beforeConfirm = confirmDialog();
+          const beforeConfirm = confirmDialog(row);
           button.click();
           await beforeConfirm;
           return 'clicked';
