@@ -105,7 +105,7 @@ export const CATEGORIES_BY_GAME: Readonly<Record<Game, readonly CategorySpec[]>>
 
 /** The tool identifies itself to upstream APIs; the repo URL is the contact
  * point. EXILIUM_CONTACT optionally appends the operator's own contact. */
-const BASE_USER_AGENT = 'Exilium/0.2.0 (+https://github.com/andrewli8/exilium)';
+const BASE_USER_AGENT = 'Exilium/0.2.1 (+https://github.com/andrewli8/exilium)';
 
 const MIN_WATCH_INTERVAL_SEC = 300;
 
