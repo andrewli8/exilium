@@ -470,7 +470,10 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
           : { minIntervalSec: 0, itemsMinIntervalSec: 0 }),
       });
       bootRefreshDone = true;
-      if (result.saved.length > 0) log(`refreshed ${result.saved.length} categories`);
+      if (result.saved.length > 0) {
+        invalidateSnapshots();
+        log(`refreshed ${result.saved.length} categories`);
+      }
     } catch (error) {
       log(`price refresh failed: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -524,6 +527,23 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     void task.finally(() => pending.delete(task));
   };
 
+  // repo.latestAll parses every tracked market line (~35k) from SQLite —
+  // far too heavy to run per listing batch on the live hot path. Cache it;
+  // a completed price refresh or the TTL invalidates.
+  // Long TTL: completed refreshes invalidate explicitly, so this only guards
+  // against a refresh loop that silently stopped.
+  const SNAPSHOTS_CACHE_MS = 600_000;
+  let snapshotsCache: { readonly league: string; readonly data: ReturnType<SnapshotRepository['latestAll']>; readonly at: number } | null = null;
+  const latestSnapshots = (targetLeague: string): ReturnType<SnapshotRepository['latestAll']> => {
+    if (snapshotsCache !== null && snapshotsCache.league === targetLeague && now() - snapshotsCache.at < SNAPSHOTS_CACHE_MS) {
+      return snapshotsCache.data;
+    }
+    const data = repo.latestAll(config.game, targetLeague);
+    snapshotsCache = { league: targetLeague, data, at: now() };
+    return data;
+  };
+  const invalidateSnapshots = (): void => { snapshotsCache = null; };
+
   const EMPTY_FLOORS: ReadonlyMap<string, RewardFloorPrice> = new Map();
   const collectRewardFloors = async (
     listings: readonly LiveListing[],
@@ -561,7 +581,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     const fresh = dedupe ? listings.filter((listing) => !entry.seen.has(listing.id)) : listings;
     if (fresh.length === 0) return 0;
     if (dedupe) for (const listing of fresh) entry.seen.add(listing.id);
-    const snapshots = repo.latestAll(config.game, entry.search.league);
+    const snapshots = latestSnapshots(entry.search.league);
     sharedStore.setChaosPerDivine(toChaos({ amount: 1, currency: 'divine' }, snapshots));
     let queued = 0;
     for (const listing of fresh) {
@@ -615,11 +635,10 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
         continue;
       }
       const alert = decision.alert;
-      consoleHandle?.addAlert(alert);
-      sharedStore.ingest(alert);
-      queued += 1;
       // The ping follows the threshold shown on the board: a flat session
-      // threshold (e.g. "5d") replaces the percent gate.
+      // threshold (e.g. "5d") replaces the percent gate. It fires BEFORE any
+      // store/UI work — the user hears about the hit first, the board catches
+      // up milliseconds later.
       const flatFloor = sharedStore.snapshot().flatFloor;
       const pingQualifies = flatFloor === null
         ? alert.qualifiesMargin
@@ -628,6 +647,11 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
         const rendered = formatAlert(alert);
         sound();
         void notify!(rendered.title, rendered.body);
+      }
+      consoleHandle?.addAlert(alert);
+      sharedStore.ingest(alert);
+      queued += 1;
+      if (source === 'live' && pingQualifies) {
         recordWebhook(alert, 'queued', 'waiting for Enter');
       } else if (source === 'seed') {
         record(alert, 'seeded', 'current result at startup');
@@ -670,12 +694,16 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
           if (stopped || stopIntent) return;
           const job = async (): Promise<void> => {
             if (stopped || stopIntent) return;
-            // Seeds are not latency-critical: await the reward floors so the
-            // cache is warm before live traffic starts. Live hits must reach
-            // the board the moment they parse — cached floors only, with
-            // anything missing warmed in the background for the next hit.
+            // Seeds wait for the reward floors (warming the cache before live
+            // traffic) — but only briefly: a slow lookup must never stall the
+            // chain into delaying a live hit queued behind it. Live hits use
+            // cached floors only; anything missing warms in the background.
             const floors = source === 'seed'
-              ? await collectRewardFloors(listings)
+              ? await Promise.race([
+                collectRewardFloors(listings),
+                new Promise<ReadonlyMap<string, RewardFloorPrice>>((resolve) =>
+                  setTimeout(() => resolve(cachedRewardFloors(listings)), 2_000)),
+              ])
               : cachedRewardFloors(listings);
             if (stopped || stopIntent) return;
             processListings(entry, listings, source, true, floors);
