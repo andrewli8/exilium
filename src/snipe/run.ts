@@ -176,6 +176,9 @@ interface RunnableTarget {
 interface RuntimeTarget extends RunnableTarget {
   readonly seen: Set<string>;
   readonly inFlight: Set<string>;
+  /** Per-search processing chain: batches are handled in arrival order (a
+   * live hit never overtakes the seed batch emitted before it). */
+  chain: Promise<void>;
   /** Chaos price of every listing seen on this search, keyed by listing id.
    * The minimum (excluding the listing being judged) is the search floor —
    * the reference for listings poe.ninja cannot index. */
@@ -506,6 +509,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     seen: new Set<string>(),
     inFlight: new Set<string>(),
     knownPrices: new Map<string, number>(),
+    chain: Promise.resolve(),
   }));
   sharedStore.setProgress(0, runtimeTargets.length);
 
@@ -531,6 +535,18 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     for (const base of bases) {
       const price = await rewardFloorService.floorPrice(base);
       if (price !== null) floors.set(base.toLowerCase(), price);
+    }
+    return floors;
+  };
+
+  const cachedRewardFloors = (
+    listings: readonly LiveListing[],
+  ): ReadonlyMap<string, RewardFloorPrice> => {
+    const floors = new Map<string, RewardFloorPrice>();
+    for (const base of new Set(listings.map((listing) => listing.rewardBase).filter((b): b is string => b !== undefined))) {
+      const hit = rewardFloorService.cached(base);
+      if (hit !== undefined && hit !== null) floors.set(base.toLowerCase(), hit);
+      void rewardFloorService.floorPrice(base).catch(() => undefined);
     }
     return floors;
   };
@@ -652,13 +668,22 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
         log,
         onListings: (listings, source) => {
           if (stopped || stopIntent) return;
-          startTask((async () => {
-            const floors = await collectRewardFloors(listings);
+          const job = async (): Promise<void> => {
+            if (stopped || stopIntent) return;
+            // Seeds are not latency-critical: await the reward floors so the
+            // cache is warm before live traffic starts. Live hits must reach
+            // the board the moment they parse — cached floors only, with
+            // anything missing warmed in the background for the next hit.
+            const floors = source === 'seed'
+              ? await collectRewardFloors(listings)
+              : cachedRewardFloors(listings);
             if (stopped || stopIntent) return;
             processListings(entry, listings, source, true, floors);
-          })().catch((error: unknown) => {
+          };
+          entry.chain = entry.chain.then(job, job).catch((error: unknown) => {
             log(`browser-live listing processing failed: ${error instanceof Error ? error.message : String(error)}`);
-          }));
+          });
+          startTask(entry.chain);
         },
         onDisconnect: () => {
           liveTabs.delete(targetId);

@@ -17,6 +17,23 @@ describe('RewardFloorService', () => {
     expect(evaluate.mock.calls[0]?.[0]).toContain('identified');
   });
 
+  test('cached() answers synchronously, stale-while-revalidate style', async () => {
+    let clock = 1_000;
+    const evaluate = vi.fn(async () => ({ amount: 93, currency: 'divine' }));
+    const service = new RewardFloorService({
+      league: 'Allflame',
+      getEvaluate: () => evaluate,
+      log: () => undefined,
+      now: () => clock,
+      ttlMs: 5_000,
+    });
+    expect(service.cached('Sublime Vision')).toBeUndefined(); // never fetched
+    await service.floorPrice('Sublime Vision');
+    expect(service.cached('Sublime Vision')).toEqual({ amount: 93, currency: 'divine' });
+    clock = 100_000; // stale — cached still answers, refresh happens elsewhere
+    expect(service.cached('Sublime Vision')).toEqual({ amount: 93, currency: 'divine' });
+  });
+
   test('caches a missing floor briefly and refetches after the failure TTL', async () => {
     let clock = 1_000;
     const evaluate = vi.fn(async () => null);

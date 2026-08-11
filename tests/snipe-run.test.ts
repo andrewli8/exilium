@@ -790,18 +790,23 @@ describe('runSnipe browser-live mode', () => {
     await harness.consoleReady;
     for (let i = 0; i < 20 && store.snapshot().searches[0]?.state !== 'live'; i += 1) await new Promise((r) => setTimeout(r, 0));
 
-    emitListings?.([{
+    const sublime = (id: string, amount: number) => ({
       ...LISTING,
-      id: 'sublime-map',
+      id,
       itemName: 'Foil Sublime Vision',
       referenceName: 'Sublime Vision', // no ninja aggregate in SNAPSHOTS
       rewardBase: 'Sublime Vision',
-      priceText: '90 divine',
-      price: { amount: 90, currency: 'divine' },
-    }], 'live');
+      priceText: `${amount} divine`,
+      price: { amount, currency: 'divine' },
+    });
+    // The seed warms the floor cache (awaited); the live hit then prices
+    // synchronously against it — live hits never wait on lookups.
+    emitListings?.([sublime('seed-map', 95)], 'seed');
     await harness.waitForAlerts(1);
+    emitListings?.([sublime('sublime-map', 90)], 'live');
+    await harness.waitForAlerts(2);
 
-    const alert = harness.consoleAlerts[0];
+    const alert = harness.consoleAlerts.find((candidate) => candidate.listingId === 'sublime-map');
     // floor 93 divine = 18,600c; listed 90 divine = 18,000c → +600c
     expect(alert?.marginChaos).toBe(600);
     expect(alert?.qualifiesMargin).toBe(true);

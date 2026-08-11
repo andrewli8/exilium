@@ -96,6 +96,15 @@ export class RewardFloorService {
 
   constructor(private readonly options: RewardFloorServiceOptions) {}
 
+  /** Synchronous cache read for the latency-critical live path: any known
+   * price answers immediately, even past its TTL (stale-while-revalidate —
+   * the background floorPrice() call refreshes it). `null` = known to have
+   * no unid market; `undefined` = never fetched. */
+  cached(baseName: string): RewardFloorPrice | null | undefined {
+    const entry = this.cache.get(baseName.toLowerCase());
+    return entry === undefined ? undefined : entry.price;
+  }
+
   async floorPrice(baseName: string): Promise<RewardFloorPrice | null> {
     const now = this.options.now ?? Date.now;
     const key = baseName.toLowerCase();
