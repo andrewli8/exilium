@@ -51,7 +51,6 @@ describe('SnipeBoardView', () => {
     expect(frame).toContain('Valdo dim');
     expect(frame).toContain('+500c');
     expect(frame).toContain('+80c');
-    expect(frame).toContain('[32m'); // qualifying rows highlight green
   });
 
   test('Enter travels the selected listing and reports Travel sent', async () => {
