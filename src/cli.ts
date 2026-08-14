@@ -1,12 +1,14 @@
 import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
 import { promisify } from 'node:util';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+// The MCP SDK must load lazily (see cmdMcp): its types module runs zod's
+// custom() during evaluation, and Bun's compiled-bundle module ordering
+// evaluates it before zod's core classes exist — a static import crashes
+// every binary at startup with "undefined is not a constructor".
 import { CATEGORIES_BY_GAME, configFilePath, loadConfig, readFileConfig } from './config.js';
 import { formatNumber } from './domain/format-price.js';
 import { renderDashboard } from './dashboard/render.js';
 import { ingestLeague } from './ingest/ingest.js';
-import { buildMcpServer } from './mcp/server.js';
 import { ExiliumService } from './mcp/service.js';
 import { formatArbTable, formatCategoryTable, formatItemTable, formatJournal, formatOpportunityTable, formatPriceQuote, formatSnapshotTable, formatWatchEvents, formatWatchTable } from './cli/format.js';
 import { NinjaClient } from './sources/ninja/client.js';
@@ -127,6 +129,10 @@ async function cmdIngest(): Promise<void> {
 }
 
 async function cmdMcp(): Promise<void> {
+  const [{ buildMcpServer }, { StdioServerTransport }] = await Promise.all([
+    import('./mcp/server.js'),
+    import('@modelcontextprotocol/sdk/server/stdio.js'),
+  ]);
   const server = buildMcpServer(makeService(), config.game);
   await server.connect(new StdioServerTransport());
   console.error('Exilium MCP server running on stdio (cached data only — run `npm run ingest` to refresh).');

@@ -27,6 +27,13 @@ jobs:
         run: npx tsc --noEmit && npm test && npm run eval
       - name: Build binaries
         run: bash scripts/build-binaries.sh
+      - name: Smoke-test the compiled binary
+        # Compiled-bundle module ordering can break in ways bun-run never
+        # sees (zod init order, v0.2.2 shipped unbootable) — the binary
+        # itself must run before it may ship.
+        run: |
+          EXILIUM_DB="$(mktemp -d)/smoke.db" ./dist/exilium-linux-x64 help >/dev/null
+          echo "binary boots"
       - name: Checksums
         run: cd dist && sha256sum exilium-* > SHA256SUMS.txt
       - name: Publish release
