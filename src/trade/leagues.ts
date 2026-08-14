@@ -35,7 +35,7 @@ export async function fetchTradeLeagues(
   const url = `https://www.pathofexile.com/api/${api}/data/leagues`;
   const scheduler = options.scheduler ?? sharedTradeRequestScheduler;
   const res = await scheduler.schedule('interactive', () => fetchFn(url, {
-    headers: { 'User-Agent': 'Exilium/0.2.2 (+https://github.com/andrewli8/exilium)' },
+    headers: { 'User-Agent': 'Exilium/0.2.3 (+https://github.com/andrewli8/exilium)' },
   }), options.signal);
   if (!res.ok) throw new Error(`could not fetch trade leagues (${res.status})`);
   const parsed = schema.safeParse(await res.json());
