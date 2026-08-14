@@ -90,7 +90,7 @@ export async function fetchCurrentResultIds(
   const scheduler = resolveTradeRequestScheduler(deps.scheduler, deps.limiter);
   const headers = {
     Cookie: `POESESSID=${sessionId}`,
-    'User-Agent': 'Exilium/0.2.1 (+https://github.com/andrewli8/exilium)',
+    'User-Agent': 'Exilium/0.2.2 (+https://github.com/andrewli8/exilium)',
   };
   const base = tradeSearchApiBase(search);
 
@@ -278,7 +278,7 @@ export async function fetchListings(
     const res = await scheduler.schedule(priority, () => deps.fetchFn(buildFetchUrl(batch, search.searchId, search.realm), {
         headers: {
           Cookie: `POESESSID=${sessionId}`,
-          'User-Agent': 'Exilium/0.2.1 (+https://github.com/andrewli8/exilium)',
+          'User-Agent': 'Exilium/0.2.2 (+https://github.com/andrewli8/exilium)',
         },
         ...(deps.signal === undefined ? {} : { signal: deps.signal }),
       }), deps.signal);

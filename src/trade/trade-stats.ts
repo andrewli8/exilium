@@ -88,7 +88,7 @@ export async function loadStatIndex(
   try {
     const scheduler = options.scheduler ?? sharedTradeRequestScheduler;
     const res = await scheduler.schedule('interactive', () => fetchFn(`https://www.pathofexile.com/api/${api}/data/stats`, {
-      headers: { 'User-Agent': 'Exilium/0.2.1 (+https://github.com/andrewli8/exilium)' },
+      headers: { 'User-Agent': 'Exilium/0.2.2 (+https://github.com/andrewli8/exilium)' },
     }), options.signal);
     if (!res.ok) throw new Error(String(res.status));
     const raw = await res.json();
