@@ -557,7 +557,7 @@ async function cmdLive(): Promise<void> {
       const ws = new WebSocket(buildLiveWsUrl(search), {
         headers: {
           Cookie: `POESESSID=${sessionId}`,
-          'User-Agent': 'Exilium/0.2.6 (+https://github.com/andrewli8/exilium)',
+          'User-Agent': 'Exilium/0.2.7 (+https://github.com/andrewli8/exilium)',
           Origin: 'https://www.pathofexile.com',
         },
       });
