@@ -199,7 +199,7 @@ async function cmdWatch(): Promise<void> {
   const service = makeService();
   const notifier = createNotifier({
     platform: process.platform,
-    execFn: async (cmd, args) => promisify(execFile)(cmd, [...args]),
+    execFn: async (cmd, args) => promisify(execFile)(cmd, [...args], { windowsHide: true }),
     fetchFn: (url, init) => fetch(url, init),
     webhookUrl: config.webhookUrl,
     log: (m) => console.error(m),
@@ -537,7 +537,7 @@ async function cmdLive(): Promise<void> {
   const clipboard = (text: string): Promise<void> => copyToClipboard(text, { platform: process.platform });
   const notifier = createNotifier({
     platform: process.platform,
-    execFn: async (cmd, args) => exec(cmd, [...args]),
+    execFn: async (cmd, args) => exec(cmd, [...args], { windowsHide: true }),
     fetchFn: (url, init) => fetch(url, init),
     webhookUrl: config.webhookUrl,
     log: (m) => console.error(m),
@@ -1068,7 +1068,7 @@ async function cmdSimulate(): Promise<void> {
     const exec = promisify(execFile);
     const notifier = createNotifier({
       platform: process.platform,
-      execFn: async (cmd, args) => exec(cmd, [...args]),
+      execFn: async (cmd, args) => exec(cmd, [...args], { windowsHide: true }),
       fetchFn: (url, init) => fetch(url, init),
       webhookUrl: config.webhookUrl,
       log: (m) => console.error(m),
@@ -1136,7 +1136,7 @@ async function cmdSimulate(): Promise<void> {
     const exec = promisify(execFile);
     const notifier = createNotifier({
       platform: process.platform,
-      execFn: async (cmd, args) => exec(cmd, [...args]),
+      execFn: async (cmd, args) => exec(cmd, [...args], { windowsHide: true }),
       fetchFn: (url, init) => fetch(url, init),
       webhookUrl: config.webhookUrl,
       log: (m) => console.error(m),

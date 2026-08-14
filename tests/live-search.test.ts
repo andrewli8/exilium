@@ -305,6 +305,25 @@ describe('parseFetchResponseBody Valdo rewards', () => {
     expect(listing?.referenceName).toBe('Crimson Jewel');
   });
 
+  test('one malformed entry is skipped with a warning; the rest of the batch survives', () => {
+    const warnings: string[] = [];
+    const listings = parseFetchResponseBody({
+      result: [
+        { id: 42, listing: {} }, // id must be a string — malformed
+        { id: 'good-1', listing: { price: { amount: 1, currency: 'chaos' } }, item: { name: 'Mageblood', typeLine: 'Heavy Belt' } },
+      ],
+    }, (message) => warnings.push(message));
+    expect(listings).toHaveLength(1);
+    expect(listings[0]?.id).toBe('good-1');
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('id');
+  });
+
+  test('an API error body surfaces its message instead of a generic shape error', () => {
+    expect(() => parseFetchResponseBody({ error: { code: 3, message: 'Rate limit exceeded' } }))
+      .toThrow(/Rate limit exceeded/);
+  });
+
   test('keeps the joined item name when no reward is present', () => {
     const [listing] = parseFetchResponseBody(valdoResult({}));
     expect(listing?.itemName).toBe('Squandered Highlands Valdo Map');

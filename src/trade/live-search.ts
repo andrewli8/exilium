@@ -160,12 +160,6 @@ const fetchResultEntrySchema = z.object({
       }).optional(),
 });
 
-// The fetch endpoint pads its result array with nulls for ids it no longer
-// knows (already sold, evicted) — a null entry must never sink the batch.
-const fetchResponseSchema = z.object({
-  result: z.array(z.union([fetchResultEntrySchema, z.null()])),
-});
-
 type FetchedItem = NonNullable<z.infer<typeof fetchResultEntrySchema>['item']>;
 
 const REWARD_LINE = /^Reward:\s*(.+?)\s*$/;
@@ -295,10 +289,32 @@ export async function fetchListings(
 /** Normalize one trade fetch response payload (`{result: [...]}`) into
  * structured listings. Shared by our own API fetches and the browser-live
  * capture, which reads the same payload off the trade page's own XHRs. */
-export function parseFetchResponseBody(payload: unknown): readonly LiveListing[] {
-  const parsed = fetchResponseSchema.safeParse(payload);
-  if (!parsed.success) throw new Error('trade fetch response did not match the expected shape');
-  return parsed.data.result.filter((r) => r !== null).map((r) => {
+export function parseFetchResponseBody(
+  payload: unknown,
+  warn?: (message: string) => void,
+): readonly LiveListing[] {
+  // Top-level sanity first, with an actionable message (the API returns
+  // {"error": {...}} bodies when rate-limited or unauthorized).
+  if (typeof payload !== 'object' || payload === null || !Array.isArray((payload as { result?: unknown }).result)) {
+    const apiError = (payload as { error?: { message?: unknown } } | null)?.error?.message;
+    throw new Error(typeof apiError === 'string'
+      ? `trade fetch returned an error: ${apiError}`
+      : 'trade fetch response did not match the expected shape');
+  }
+  // Entries parse individually: one malformed listing must never sink the
+  // rest of the batch (it did once — a whole in-demand batch went missing).
+  const entries: Array<NonNullable<z.infer<typeof fetchResultEntrySchema>>> = [];
+  for (const raw of (payload as { result: readonly unknown[] }).result) {
+    if (raw === null) continue;
+    const parsed = fetchResultEntrySchema.safeParse(raw);
+    if (parsed.success) {
+      entries.push(parsed.data);
+    } else {
+      const issue = parsed.error.issues[0];
+      warn?.(`skipping one malformed trade listing (${issue?.path.join('.') ?? '?'}: ${issue?.message ?? 'invalid'}) — ${JSON.stringify(raw).slice(0, 200)}`);
+    }
+  }
+  return entries.map((r) => {
     const reward = r.item === undefined ? null : extractReward(r.item);
     const rewardBase = reward === null
       ? null

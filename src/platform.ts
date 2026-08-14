@@ -52,7 +52,7 @@ export async function readClipboard(deps: { platform: NodeJS.Platform; execFn?: 
   const exec = deps.execFn ?? (async (cmd, args) => {
     const { execFile } = await import('node:child_process');
     const { promisify } = await import('node:util');
-    return promisify(execFile)(cmd, [...args], { maxBuffer: 4 * 1024 * 1024 });
+    return promisify(execFile)(cmd, [...args], { maxBuffer: 4 * 1024 * 1024, windowsHide: true });
   });
   const { stdout } = await exec(c.cmd, c.args);
   return stdout;
@@ -63,7 +63,7 @@ export async function copyToClipboard(text: string, deps: PlatformDeps): Promise
   if (c === null) throw new Error(`No clipboard tool for platform "${deps.platform}".`);
   const spawn = deps.spawnFn ?? (nodeSpawn as unknown as SpawnFn);
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(c.cmd, c.args, { stdio: ['pipe', 'ignore', 'ignore'] });
+    const child = spawn(c.cmd, c.args, { stdio: ['pipe', 'ignore', 'ignore'], windowsHide: true });
     child.on('error', reject);
     child.on('close', () => resolve());
     child.stdin?.end(text);
@@ -73,5 +73,5 @@ export async function copyToClipboard(text: string, deps: PlatformDeps): Promise
 export function openUrl(url: string, deps: PlatformDeps): void {
   const c = openCommand(deps.platform, url);
   const spawn = deps.spawnFn ?? (nodeSpawn as unknown as SpawnFn);
-  spawn(c.cmd, c.args, { detached: true, stdio: 'ignore' }).unref();
+  spawn(c.cmd, c.args, { detached: true, stdio: 'ignore', windowsHide: true }).unref();
 }

@@ -28,7 +28,7 @@ function powershellCommand(title: string, message: string): readonly string[] {
     '$b.Icon = [System.Drawing.SystemIcons]::Information; $b.Visible = $true;' +
     `$b.ShowBalloonTip(6000, ${q(title)}, ${q(message)}, 'Info');` +
     'Start-Sleep -Milliseconds 3000; $b.Dispose()';
-  return ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', script];
+  return ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', script];
 }
 
 /** Composite notifier: desktop notification (macOS osascript / Linux

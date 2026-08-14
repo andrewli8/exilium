@@ -346,7 +346,9 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     const { execFile } = await import('node:child_process');
     const { promisify } = await import('node:util');
     const exec = promisify(execFile);
-    const execFn = async (command: string, args: readonly string[]): Promise<unknown> => exec(command, [...args]);
+    // windowsHide keeps the PowerShell console window (sound, toast) from
+    // flashing up and stealing the terminal's foreground on every hit.
+    const execFn = async (command: string, args: readonly string[]): Promise<unknown> => exec(command, [...args], { windowsHide: true });
     notify ??= createNotifier({
       platform: process.platform,
       execFn,
@@ -358,7 +360,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
       sound = () => {
         if (process.platform === 'darwin') void execFn('afplay', ['/System/Library/Sounds/Glass.aiff']).catch(() => undefined);
         else if (process.platform === 'win32') {
-          void execFn('powershell', ['-NoProfile', '-Command', '[System.Media.SystemSounds]::Asterisk.Play()']).catch(() => undefined);
+          void execFn('powershell', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', '[System.Media.SystemSounds]::Asterisk.Play()']).catch(() => undefined);
         }
       };
     }

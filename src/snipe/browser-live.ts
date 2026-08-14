@@ -103,9 +103,9 @@ export async function openBrowserLiveSearch(
     onTradeFetchBody: (url, body) => {
       let listings: readonly LiveListing[];
       try {
-        listings = parseFetchResponseBody(JSON.parse(body));
+        listings = parseFetchResponseBody(JSON.parse(body), (message) => options.log(`browser-live: ${message}`));
       } catch (error) {
-        options.log(`browser-live: ignoring an unparsable fetch payload from ${url}: ${error instanceof Error ? error.message : String(error)}`);
+        options.log(`browser-live: ignoring an unparsable fetch payload (${error instanceof Error ? error.message : String(error)}) — body: ${body.slice(0, 200)}`);
         return;
       }
       signalFirstCapture();
