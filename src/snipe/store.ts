@@ -182,6 +182,19 @@ export class SnipeStore {
     this.rebuild();
   }
 
+  /** Move the board selection to a listing (used to auto-arm Enter on the
+   * newest qualifying live hit). No-op if the listing is not in the queue. */
+  selectListing(listingId: string): void {
+    const entry = this.queue.entries.find((candidate) => candidate.alert.listingId === listingId);
+    if (entry === undefined) return;
+    this.queue = {
+      ...this.queue,
+      selectedListingId: listingId,
+      selectedTargetId: entry.alert.targetId,
+    };
+    this.rebuild();
+  }
+
   setKeyboardCapture(capture: boolean): void {
     if (this.keyboardCapture === capture) return;
     this.keyboardCapture = capture;

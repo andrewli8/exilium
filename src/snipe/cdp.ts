@@ -173,6 +173,9 @@ export interface CreateCdpPageOptions {
   readonly onTradeFetchBody?: (url: string, body: string) => void;
   /** Fired once if the page socket drops without an explicit close(). */
   readonly onDisconnect?: () => void;
+  /** Raw frames of the page's own WebSockets (the live-search stream) — they
+   * arrive BEFORE the page's handler runs or its detail fetch starts. */
+  readonly onWebSocketFrame?: (payload: string) => void;
 }
 
 const TRADE_FETCH_PATTERN = /\/api\/trade2?\/fetch\//;
@@ -205,7 +208,7 @@ function targetUrl(cdpUrl: string): string {
 /** How long the in-page click script polls for the row before giving up.
  * Must stay below the CDP command timeout (default 6s) with headroom. */
 const CLICK_POLL_DEADLINE_MS = 4_000;
-const CLICK_POLL_INTERVAL_MS = 250;
+const CLICK_POLL_INTERVAL_MS = 100;
 /** After the row click, an in-demand listing asks "In Demand. Teleport
  * anyway?" — wait this long for the prompt and click it too. The prompt
  * appears after a server round-trip, so give it real time. */
@@ -349,6 +352,16 @@ export async function createCdpPage(options: CreateCdpPageOptions): Promise<CdpT
     });
     // Generous buffers so bodies survive until we read them.
     await connection.send('Network.enable', { maxTotalBufferSize: 50_000_000, maxResourceBufferSize: 10_000_000 });
+  }
+  if (options.onWebSocketFrame !== undefined) {
+    const onFrame = options.onWebSocketFrame;
+    connection.on('Network.webSocketFrameReceived', (params) => {
+      const event = params as { response?: { payloadData?: unknown } };
+      if (typeof event.response?.payloadData === 'string') onFrame(event.response.payloadData);
+    });
+    if (options.onTradeFetchBody === undefined) {
+      await connection.send('Network.enable', { maxTotalBufferSize: 50_000_000, maxResourceBufferSize: 10_000_000 });
+    }
   }
 
   // The load event is best-effort: the trade site is a heavy SPA whose load

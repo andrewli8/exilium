@@ -91,6 +91,17 @@ describe('SnipeStore', () => {
     expect(store.snapshot().flatFloor).toBeNull();
   });
 
+  test('selectListing arms the selection at a specific queue entry', () => {
+    const store = new SnipeStore([target('one')], { minMarginPct: 0 });
+    store.ingest(alert('first', { marginPct: 30, qualifiesMargin: true }));
+    store.ingest(alert('second', { marginPct: 30, qualifiesMargin: true }));
+    expect(store.snapshot().queue.selectedListingId).toBe('first');
+    store.selectListing('second');
+    expect(store.snapshot().queue.selectedListingId).toBe('second');
+    store.selectListing('missing'); // unknown ids never move the selection
+    expect(store.snapshot().queue.selectedListingId).toBe('second');
+  });
+
   test('publishes keyboard capture so the host TUI can mute its shortcuts', () => {
     const store = new SnipeStore([target('one')]);
     expect(store.snapshot().keyboardCapture).toBe(false);

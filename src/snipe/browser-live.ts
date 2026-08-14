@@ -33,6 +33,9 @@ export interface BrowserLiveSearchOptions {
    * hosts can use it for page-world work (e.g. reward floor lookups) while
    * the seed captures are still streaming in. */
   readonly onPage?: (page: CdpTravelPage) => void;
+  /** Fired the instant the live stream announces new listings — before the
+   * page fetches their details. Carries the number of incoming ids. */
+  readonly onLiveFrame?: (newCount: number) => void;
   /** Captures within this window after the tab reaches /live are still
    * treated as current results (seed), not fresh live hits. Default 10s. */
   readonly seedWindowMs?: number;
@@ -153,6 +156,16 @@ export async function openBrowserLiveSearch(
       options.onListings(listings, now() < seedUntil ? 'seed' : 'live');
     },
     ...(options.onDisconnect === undefined ? {} : { onDisconnect: options.onDisconnect }),
+    ...(options.onLiveFrame === undefined ? {} : {
+      onWebSocketFrame: (payload: string) => {
+        try {
+          const frame = JSON.parse(payload) as { new?: unknown };
+          if (Array.isArray(frame.new) && frame.new.length > 0) options.onLiveFrame!(frame.new.length);
+        } catch {
+          // Not every frame is the {new: [...]} shape — ignore the rest.
+        }
+      },
+    }),
   });
   options.onPage?.(page);
   try {

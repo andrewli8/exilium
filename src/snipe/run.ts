@@ -665,6 +665,12 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     }
     // One store rebuild for the whole batch, then the per-alert bookkeeping.
     sharedStore.ingestMany(batch.map((entryAlert) => entryAlert.alert));
+    // Auto-arm Enter: the newest qualifying live hit selects itself, so the
+    // travel keypress is always pointed at the freshest opportunity.
+    if (source === 'live') {
+      const newestQualifying = batch.find((entryAlert) => entryAlert.pingQualifies);
+      if (newestQualifying !== undefined) sharedStore.selectListing(newestQualifying.alert.listingId);
+    }
     for (const { alert, pingQualifies } of batch) {
       consoleHandle?.addAlert(alert);
       if (source === 'live' && pingQualifies) {
@@ -738,6 +744,15 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
         onPage: (page) => {
           if (page.evaluate !== undefined) floorEvaluate = page.evaluate.bind(page);
         },
+        ...(config.snipe.framePing ? {
+          onLiveFrame: (newCount: number) => {
+            if (stopped || stopIntent) return;
+            // The stream just announced listings — details are still in
+            // flight, but the bell can ring NOW.
+            try { process.stdout.write('\u0007'); } catch { /* stdout may be gone */ }
+            log(`frame ping: ${newCount} incoming on "${entry.target.label}"`);
+          },
+        } : {}),
       });
       if (stopped || stopIntent) {
         void handle.close();

@@ -30,6 +30,9 @@ export interface SnipeFileConfig {
   /** Watch searches through the trade site's own /live pages in Chrome
    * instead of Exilium's trade API calls (no Exilium-side rate budget). */
   readonly browserLive?: boolean;
+  /** Ring the terminal bell the instant the live stream announces a new
+   * listing, before its price is even fetched. */
+  readonly framePing?: boolean;
   /** Saved Chrome/Chromium executable path. EXILIUM_CHROME still wins. */
   readonly chromePath?: string;
   /** Saved dedicated browser profile path. */
@@ -51,6 +54,8 @@ export interface SnipeSettings {
   /** Browser-live mode: listings come off Chrome's own /live pages.
    * null = auto: use it whenever the Exilium Chrome CDP endpoint responds. */
   readonly browserLive: boolean | null;
+  /** Instant bell at websocket-frame time, before prices are known. */
+  readonly framePing: boolean;
   readonly chromePath: string | undefined;
   readonly chromeProfile: string | undefined;
 }
@@ -136,6 +141,8 @@ function loadSnipeSettings(env: NodeJS.ProcessEnv, file: SnipeFileConfig): Snipe
       : env['EXILIUM_SNIPE_BROWSER_LIVE'] === '0'
         ? false
         : file.browserLive ?? null,
+    framePing: env['EXILIUM_SNIPE_FRAME_PING'] === '1'
+      || (env['EXILIUM_SNIPE_FRAME_PING'] === undefined && file.framePing === true),
     chromePath: env['EXILIUM_CHROME'] ?? file.chromePath,
     chromeProfile: file.chromeProfile,
   };
