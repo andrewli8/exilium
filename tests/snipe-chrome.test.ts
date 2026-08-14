@@ -76,6 +76,9 @@ describe('resolveChromeLaunch', () => {
     expect(launch.args).toEqual([
       '--remote-debugging-port=9333',
       '--user-data-dir=D:\\profile',
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
       'https://www.pathofexile.com/trade',
     ]);
   });

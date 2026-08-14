@@ -28,8 +28,11 @@ import { createTravelController, type TravelController } from './browser.js';
 import {
   liveTabTravelPage,
   openBrowserLiveSearch,
+  reconcileExpression,
+  recoverDetailsExpression,
   type BrowserLiveSearchHandle,
 } from './browser-live.js';
+import { parseFetchResponseBody } from '../trade/live-search.js';
 import { travelSelectedAlert } from './travel.js';
 import { loadSnipeCatalog } from './catalog.js';
 import {
@@ -121,6 +124,8 @@ const CONNECT_STAGGER_MS = 500;
  * real search under the user's session, and the site budgets those tightly —
  * tabs must open one at a time with breathing room, never all at once. */
 const BROWSER_LIVE_TAB_GAP_MS = 4_000;
+/** Cadence of the tab-vs-CLI reconciliation sweep. */
+const RECONCILE_INTERVAL_MS = 45_000;
 const NO_PRIOR_LISTINGS: ReadonlySet<string> = new Set();
 
 export function snipeStartupMessages(
@@ -453,6 +458,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
   const pending = new Set<Promise<void>>();
   let refreshTimer: ReturnType<typeof setInterval> | undefined;
   let rateHealthTimer: ReturnType<typeof setInterval> | undefined;
+  let reconcileTimer: ReturnType<typeof setInterval> | undefined;
 
   const refreshAbort = new AbortController();
   // Margins are only as honest as the reference data: the boot refresh always
@@ -861,6 +867,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     timers.clear();
     if (refreshTimer !== undefined) clearInterval(refreshTimer);
     if (rateHealthTimer !== undefined) clearInterval(rateHealthTimer);
+    if (reconcileTimer !== undefined) clearInterval(reconcileTimer);
     for (const socket of sockets) socket.close();
     sockets.clear();
     const settleWithin = async (
@@ -919,6 +926,42 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
           }
         }
       })());
+      // Safety net: every sweep compares the rows each tab actually shows
+      // against what the CLI processed, recovers anything the capture missed
+      // (evicted bodies, CDP hiccups), and revives live searches the site
+      // quietly deactivated. Fresh recoveries ping; stale ones queue quietly.
+      const reconcileTabs = async (): Promise<void> => {
+        for (const entry of runtimeTargets) {
+          if (stopped || stopIntent) return;
+          const targetId = `${entry.target.realm}:${entry.target.searchId}`;
+          const tab = liveTabs.get(targetId);
+          if (tab?.page.evaluate === undefined) continue;
+          try {
+            const result = await tab.page.evaluate(reconcileExpression()) as { ids?: unknown; deactivated?: unknown } | null;
+            if (result === null || typeof result !== 'object') continue;
+            if (result.deactivated === true) {
+              log(`browser-live: live search for "${entry.target.label}" had deactivated — clicked it back on`);
+            }
+            const ids = Array.isArray(result.ids)
+              ? result.ids.filter((id): id is string => typeof id === 'string')
+              : [];
+            const missed = ids.filter((id) => !entry.seen.has(id)).slice(0, 10);
+            if (missed.length === 0) continue;
+            log(`browser-live: recovering ${missed.length} listing(s) the capture missed for "${entry.target.label}"`);
+            const body = await tab.page.evaluate(recoverDetailsExpression(entry.search.searchId, missed));
+            if (typeof body !== 'string') continue;
+            const listings = parseFetchResponseBody(JSON.parse(body), (message) => log(`browser-live: ${message}`));
+            const freshCutoff = now() - 90_000;
+            const freshOnes = listings.filter((listing) => listing.listedAt !== null && Date.parse(listing.listedAt) > freshCutoff);
+            const staleOnes = listings.filter((listing) => !freshOnes.includes(listing));
+            if (staleOnes.length > 0) processListings(entry, staleOnes, 'seed', true, cachedRewardFloors(staleOnes));
+            if (freshOnes.length > 0) processListings(entry, freshOnes, 'live', true, cachedRewardFloors(freshOnes));
+          } catch (error) {
+            log(`browser-live: reconcile failed for "${entry.target.label}": ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+      };
+      reconcileTimer = setInterval(() => startTask(reconcileTabs()), RECONCILE_INTERVAL_MS);
     } else {
       const stagger = deps.connectStaggerMs ?? CONNECT_STAGGER_MS;
       runtimeTargets.forEach((entry, index) => {

@@ -290,6 +290,9 @@ export async function createCdpPage(options: CreateCdpPageOptions): Promise<CdpT
   await waitForOpen(socket, timeoutMs);
   const connection = new CdpConnection(socket, timeoutMs);
   await Promise.all([connection.send('Page.enable'), connection.send('Runtime.enable')]);
+  // The page must never think it is a background tab: visibility-based
+  // throttling delays its websocket handling and fetches by seconds.
+  void connection.send('Emulation.setFocusEmulationEnabled', { enabled: true }).catch(() => undefined);
   let currentUrl = typeof target.url === 'string' ? target.url : 'about:blank';
   let closed = false;
   if (options.onDisconnect !== undefined) {
@@ -316,25 +319,36 @@ export async function createCdpPage(options: CreateCdpPageOptions): Promise<CdpT
         pendingBodies.delete(oldest);
       }
     });
+    const readBody = async (requestId: string, url: string): Promise<void> => {
+      // Chrome can evict a response body before we ask for it — retry once
+      // after a beat rather than silently losing the listings inside it.
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          const payload = await connection.send('Network.getResponseBody', { requestId }) as { body?: unknown; base64Encoded?: unknown };
+          if (typeof payload.body !== 'string') return;
+          onBody(url, payload.base64Encoded === true
+            ? Buffer.from(payload.body, 'base64').toString('utf8')
+            : payload.body);
+          return;
+        } catch (error) {
+          if (attempt >= 1) {
+            options.log(`browser-live: could not read a trade fetch body: ${error instanceof Error ? error.message : String(error)}`);
+            return;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 150));
+        }
+      }
+    };
     connection.on('Network.loadingFinished', (params) => {
       const event = params as { requestId?: unknown };
       if (typeof event.requestId !== 'string') return;
       const url = pendingBodies.get(event.requestId);
       if (url === undefined) return;
       pendingBodies.delete(event.requestId);
-      void connection.send('Network.getResponseBody', { requestId: event.requestId })
-        .then((result) => {
-          const payload = result as { body?: unknown; base64Encoded?: unknown };
-          if (typeof payload.body !== 'string') return;
-          onBody(url, payload.base64Encoded === true
-            ? Buffer.from(payload.body, 'base64').toString('utf8')
-            : payload.body);
-        })
-        .catch((error: unknown) => {
-          options.log(`browser-live: could not read a trade fetch body: ${error instanceof Error ? error.message : String(error)}`);
-        });
+      void readBody(event.requestId, url);
     });
-    await connection.send('Network.enable');
+    // Generous buffers so bodies survive until we read them.
+    await connection.send('Network.enable', { maxTotalBufferSize: 50_000_000, maxResourceBufferSize: 10_000_000 });
   }
 
   // The load event is best-effort: the trade site is a heavy SPA whose load

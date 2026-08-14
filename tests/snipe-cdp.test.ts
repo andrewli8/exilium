@@ -121,6 +121,7 @@ describe('direct CDP page control', () => {
     expect(testHarness.socket.sent.map((message) => message.method)).toEqual([
       'Page.enable',
       'Runtime.enable',
+      'Emulation.setFocusEmulationEnabled',
       'Page.navigate',
       'Runtime.evaluate',
       'Page.reload',

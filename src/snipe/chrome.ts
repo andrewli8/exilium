@@ -109,6 +109,13 @@ export function resolveChromeLaunch(input: ResolveChromeLaunchInput): ChromeLaun
     args: [
       `--remote-debugging-port=${input.port}`,
       `--user-data-dir=${profileDir}`,
+      // Live-search tabs sit in the background, and Chrome deliberately
+      // throttles background pages — timers and renderer scheduling can lag
+      // by SECONDS, which is a direct sniping handicap. Disable all of it
+      // for this dedicated profile.
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
       'https://www.pathofexile.com/trade',
     ],
     note,

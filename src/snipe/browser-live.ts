@@ -75,6 +75,42 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Reconciliation sweep script: reports the row ids the tab currently shows
+ * and whether the live search has silently deactivated (the site drops live
+ * connections quietly — the button relabels to "Activate Live Search").
+ * If deactivated, it clicks the button to revive the stream. */
+export function reconcileExpression(): string {
+  return `(() => {
+    const ids = Array.from(document.querySelectorAll('[data-id]'))
+      .map((element) => element.getAttribute('data-id'))
+      .filter((id) => typeof id === 'string' && id !== '')
+      .slice(0, 50);
+    const reviveButton = Array.from(document.querySelectorAll('button'))
+      .find((element) => element instanceof HTMLButtonElement && !element.disabled
+        // Anchored: "Activate Live Search" only — a substring match would
+        // also hit "Deactivate Live Search" and switch a HEALTHY stream off.
+        && /^activate live search$/i.test((element.textContent || '').trim()));
+    const deactivated = reviveButton !== undefined;
+    if (reviveButton) reviveButton.click();
+    return { ids, deactivated };
+  })()`;
+}
+
+/** Fetch details for listing ids the sweep found on the page but the CLI
+ * never processed — one page-session request, same as the page's own. */
+export function recoverDetailsExpression(searchId: string, ids: readonly string[]): string {
+  const url = `https://www.pathofexile.com/api/trade/fetch/${ids.join(',')}?query=${searchId}`;
+  return `(async () => {
+    try {
+      const res = await fetch(${JSON.stringify(url)}, { credentials: 'include' });
+      if (!res.ok) return null;
+      return await res.text();
+    } catch {
+      return null;
+    }
+  })()`;
+}
+
 /** Adapt an open live tab into a TravelPage. The tab already renders this
  * search's rows, so `url()` reports the search URL and `goto` is a no-op —
  * travelSelectedAlert must never navigate the capture tab away from /live. */
