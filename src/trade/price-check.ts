@@ -118,7 +118,7 @@ export async function searchListings(
   const scheduler = resolveTradeRequestScheduler(deps.scheduler, deps.limiter);
   const headers = {
     Cookie: `POESESSID=${deps.sessionId}`,
-    'User-Agent': 'Exilium/0.2.5 (+https://github.com/andrewli8/exilium)',
+    'User-Agent': 'Exilium/0.2.6 (+https://github.com/andrewli8/exilium)',
     'Content-Type': 'application/json',
   };
   const searchRes = await scheduler.schedule('interactive', () => deps.fetchFn(`https://www.pathofexile.com/api/${api}/search/${encodeURIComponent(league)}`, {
