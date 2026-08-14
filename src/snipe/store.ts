@@ -95,6 +95,19 @@ export class SnipeStore {
     this.rebuild();
   }
 
+  /** Ingest a whole batch with ONE snapshot rebuild — the live hot path
+   * calls this so a ten-listing fetch doesn't trigger ten re-projections. */
+  ingestMany(alerts: readonly SnipeAlert[], receivedAt = new Date().toISOString()): void {
+    let added = false;
+    for (const alert of alerts) {
+      if (this.rememberedIds.has(alert.listingId)) continue;
+      this.remember(alert.listingId);
+      this.queue = queueReducer(this.queue, { type: 'add', alert, receivedAt });
+      added = true;
+    }
+    if (added) this.rebuild();
+  }
+
   dispatch(action: SnipeQueueAction): void {
     if (action.type === 'move' && this.queue.view === 'board') {
       const rows = this.current.table.rows;

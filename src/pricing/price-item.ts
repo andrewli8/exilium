@@ -7,6 +7,44 @@ interface Candidate {
   readonly snapshot: MarketSnapshot;
 }
 
+interface CandidateIndex {
+  readonly byId: ReadonlyMap<string, Candidate>;
+  readonly byName: ReadonlyMap<string, Candidate>;
+  /** All candidates, highest volume first — sorted once, reused. */
+  readonly byVolume: readonly Candidate[];
+}
+
+/** The snipe hot path prices every incoming listing against the same cached
+ * snapshots array; flat-scanning and re-sorting ~35k lines per call cost
+ * tens of milliseconds. Index once per distinct snapshots array instead. */
+const indexCache = new WeakMap<object, CandidateIndex>();
+
+function buildIndex(snapshots: readonly MarketSnapshot[]): CandidateIndex {
+  const byId = new Map<string, Candidate>();
+  const byName = new Map<string, Candidate>();
+  const byVolume: Candidate[] = [];
+  for (const snapshot of snapshots) {
+    for (const line of snapshot.lines) {
+      const candidate = { line, snapshot };
+      byVolume.push(candidate);
+      const id = line.itemId.toLowerCase();
+      if (!byId.has(id)) byId.set(id, candidate);
+      const name = line.name.toLowerCase();
+      if (!byName.has(name)) byName.set(name, candidate);
+    }
+  }
+  byVolume.sort((a, b) => b.line.volumePrimaryValue - a.line.volumePrimaryValue);
+  return { byId, byName, byVolume };
+}
+
+function indexFor(snapshots: readonly MarketSnapshot[]): CandidateIndex {
+  const cached = indexCache.get(snapshots);
+  if (cached !== undefined) return cached;
+  const index = buildIndex(snapshots);
+  indexCache.set(snapshots, index);
+  return index;
+}
+
 /** Price a currency/stackable by id or name against the latest snapshots.
  * Match order: exact id, exact name (case-insensitive), then substring
  * (highest volume wins). Returns null when nothing matches.
@@ -15,19 +53,15 @@ export function priceItem(query: string, snapshots: readonly MarketSnapshot[]): 
   const q = query.trim().toLowerCase();
   if (q === '') throw new Error('price_item query must be non-empty');
 
-  const all: readonly Candidate[] = snapshots.flatMap((snapshot) =>
-    snapshot.lines.map((line) => ({ line, snapshot })),
-  );
-
-  const byVolume = (a: Candidate, b: Candidate) => b.line.volumePrimaryValue - a.line.volumePrimaryValue;
+  const index = indexFor(snapshots);
   const match =
-    all.find((c) => c.line.itemId.toLowerCase() === q) ??
-    all.find((c) => c.line.name.toLowerCase() === q) ??
+    index.byId.get(q) ??
+    index.byName.get(q) ??
     // The item's own variant lines ("Mageblood (5 Flasks)") outrank arbitrary
     // lines that merely contain the name ("Squandered Highlands (Foil
     // Mageblood)" — a Valdo map, priced very differently).
-    [...all].sort(byVolume).find((c) => c.line.name.toLowerCase().startsWith(`${q} (`)) ??
-    [...all].sort(byVolume).find((c) => matchesSearch(`${c.line.name} ${c.line.itemId}`, query)) ??
+    index.byVolume.find((c) => c.line.name.toLowerCase().startsWith(`${q} (`)) ??
+    index.byVolume.find((c) => matchesSearch(`${c.line.name} ${c.line.itemId}`, query)) ??
     null;
 
   if (match === null) return null;

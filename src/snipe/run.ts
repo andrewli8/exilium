@@ -358,6 +358,9 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     }).notify;
     if (config.snipe.sound) {
       sound = () => {
+        // Terminal bell first: zero spawn cost, rings the instant the hit is
+        // judged; the richer system sound follows ~100ms later.
+        try { process.stdout.write('\u0007'); } catch { /* stdout may be gone at shutdown */ }
         if (process.platform === 'darwin') void execFn('afplay', ['/System/Library/Sounds/Glass.aiff']).catch(() => undefined);
         else if (process.platform === 'win32') {
           void execFn('powershell', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', '[System.Media.SystemSounds]::Asterisk.Play()']).catch(() => undefined);
@@ -586,6 +589,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     const snapshots = latestSnapshots(entry.search.league);
     sharedStore.setChaosPerDivine(toChaos({ amount: 1, currency: 'divine' }, snapshots));
     let queued = 0;
+    const batch: Array<{ readonly alert: SnipeAlert; readonly pingQualifies: boolean }> = [];
     for (const listing of fresh) {
       if (stopped || stopIntent) return queued;
       const rewardFloor = listing.rewardBase === undefined
@@ -650,9 +654,13 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
         sound();
         void notify!(rendered.title, rendered.body);
       }
-      consoleHandle?.addAlert(alert);
-      sharedStore.ingest(alert);
+      batch.push({ alert, pingQualifies });
       queued += 1;
+    }
+    // One store rebuild for the whole batch, then the per-alert bookkeeping.
+    sharedStore.ingestMany(batch.map((entryAlert) => entryAlert.alert));
+    for (const { alert, pingQualifies } of batch) {
+      consoleHandle?.addAlert(alert);
       if (source === 'live' && pingQualifies) {
         recordWebhook(alert, 'queued', 'waiting for Enter');
       } else if (source === 'seed') {
