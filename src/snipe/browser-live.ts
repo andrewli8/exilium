@@ -36,6 +36,10 @@ export interface BrowserLiveSearchOptions {
   /** Fired the instant the live stream announces new listings — before the
    * page fetches their details. Carries the number of incoming ids. */
   readonly onLiveFrame?: (newCount: number) => void;
+  /** Fired once this tab's plain-page search has seeded (or its wait
+   * elapsed) — its budgeted search POST is done, so the NEXT tab may start
+   * while this one finishes settling and switching to /live. */
+  readonly onSeeded?: () => void;
   /** Captures within this window after the tab reaches /live are still
    * treated as current results (seed), not fresh live hits. Default 10s. */
   readonly seedWindowMs?: number;
@@ -63,8 +67,10 @@ const DEFAULT_SEED_WINDOW_MS = 10_000;
  * once; the default 6s regularly expired mid-load and detached capture. */
 const TAB_COMMAND_TIMEOUT_MS = 20_000;
 /** How long to wait on the plain search page for its auto-run search to
- * deliver current results before switching the tab to /live. */
-const SEED_CAPTURE_WAIT_MS = 10_000;
+ * deliver current results before switching the tab to /live. Quiet searches
+ * always pay the full wait, and the startup ramp multiplies it by the tab
+ * count — keep it as tight as the page's search+fetch round trip allows. */
+const SEED_CAPTURE_WAIT_MS = 6_000;
 /** Grace after the first capture before navigating to /live: later fetch
  * batches finish arriving, and page-world work started against the plain
  * page (reward floor lookups) is not yanked mid-flight by the navigation. */
@@ -175,6 +181,7 @@ export async function openBrowserLiveSearch(
     // the capture as seeds, then switch the same tab to /live for the stream.
     await page.goto(buildSearchPageUrl({ realm: options.search.realm, searchId: options.search.searchId }, options.search.league));
     await Promise.race([firstCapture, sleep(options.seedCaptureWaitMs ?? SEED_CAPTURE_WAIT_MS)]);
+    options.onSeeded?.();
     await sleep(options.seedSettleMs ?? SEED_SETTLE_MS);
     await page.goto(liveSearchPageUrl(options.search));
   } catch (error) {

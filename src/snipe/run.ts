@@ -703,7 +703,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
   };
 
   let liveTabsOpened = 0;
-  const openLiveTab = async (entry: RuntimeTarget): Promise<void> => {
+  const openLiveTab = async (entry: RuntimeTarget, onSeeded?: () => void): Promise<void> => {
     if (stopped || stopIntent) return;
     const targetId = `${entry.target.realm}:${entry.target.searchId}`;
     sharedStore.setSearchState(targetId, 'connecting');
@@ -744,6 +744,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
         onPage: (page) => {
           if (page.evaluate !== undefined) floorEvaluate = page.evaluate.bind(page);
         },
+        ...(onSeeded === undefined ? {} : { onSeeded }),
         ...(config.snipe.framePing ? {
           onLiveFrame: (newCount: number) => {
             if (stopped || stopIntent) return;
@@ -935,7 +936,15 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
       startTask((async () => {
         for (const [index, entry] of runtimeTargets.entries()) {
           if (stopped || stopIntent) return;
-          await openLiveTab(entry);
+          // Pipeline the ramp: the budgeted search POST happens at the plain
+          // page load, so once THIS tab has seeded, the next tab may start
+          // while this one settles and switches to /live. With many searches
+          // this cuts the ramp roughly in half.
+          let signalSeeded: () => void = () => undefined;
+          const seeded = new Promise<void>((resolve) => { signalSeeded = resolve; });
+          const opened = openLiveTab(entry, signalSeeded);
+          startTask(opened);
+          await Promise.race([seeded, opened]);
           if (index < runtimeTargets.length - 1 && tabGapMs > 0) {
             await waitForSeedRetry(tabGapMs / 1_000);
           }
