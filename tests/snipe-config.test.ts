@@ -11,7 +11,7 @@ describe('snipe settings', () => {
       league: undefined,
       chromeCdpUrl: 'http://127.0.0.1:9222',
       browserLive: null,
-      framePing: false,
+      framePing: true,
       chromePath: undefined,
       chromeProfile: undefined,
     });

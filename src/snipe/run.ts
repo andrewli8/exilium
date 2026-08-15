@@ -49,6 +49,7 @@ import { RewardFloorService, type PageEvaluate, type RewardFloorPrice } from './
 import { persistSnipeImport } from './import.js';
 import { resolveRequestedTargets } from './selection.js';
 import type { TravelResult } from './travel.js';
+import { createSoundPlayer, type SoundChild, type SoundPlayer } from './sound-player.js';
 import { SnipeStore } from './store.js';
 import { buildSnipeWebhookPayload, postSnipeWebhook } from './webhook.js';
 
@@ -347,8 +348,9 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
   const record = deps.recordAlert ?? ((alert, action, detail) => recordSnipe(alert, action, detail, log));
   let notify = deps.notify;
   let sound = (): void => undefined;
+  let soundPlayer: SoundPlayer | null = null;
   if (notify === undefined || config.snipe.sound) {
-    const { execFile } = await import('node:child_process');
+    const { execFile, spawn } = await import('node:child_process');
     const { promisify } = await import('node:util');
     const exec = promisify(execFile);
     // windowsHide keeps the PowerShell console window (sound, toast) from
@@ -362,14 +364,19 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
       log,
     }).notify;
     if (config.snipe.sound) {
+      // One long-lived player process: a per-ping spawn costs ~100ms (afplay)
+      // to seconds (PowerShell cold start on Windows) — audible lag against
+      // the trade tab's instant ding. A pipe write is free.
+      soundPlayer = createSoundPlayer(
+        process.platform,
+        (cmd, args, opts) => spawn(cmd, [...args], opts) as unknown as SoundChild,
+        log,
+      );
       sound = () => {
         // Terminal bell first: zero spawn cost, rings the instant the hit is
-        // judged; the richer system sound follows ~100ms later.
+        // judged; the system sound follows via the persistent player.
         try { process.stdout.write('\u0007'); } catch { /* stdout may be gone at shutdown */ }
-        if (process.platform === 'darwin') void execFn('afplay', ['/System/Library/Sounds/Glass.aiff']).catch(() => undefined);
-        else if (process.platform === 'win32') {
-          void execFn('powershell', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', '[System.Media.SystemSounds]::Asterisk.Play()']).catch(() => undefined);
-        }
+        soundPlayer?.play();
       };
     }
   }
@@ -884,6 +891,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     if (refreshTimer !== undefined) clearInterval(refreshTimer);
     if (rateHealthTimer !== undefined) clearInterval(rateHealthTimer);
     if (reconcileTimer !== undefined) clearInterval(reconcileTimer);
+    soundPlayer?.close();
     for (const socket of sockets) socket.close();
     sockets.clear();
     const settleWithin = async (
