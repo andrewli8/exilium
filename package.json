@@ -1,6 +1,6 @@
 {
   "name": "exilium",
-  "version": "0.2.10",
+  "version": "0.2.11",
   "description": "Path of Exile trading terminal with an agent-native MCP server — live market data, signals, arbitrage view, TUI, and human-in-the-loop trade plans",
   "main": "index.js",
   "scripts": {

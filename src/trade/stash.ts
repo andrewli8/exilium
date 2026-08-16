@@ -53,7 +53,7 @@ export async function fetchAllStashItems(
     const res = await scheduler.schedule('interactive', () => deps.fetchFn(buildStashUrl(accountName, league, tabIndex), {
         headers: {
           Cookie: `POESESSID=${sessionId}`,
-          'User-Agent': 'Exilium/0.2.10 (+https://github.com/andrewli8/exilium)',
+          'User-Agent': 'Exilium/0.2.11 (+https://github.com/andrewli8/exilium)',
         },
         ...(deps.signal === undefined ? {} : { signal: deps.signal }),
       }), deps.signal);
