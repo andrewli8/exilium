@@ -674,6 +674,22 @@ describe('runSnipe browser-live mode', () => {
     expect(harness.tabClosed.count).toBeGreaterThan(0);
   });
 
+  test('the snapshot cache is warmed at boot, before the first listing arrives', async () => {
+    const harness = browserLiveHarness();
+    const latestAll = vi.fn(() => SNAPSHOTS);
+    const running = runSnipe(
+      { ...FLAGS, browserLive: true },
+      { ...harness.deps, repo: { latestAll } as unknown as SnipeDeps['repo'] },
+    );
+    await harness.consoleReady;
+    for (let i = 0; i < 20 && harness.store.snapshot().searches[0]?.state !== 'live'; i += 1) await new Promise((r) => setTimeout(r, 0));
+    // The ~35k-line parse must happen during startup/refresh, NOT lazily on
+    // the first live hit — that lazy parse was a visible listing→CLI stall.
+    expect(latestAll).toHaveBeenCalled();
+    harness.exit();
+    await running;
+  });
+
   test('a lost live tab reopens automatically and keeps streaming', async () => {
     const harness = browserLiveHarness();
     const running = runSnipe({ ...FLAGS, browserLive: true }, { ...harness.deps, reopenDelaysMs: [0, 0] });

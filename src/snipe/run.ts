@@ -550,6 +550,13 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     refreshTask = task;
     void task.finally(() => {
       if (refreshTask === task) refreshTask = undefined;
+      // Warm the snapshot cache in the refresh's own context: the ~35k-line
+      // latestAll parse must never run lazily on the next arriving listing —
+      // that lazy parse was a visible listing→CLI stall (and frozen input)
+      // once per refresh cycle.
+      if (!stopped && !stopIntent) {
+        try { latestSnapshots(league); } catch { /* next listing falls back to the lazy path */ }
+      }
     });
   };
 
@@ -1032,6 +1039,10 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     });
     rateHealthTimer = setInterval(() => publishSchedulerHealth(tradeScheduler.health()), 1_000);
 
+    // Boot prewarm from whatever the DB already holds: the first seeds land
+    // seconds after the first tab opens, usually before the boot refresh has
+    // finished — they must find a warm cache, not pay the full parse.
+    try { latestSnapshots(league); } catch { /* fresh DB — the refresh fills it */ }
     startRefresh();
     refreshTimer = setInterval(startRefresh, config.refreshSec * 1_000);
     if (browserLive) {
