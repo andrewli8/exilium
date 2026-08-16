@@ -293,9 +293,11 @@ export async function createCdpPage(options: CreateCdpPageOptions): Promise<CdpT
   await waitForOpen(socket, timeoutMs);
   const connection = new CdpConnection(socket, timeoutMs);
   await Promise.all([connection.send('Page.enable'), connection.send('Runtime.enable')]);
-  // The page must never think it is a background tab: visibility-based
-  // throttling delays its websocket handling and fetches by seconds.
-  void connection.send('Emulation.setFocusEmulationEnabled', { enabled: true }).catch(() => undefined);
+  // NOTE: deliberately NOT enabling focus emulation. It defeats visibility
+  // throttling, but it also makes every tab RENDER as a foreground page —
+  // nine trade SPAs at full rAF is a machine-wide lag machine. The Chrome
+  // launch flags (--disable-background-timer-throttling etc.) already cover
+  // the latency-relevant part without the rendering cost.
   let currentUrl = typeof target.url === 'string' ? target.url : 'about:blank';
   let closed = false;
   if (options.onDisconnect !== undefined) {

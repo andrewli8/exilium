@@ -52,6 +52,16 @@ function logSnipeRuntime(message: string): void {
     console.error(`Could not write ${snipeRuntimeLogPath}: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
+
+// A long-running monitoring TUI must never vanish because one stray promise
+// rejected (Node's default is to crash the process). Log it — with a stack —
+// and keep running; the runtime log is where to look after any hiccup.
+process.on('unhandledRejection', (reason) => {
+  logSnipeRuntime(`UNHANDLED REJECTION: ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}`);
+});
+process.on('uncaughtException', (error) => {
+  logSnipeRuntime(`UNCAUGHT EXCEPTION: ${error.stack ?? error.message}`);
+});
 // A config file holding a session cookie must never be group/other readable.
 // If it drifted (copied, restored from backup), fix it and say so.
 if (fileConfig.poesessid !== undefined && process.platform !== 'win32') {

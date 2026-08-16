@@ -192,6 +192,7 @@ interface RuntimeTarget extends RunnableTarget {
 }
 
 const MAX_KNOWN_PRICES = 200;
+const MAX_SEEN_IDS = 5_000;
 
 function searchFloorChaos(prices: ReadonlyMap<string, number>, excludingId: string): number | undefined {
   let floor: number | undefined;
@@ -391,7 +392,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
         profileDir: config.snipe.chromeProfile ?? join(homedir(), '.exilium', 'browser-profile'),
         log,
       }).then((controller) => {
-        if (shutdownRequested) void controller.close();
+        if (shutdownRequested) void controller.close().catch(() => undefined);
         return controller;
       }).catch((error: unknown) => {
         controllerPromise = undefined;
@@ -598,7 +599,16 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
   ): number => {
     const fresh = dedupe ? listings.filter((listing) => !entry.seen.has(listing.id)) : listings;
     if (fresh.length === 0) return 0;
-    if (dedupe) for (const listing of fresh) entry.seen.add(listing.id);
+    if (dedupe) {
+      for (const listing of fresh) entry.seen.add(listing.id);
+      // Busy searches accrete ids forever; trim the oldest (Set iterates in
+      // insertion order) so a long session cannot leak without bound.
+      while (entry.seen.size > MAX_SEEN_IDS) {
+        const oldest = entry.seen.values().next().value;
+        if (oldest === undefined) break;
+        entry.seen.delete(oldest);
+      }
+    }
     const snapshots = latestSnapshots(entry.search.league);
     sharedStore.setChaosPerDivine(toChaos({ amount: 1, currency: 'divine' }, snapshots));
     let queued = 0;
@@ -665,7 +675,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
       if (source === 'live' && pingQualifies) {
         const rendered = formatAlert(alert);
         sound();
-        void notify!(rendered.title, rendered.body);
+        void notify!(rendered.title, rendered.body).catch(() => undefined);
       }
       batch.push({ alert, pingQualifies });
       queued += 1;
@@ -763,7 +773,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
         } : {}),
       });
       if (stopped || stopIntent) {
-        void handle.close();
+        void handle.close().catch(() => undefined);
         return;
       }
       liveTabs.set(targetId, handle);
@@ -962,7 +972,19 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
       // against what the CLI processed, recovers anything the capture missed
       // (evicted bodies, CDP hiccups), and revives live searches the site
       // quietly deactivated. Fresh recoveries ping; stale ones queue quietly.
+      let reconcileRunning = false;
       const reconcileTabs = async (): Promise<void> => {
+        // Never overlap sweeps: with many tabs a slow evaluate could outlast
+        // the interval and pile concurrent sweeps into a lag spiral.
+        if (reconcileRunning) return;
+        reconcileRunning = true;
+        try {
+          await reconcileTabsOnce();
+        } finally {
+          reconcileRunning = false;
+        }
+      };
+      const reconcileTabsOnce = async (): Promise<void> => {
         for (const entry of runtimeTargets) {
           if (stopped || stopIntent) return;
           const targetId = `${entry.target.realm}:${entry.target.searchId}`;
