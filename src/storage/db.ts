@@ -66,6 +66,11 @@ export function createDb(path: string): Db {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   const db = isBun ? bunDb(path) : nodeDb(path);
   db.pragma('journal_mode = WAL');
+  // WAL + NORMAL: commits skip the per-transaction fsync (safe in WAL — a
+  // power cut can lose the last commits but never corrupts). Ingest sweeps
+  // write dozens of transactions back-to-back; on Windows the FULL-mode
+  // flushes made each one a visible UI stall.
+  db.pragma('synchronous = NORMAL');
   db.pragma('foreign_keys = ON');
   runMigrations(db);
   return db;

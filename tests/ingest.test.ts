@@ -77,6 +77,26 @@ describe('ingestLeague', () => {
     expect(third.saved).toEqual(['Currency']);
   });
 
+  test('yields to the event loop between categories so UI input stays live', async () => {
+    const repo = new SnapshotRepository(createDb(':memory:'));
+    const client = { getExchangeOverview: vi.fn().mockResolvedValue(RAW_OK) };
+    // A self-rescheduling macrotask: it can only run if ingestion gives the
+    // event loop a turn between categories (microtask-only awaits starve it).
+    let turns = 0;
+    let done = false;
+    const spin = (): void => { if (done) return; turns += 1; setImmediate(spin); };
+    setImmediate(spin);
+    await ingestLeague(client, repo, {
+      game: 'poe1',
+      league: 'M',
+      categories: ['Currency', 'Fragment', 'Scarab'].map((name) => ({ name, source: 'exchange' as const })),
+      now: () => '2026-07-18T18:00:00Z',
+      minIntervalSec: 0,
+    });
+    done = true;
+    expect(turns).toBeGreaterThanOrEqual(3);
+  });
+
   test('fetches, normalizes, and stores each category; reports per-category errors without aborting', async () => {
     const repo = new SnapshotRepository(createDb(':memory:'));
     const client = {

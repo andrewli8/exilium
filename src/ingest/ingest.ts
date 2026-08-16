@@ -65,6 +65,11 @@ export async function ingestLeague(
   let itemsSaved = false;
   for (const spec of opts.categories) {
     if (spec.source === 'items' && !itemsDue) continue;
+    // Normalize+save are synchronous (SQLite transactions, thousands of rows
+    // for item categories) and cached fetches resolve in microtasks — without
+    // a real event-loop turn per category, a whole sweep runs as one long
+    // block and freezes keyboard input in the TUI for its duration.
+    await new Promise((resolve) => setImmediate(resolve));
     try {
       const ctx = { game: opts.game, league: opts.league, category: spec.name, fetchedAt: opts.now() };
       let snapshot;
