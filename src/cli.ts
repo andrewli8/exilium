@@ -423,9 +423,13 @@ async function cmdTui(): Promise<void> {
         },
         start: async (enabledKeys: readonly string[]) => {
           if (snipeRuntime !== undefined) await snipeRuntime.stop();
+          snipeRuntime = undefined;
           const enabled = snipeEntries.filter((entry) => enabledKeys.includes(entry.key));
           snipeStore.setTargets(enabled);
-          snipeRuntime = await startSnipeRuntime({
+          // Fire-and-forget: the configure overlay closes immediately and the
+          // board shows the ramp live (CONNECTING → LIVE per search) instead
+          // of freezing on "Saving…" while Chrome is probed and tabs open.
+          void startSnipeRuntime({
             flags: {
               folder: snipeFolder,
               league: undefined,
@@ -444,10 +448,16 @@ async function cmdTui(): Promise<void> {
               log: logSnipeRuntime,
               isTTY: false,
             },
+          }).then((runtime) => {
+            snipeRuntime = runtime;
+          }).catch((error: unknown) => {
+            const message = error instanceof Error ? error.message : String(error);
+            logSnipeRuntime(`snipe start failed: ${message}`);
+            snipeStore.setStatus(`start failed: ${message.slice(0, 80)}`);
           });
         },
         travel: async (listingId: string) => snipeRuntime === undefined
-          ? { action: 'failed' as const, detail: 'Monitoring is stopped — press c, then Enter to start enabled snipes' }
+          ? { action: 'failed' as const, detail: 'Snipes are still starting (or stopped) — give it a moment, or press c then Enter to start' }
           : snipeRuntime.travel(listingId),
       },
     }),
