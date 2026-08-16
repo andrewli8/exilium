@@ -71,6 +71,30 @@ describe('SnipeConfigureOverlay', () => {
     expect(onStart).toHaveBeenCalledWith(['trade:two']);
   });
 
+  test('l opens a folder, h closes it, and j moves the cursor — no arrow keys', async () => {
+    const onSave = vi.fn(async (entries: readonly CatalogEntry[]) => entries);
+    const onStart = vi.fn(async () => undefined);
+    const ui = render(
+      <SnipeConfigureOverlay
+        entries={[grouped('one', 'valdos'), grouped('two', 'valdos')]}
+        onSave={onSave}
+        onStart={onStart}
+        onClose={() => undefined}
+      />,
+    );
+    ui.stdin.write('l'); // expand valdos
+    await flush();
+    expect(ui.lastFrame()).toContain('Target one');
+    ui.stdin.write('j'); // onto first entry
+    await flush();
+    ui.stdin.write(' ');
+    await flush();
+    expect(ui.lastFrame()).toContain('[ ]');
+    ui.stdin.write('h'); // collapse back to the folder row
+    await flush();
+    expect(ui.lastFrame()).not.toContain('Target one');
+  });
+
   test('Space on a folder row toggles the whole folder', async () => {
     const onStart = vi.fn(async () => undefined);
     const ui = render(

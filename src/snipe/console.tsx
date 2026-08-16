@@ -30,8 +30,8 @@ export function SnipeTargetPicker({ targets, onSubmit, onCancel }: SnipeTargetPi
   const { exit } = useApp();
 
   useInput((input, key) => {
-    if (key.upArrow) dispatch({ type: 'move', delta: -1 });
-    else if (key.downArrow) dispatch({ type: 'move', delta: 1 });
+    if (key.upArrow || input === 'k') dispatch({ type: 'move', delta: -1 });
+    else if (key.downArrow || input === 'j') dispatch({ type: 'move', delta: 1 });
     else if (input === ' ') dispatch({ type: 'toggle' });
     else if (input.toLowerCase() === 'a') dispatch({ type: 'toggle-all' });
     else if (/^[1-9]$/.test(input)) dispatch({ type: 'toggle-index', index: Number(input) - 1 });
@@ -49,7 +49,7 @@ export function SnipeTargetPicker({ targets, onSubmit, onCancel }: SnipeTargetPi
   return (
     <Box flexDirection="column">
       <Text bold>{fold('Choose Better Trading searches for this run')}</Text>
-      <Text dimColor>{fold(`${glyphs.upDown} move ${glyphs.sep} Space/1-9 toggle ${glyphs.sep} a all ${glyphs.sep} ${glyphs.enterKey} enable ${glyphs.sep} Esc cancel`)}</Text>
+      <Text dimColor>{fold(`${glyphs.upDown}/jk move ${glyphs.sep} Space/1-9 toggle ${glyphs.sep} a all ${glyphs.sep} ${glyphs.enterKey} enable ${glyphs.sep} Esc cancel`)}</Text>
       {targets.map((target, index) => {
         const selected = state.selectedIds.has(targetSelectionId(target));
         return (
@@ -205,8 +205,8 @@ export function SnipeQueueApp({ alerts, onTravel, onExit, now, searchCount, minM
       else if (/^[0-9.]+$/.test(input) && !(input.includes('.') && floorInput.includes('.'))) setFloorInput(`${floorInput}${input}`);
       return;
     }
-    if (key.upArrow) dispatch({ type: 'move', delta: key.shift ? -10 : -1, minMarginPct: floor });
-    else if (key.downArrow) dispatch({ type: 'move', delta: key.shift ? 10 : 1, minMarginPct: floor });
+    if (key.upArrow || input === 'k' || input === 'K') dispatch({ type: 'move', delta: key.shift || input === 'K' ? -10 : -1, minMarginPct: floor });
+    else if (key.downArrow || input === 'j' || input === 'J') dispatch({ type: 'move', delta: key.shift || input === 'J' ? 10 : 1, minMarginPct: floor });
     else if (key.return && key.shift) dispatch({ type: 'open-detail', minMarginPct: floor });
     else if (key.tab && key.shift) dispatch({ type: 'previous-view', minMarginPct: floor });
     else if (key.tab) dispatch({ type: 'next-view', minMarginPct: floor });
@@ -258,7 +258,7 @@ export function SnipeQueueApp({ alerts, onTravel, onExit, now, searchCount, minM
               </Text>
             ))}
           <Text dimColor>{fold(`${board.groups.length} shown ${glyphs.sep} ${board.belowFloorCount} below floor ${glyphs.sep} ${board.unknownCount} unknown`)}</Text>
-          <Text dimColor>{fold(`${glyphs.upDown} select ${glyphs.sep} ${glyphs.enterKey} travel best ${glyphs.sep} Shift+Enter inspect ${glyphs.sep} u hidden ${glyphs.sep} q quit`)}</Text>
+          <Text dimColor>{fold(`${glyphs.upDown}/jk select ${glyphs.sep} ${glyphs.enterKey} travel best ${glyphs.sep} Shift+Enter inspect ${glyphs.sep} u hidden ${glyphs.sep} q quit`)}</Text>
         </>
       ) : (
         <>
@@ -272,7 +272,7 @@ export function SnipeQueueApp({ alerts, onTravel, onExit, now, searchCount, minM
               {detailRow(entry, entry.alert.listingId === state.selectedListingId, clock())}
             </Text>
           )) ?? <Text dimColor>No listings for this search</Text>}
-          <Text dimColor>{fold(`${glyphs.upDown} select ${glyphs.sep} ${glyphs.enterKey} travel ${glyphs.sep} Shift+Tab previous ${glyphs.sep} Esc board`)}</Text>
+          <Text dimColor>{fold(`${glyphs.upDown}/jk select ${glyphs.sep} ${glyphs.enterKey} travel ${glyphs.sep} Shift+Tab previous ${glyphs.sep} Esc board`)}</Text>
         </>
       )}
       <Text color={failureNotice === null ? 'green' : 'red'}>{fold(notice)}</Text>

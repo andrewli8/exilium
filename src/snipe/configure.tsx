@@ -190,15 +190,17 @@ export function SnipeConfigureOverlay({ entries, onSave, onStart, onClose, onImp
       setError(null);
       return;
     }
-    if (key.upArrow) { setCursor((index) => Math.max(0, index - (key.shift ? 10 : 1))); return; }
-    if (key.downArrow) { setCursor((index) => Math.min(Math.max(0, rows.length - 1), index + (key.shift ? 10 : 1))); return; }
+    // j/k/h/l mirror the arrows: Windows terminals under the compiled
+    // binary can swallow arrow escape sequences, but letters survive.
+    if (key.upArrow || value === 'k' || value === 'K') { setCursor((index) => Math.max(0, index - (key.shift || value === 'K' ? 10 : 1))); return; }
+    if (key.downArrow || value === 'j' || value === 'J') { setCursor((index) => Math.min(Math.max(0, rows.length - 1), index + (key.shift || value === 'J' ? 10 : 1))); return; }
     if (key.pageUp) { setCursor((index) => Math.max(0, index - MAX_LIST_ROWS)); return; }
     if (key.pageDown) { setCursor((index) => Math.min(Math.max(0, rows.length - 1), index + MAX_LIST_ROWS)); return; }
-    if (key.rightArrow) {
+    if (key.rightArrow || value.toLowerCase() === 'l') {
       if (selected?.kind === 'folder') setExpanded((current) => new Set([...current, selected.group]));
       return;
     }
-    if (key.leftArrow) {
+    if (key.leftArrow || value.toLowerCase() === 'h') {
       const group = selected?.kind === 'folder'
         ? selected.group
         : selected?.kind === 'entry' ? drafts[selected.index]?.group : undefined;
@@ -253,7 +255,7 @@ export function SnipeConfigureOverlay({ entries, onSave, onStart, onClose, onImp
     <Box flexDirection="column" borderStyle={glyphs.border} borderColor="yellow" paddingX={1}>
       <Text bold color="yellow">CONFIGURE SNIPES</Text>
       {mode === 'list' && <>
-        <Text dimColor>{fold(`${glyphs.upDown} move ${glyphs.sep} Space toggle ${glyphs.sep} ${glyphs.leftRight} close/open folder ${glyphs.sep} ⌫ delete folder ${glyphs.sep} a all ${glyphs.sep} e edit ${glyphs.sep} i import ${glyphs.sep} Enter save/start ${glyphs.sep} Esc save`)}</Text>
+        <Text dimColor>{fold(`${glyphs.upDown}/jk move ${glyphs.sep} Space toggle ${glyphs.sep} ${glyphs.leftRight}/hl close/open folder ${glyphs.sep} ⌫ delete folder ${glyphs.sep} a all ${glyphs.sep} e edit ${glyphs.sep} i import ${glyphs.sep} Enter save/start ${glyphs.sep} Esc save`)}</Text>
         {hiddenAbove > 0 && <Text dimColor>{`  ↑ ${hiddenAbove} more above`}</Text>}
         {visibleRows.map((row, visibleIndex) => {
           const index = windowStart + visibleIndex;

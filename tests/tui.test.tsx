@@ -254,6 +254,32 @@ describe('ExiliumTui', () => {
     expect(before).not.toEqual(after);
   });
 
+  test('j/k move the selection without arrow keys', async () => {
+    const { lastFrame, stdin } = render(<ExiliumTui service={makeService()} {...PROPS} />);
+    await flush();
+    const before = lastFrame()!;
+    stdin.write('j');
+    await flush();
+    expect(lastFrame()!).not.toEqual(before);
+    stdin.write('k');
+    await flush();
+    expect(lastFrame()!).toEqual(before);
+  });
+
+  test('sort mode cycles columns with , and . without arrow keys', async () => {
+    const { lastFrame, stdin } = render(<ExiliumTui service={makeService()} {...PROPS} />);
+    await flush();
+    stdin.write('f'); // enter sort mode on the first column
+    await flush();
+    const first = lastFrame()!;
+    stdin.write('.');
+    await flush();
+    expect(lastFrame()!).not.toEqual(first);
+    stdin.write(',');
+    await flush();
+    expect(lastFrame()!).toEqual(first);
+  });
+
   test('opportunities pane shows the trade plan for the selected row', async () => {
     const { lastFrame, stdin } = render(<ExiliumTui service={makeService()} {...PROPS} />);
     await flush();

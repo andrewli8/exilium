@@ -416,12 +416,22 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
       return;
     }
     // Row movement works in normal AND search mode — filtering must never
-    // take scrolling away. Shift+arrow jumps 10.
+    // take scrolling away. Shift+arrow jumps 10. Ctrl+N/Ctrl+P mirror the
+    // arrows even while typing: Windows terminals under the compiled binary
+    // can swallow arrow escape sequences, but control characters survive.
     const handleMovement = (): boolean => {
-      if (key.upArrow) { moveSelection(key.shift ? -10 : -1); return true; }
-      if (key.downArrow) { moveSelection(key.shift ? 10 : 1); return true; }
+      if (key.upArrow || (key.ctrl && input === 'p')) { moveSelection(key.shift ? -10 : -1); return true; }
+      if (key.downArrow || (key.ctrl && input === 'n')) { moveSelection(key.shift ? 10 : 1); return true; }
       if (key.pageUp) { moveSelection(-VIEWPORT); return true; }
       if (key.pageDown) { moveSelection(VIEWPORT); return true; }
+      return false;
+    };
+    // j/k mirror the arrows too, but only outside typing contexts.
+    const handleLetterMovement = (): boolean => {
+      if (input === 'k') { moveSelection(-1); return true; }
+      if (input === 'K') { moveSelection(-10); return true; }
+      if (input === 'j') { moveSelection(1); return true; }
+      if (input === 'J') { moveSelection(10); return true; }
       return false;
     };
 
@@ -478,8 +488,8 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
         return;
       }
       if (key.backspace || key.delete) { setWatchInput((s) => s.slice(0, -1)); return; }
-      if (key.upArrow) { setWatchInput((s) => String(Math.round((Number(s) || 0) * 1.01 * 100) / 100)); return; }
-      if (key.downArrow) { setWatchInput((s) => String(Math.round((Number(s) || 0) * 0.99 * 100) / 100)); return; }
+      if (key.upArrow || (key.ctrl && input === 'p')) { setWatchInput((s) => String(Math.round((Number(s) || 0) * 1.01 * 100) / 100)); return; }
+      if (key.downArrow || (key.ctrl && input === 'n')) { setWatchInput((s) => String(Math.round((Number(s) || 0) * 0.99 * 100) / 100)); return; }
       const dpp2 = data.summary.divinePerPrimary;
       if ((input === 'd' || input === 'D') && dpp2 !== null && watchUnit !== 'divine') {
         setWatchInput((s) => String(Math.round((Number(s) || 0) * dpp2 * 100) / 100));
@@ -509,8 +519,8 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
         setLeagueQuery('');
         return;
       }
-      if (key.upArrow) { setLeaguePick((i) => Math.max(0, i - 1)); return; }
-      if (key.downArrow) { setLeaguePick((i) => Math.min(Math.max(0, matches.length - 1), i + 1)); return; }
+      if (key.upArrow || (key.ctrl && input === 'p')) { setLeaguePick((i) => Math.max(0, i - 1)); return; }
+      if (key.downArrow || (key.ctrl && input === 'n')) { setLeaguePick((i) => Math.min(Math.max(0, matches.length - 1), i + 1)); return; }
       if (key.backspace || key.delete) { setLeagueQuery((s) => s.slice(0, -1)); setLeaguePick(0); return; }
       if (input !== '' && !key.ctrl && !key.meta) { setLeagueQuery((s) => s + input); setLeaguePick(0); }
       return;
@@ -528,8 +538,8 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
         setCatQuery('');
         return;
       }
-      if (key.upArrow) { setCatPick((i) => Math.max(0, i - 1)); return; }
-      if (key.downArrow) { setCatPick((i) => Math.min(Math.max(0, matches.length - 1), i + 1)); return; }
+      if (key.upArrow || (key.ctrl && input === 'p')) { setCatPick((i) => Math.max(0, i - 1)); return; }
+      if (key.downArrow || (key.ctrl && input === 'n')) { setCatPick((i) => Math.min(Math.max(0, matches.length - 1), i + 1)); return; }
       if (key.backspace || key.delete) { setCatQuery((s) => s.slice(0, -1)); setCatPick(0); return; }
       if (input !== '' && !key.ctrl && !key.meta) { setCatQuery((s) => s + input); setCatPick(0); }
       return;
@@ -540,8 +550,9 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
       if (handleMovement()) return;
       // f ONLY toggles direction on the current column; it never advances.
       if (input === 'f') { setSortDir((d) => (d === 'desc' ? 'asc' : 'desc')); return; }
-      if (key.rightArrow) { setSortCol((c) => ((c ?? -1) + 1) % table.model.columns.length); setSortDir('desc'); return; }
-      if (key.leftArrow) { setSortCol((c) => ((c ?? 0) - 1 + table.model.columns.length) % table.model.columns.length); setSortDir('desc'); return; }
+      if (handleLetterMovement()) return;
+      if (key.rightArrow || input === '.') { setSortCol((c) => ((c ?? -1) + 1) % table.model.columns.length); setSortDir('desc'); return; }
+      if (key.leftArrow || input === ',') { setSortCol((c) => ((c ?? 0) - 1 + table.model.columns.length) % table.model.columns.length); setSortDir('desc'); return; }
       return;
     }
     if (view === 'watches' && key.tab) {
@@ -574,8 +585,9 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
     if (input === 's') { setInputMode('search'); return; }
     if (input === 'f') { setInputMode('sort'); setSortCol((c) => c ?? 0); setSortDir('desc'); return; }
     if (handleMovement()) return;
-    if (key.rightArrow) { moveSelection(VIEWPORT); return; }
-    if (key.leftArrow) { moveSelection(-VIEWPORT); return; }
+    if (handleLetterMovement()) return;
+    if (key.rightArrow || input === '.') { moveSelection(VIEWPORT); return; }
+    if (key.leftArrow || input === ',') { moveSelection(-VIEWPORT); return; }
     if (input === 'c') { setInputMode('category'); setCatQuery(''); setCatPick(0); return; }
     if (input === 'l') {
       setInputMode('league'); setLeagueQuery(''); setLeaguePick(0);
@@ -631,16 +643,16 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
 
   const hint = fold(
     inputMode === 'search'
-      ? 'type to filter · ↑↓ scroll matches · ↵ keep · esc clear'
+      ? 'type to filter · ↑↓|^N^P scroll matches · ↵ keep · esc clear'
       : inputMode === 'sort'
-        ? 'sort: f toggles ▼/▲ · ←→ column · ↑↓ scroll · esc done'
+        ? 'sort: f toggles ▼/▲ · ←→|,. column · ↑↓|jk scroll · esc done'
         : inputMode === 'category'
-          ? 'category: type to filter · ↑↓ pick · ↵ apply · esc cancel'
+          ? 'category: type to filter · ↑↓|^N^P pick · ↵ apply · esc cancel'
           : inputMode === 'watch'
             ? 'watch: type threshold · ↵ create · esc cancel'
             : view === 'watches'
               ? `Tab price alerts/snipes · c configure snipes · ${glyphs.upDown} rows · q quit`
-              : 's search · f sort · w watch · p price-check clipboard · ↵ trade link · ↑↓ rows · ←→ page · c category · l league · r refresh · q quit',
+              : 's search · f sort · w watch · p price-check clipboard · ↵ trade link · ↑↓|jk rows · ←→|,. page · c category · l league · r refresh · q quit',
   );
 
   const selectedMover = view === 'movers' ? (table.rows[clampedSelected] as DetailedMover | undefined) : undefined;
@@ -728,7 +740,7 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
             )}
             <Text color={DIM}>
               {watchTarget.kind === 'price' && dpp !== null ? fold('d/c switch div↔chaos · ') : ''}
-              {fold('type numbers · ↑↓ nudge ±1% · ↵ create · esc cancel — fires once, in pane 4 & `exilium watches`')}
+              {fold('type numbers · ↑↓|^N^P nudge ±1% · ↵ create · esc cancel — fires once, in pane 4 & `exilium watches`')}
             </Text>
           </Box>
         );
@@ -744,7 +756,7 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
           : `${matches.length} leagues`;
         return (
           <Box flexDirection="column" borderStyle={glyphs.border} borderColor={GOLD} paddingX={1}>
-            <Text color={GOLD}>{fold(`league: ${leagueQuery}▌`)}<Text color={DIM}>{fold(`  (${status} · type to filter · ↑↓ pick · ↵ switch · esc cancel)`)}</Text></Text>
+            <Text color={GOLD}>{fold(`league: ${leagueQuery}▌`)}<Text color={DIM}>{fold(`  (${status} · type to filter · ↑↓|^N^P pick · ↵ switch · esc cancel)`)}</Text></Text>
             {matches.slice(off, off + LG_VIEW).map((l, i) => {
               const idx = off + i;
               const tag = localSet.has(l) ? ' · data' : '';
@@ -765,7 +777,7 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
         const catOffset = Math.max(0, Math.min(pick - CAT_VIEW + 1, Math.max(0, matches.length - CAT_VIEW)));
         return (
           <Box flexDirection="column" borderStyle={glyphs.border} borderColor={GOLD} paddingX={1}>
-            <Text color={GOLD}>{fold(`category: ${catQuery}▌`)}<Text color={DIM}>{fold(`  (${matches.length} — type to filter · ↑↓ pick · ↵ apply · esc cancel)`)}</Text></Text>
+            <Text color={GOLD}>{fold(`category: ${catQuery}▌`)}<Text color={DIM}>{fold(`  (${matches.length} — type to filter · ↑↓|^N^P pick · ↵ apply · esc cancel)`)}</Text></Text>
             {matches.slice(catOffset, catOffset + CAT_VIEW).map((c, i) => {
               const idx = catOffset + i;
               return (
@@ -795,7 +807,7 @@ export function ExiliumTui({ service, game, league, refreshSec, onIngest, autoIn
         ))}
         {rowCount === 0 && <Text color={DIM}>Nothing matches.</Text>}
         {rowCount > 0 && (
-          <Text color={DIM}>{fold(`row ${clampedSelected + 1} of ${rowCount}${rowCount > VIEWPORT ? ' · ↑↓/PgUp/PgDn to scroll' : ''}`)}</Text>
+          <Text color={DIM}>{fold(`row ${clampedSelected + 1} of ${rowCount}${rowCount > VIEWPORT ? ' · ↑↓|jk|PgUp|PgDn to scroll' : ''}`)}</Text>
         )}
       </Box>}
       {selectedMover !== undefined && (

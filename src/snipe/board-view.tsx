@@ -89,9 +89,12 @@ export function SnipeBoardView({ store, onTravel, active = true, embedded = fals
       else if (/^[0-9.dc%]+$/i.test(input)) setFloorInput((value) => `${value ?? ''}${input}`);
       return;
     }
+    // j/k mirror the arrows (J/K jump ten): Windows terminals under the
+    // compiled binary can swallow arrow-key escape sequences entirely, so
+    // navigation must survive on plain letters.
     if (input.toLowerCase() === 'q' && !embedded) onExit?.();
-    else if (key.upArrow) store.dispatch({ type: 'move', delta: key.shift ? -10 : -1, minMarginPct: snapshot.floor });
-    else if (key.downArrow) store.dispatch({ type: 'move', delta: key.shift ? 10 : 1, minMarginPct: snapshot.floor });
+    else if (key.upArrow || input === 'k' || input === 'K') store.dispatch({ type: 'move', delta: key.shift || input === 'K' ? -10 : -1, minMarginPct: snapshot.floor });
+    else if (key.downArrow || input === 'j' || input === 'J') store.dispatch({ type: 'move', delta: key.shift || input === 'J' ? 10 : 1, minMarginPct: snapshot.floor });
     else if (key.pageUp) store.dispatch({ type: 'move', delta: -MAX_TABLE_ROWS, minMarginPct: snapshot.floor });
     else if (key.pageDown) store.dispatch({ type: 'move', delta: MAX_TABLE_ROWS, minMarginPct: snapshot.floor });
     else if (key.return && key.shift) {
@@ -171,7 +174,7 @@ export function SnipeBoardView({ store, onTravel, active = true, embedded = fals
           {hiddenBelow > 0 && <Text dimColor>{`  ↓ ${hiddenBelow} older hidden`}</Text>}
           <Text dimColor>{fold(`${snapshot.table.qualifyingCount} above threshold ${glyphs.sep} ${snapshot.table.belowFloorCount} below ${glyphs.sep} ${snapshot.table.unknownCount} unknown`)}</Text>
         </>}
-        <Text dimColor>{fold(`${glyphs.upDown} select (Shift jumps 10) ${glyphs.sep} Enter travel ${glyphs.sep} Shift+Enter inspect ${glyphs.sep} t threshold ${glyphs.sep} c configure`)}</Text>
+        <Text dimColor>{fold(`${glyphs.upDown}/jk select (Shift/JK jumps 10) ${glyphs.sep} Enter travel ${glyphs.sep} Shift+Enter inspect ${glyphs.sep} t threshold ${glyphs.sep} c configure`)}</Text>
       </> : <>
         <Text bold>{fold(selectedGroup?.targetLabel ?? 'SNIPE DETAILS')}</Text>
         {selectedGroup?.entries.map((entry) => (

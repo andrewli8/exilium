@@ -68,6 +68,24 @@ describe('SnipeTargetPicker', () => {
     expect(submitted).toEqual([['aaa', 'bbb']]);
   });
 
+  test('j moves the picker cursor without arrow keys', async () => {
+    const submitted: string[][] = [];
+    const ui = render(
+      <SnipeTargetPicker
+        targets={TARGETS}
+        onSubmit={(targets) => submitted.push(targets.map((target) => target.searchId))}
+        onCancel={() => undefined}
+      />,
+    );
+    ui.stdin.write('j');
+    await flush();
+    ui.stdin.write(' ');
+    await flush();
+    ui.stdin.write('\r');
+    await flush();
+    expect(submitted).toEqual([['bbb']]);
+  });
+
   test('a selects all and Escape cancels without submitting', async () => {
     const submitted = vi.fn();
     const cancelled = vi.fn();
