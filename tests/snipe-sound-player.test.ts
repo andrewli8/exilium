@@ -34,18 +34,18 @@ describe('createSoundPlayer', () => {
     const second = fakeChild();
     const children = [first, second];
     const spawn = vi.fn((() => children.shift()!.child) as SoundSpawnFn);
-    const player = createSoundPlayer('win32', spawn, () => undefined);
+    const player = createSoundPlayer('darwin', spawn, () => undefined);
     player.play();
     first.emit('exit');
     player.play();
     expect(spawn).toHaveBeenCalledTimes(2);
     expect(second.writes).toHaveLength(1);
-    expect(String(spawn.mock.calls[0]?.[0])).toBe('powershell');
+    expect(String(spawn.mock.calls[0]?.[0])).toBe('/bin/sh');
   });
 
-  test('unknown platforms are a no-op and close kills the child', () => {
+  test('non-darwin platforms are a no-op and close kills the child', () => {
     const spawn = vi.fn();
-    const player = createSoundPlayer('linux', spawn as unknown as SoundSpawnFn, () => undefined);
+    const player = createSoundPlayer('win32', spawn as unknown as SoundSpawnFn, () => undefined);
     player.play();
     expect(spawn).not.toHaveBeenCalled();
 

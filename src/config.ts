@@ -141,10 +141,10 @@ function loadSnipeSettings(env: NodeJS.ProcessEnv, file: SnipeFileConfig): Snipe
       : env['EXILIUM_SNIPE_BROWSER_LIVE'] === '0'
         ? false
         : file.browserLive ?? null,
-    // On by default: the trade tab dings at frame time, and the CLI bell
-    // should match it. Disable with framePing:false / EXILIUM_SNIPE_FRAME_PING=0.
+    // Opt-in: the frame bell rings for EVERY incoming listing regardless of
+    // threshold — high-signal on curated searches, noise everywhere else.
     framePing: env['EXILIUM_SNIPE_FRAME_PING'] === '1'
-      || (env['EXILIUM_SNIPE_FRAME_PING'] === undefined && file.framePing !== false),
+      || (env['EXILIUM_SNIPE_FRAME_PING'] === undefined && file.framePing === true),
     chromePath: env['EXILIUM_CHROME'] ?? file.chromePath,
     chromeProfile: file.chromeProfile,
   };

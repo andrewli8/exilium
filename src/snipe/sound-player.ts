@@ -26,16 +26,10 @@ function playerCommand(platform: NodeJS.Platform): { cmd: string; args: readonly
       args: ['-c', 'while read line; do afplay /System/Library/Sounds/Glass.aiff & done'],
     };
   }
-  if (platform === 'win32') {
-    return {
-      cmd: 'powershell',
-      args: [
-        '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command',
-        '$in=[Console]::In; while($null -ne ($l=$in.ReadLine())){[System.Media.SystemSounds]::Asterisk.Play()}',
-      ],
-    };
-  }
-  return null; // Other platforms rely on the terminal bell alone.
+  // Windows deliberately has no persistent player: the PowerShell stdin-loop
+  // approach is unverified on real Windows, and a broken loop means silent
+  // pings. The caller falls back to the known-good per-invocation spawn.
+  return null;
 }
 
 export function createSoundPlayer(

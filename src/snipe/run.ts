@@ -396,9 +396,14 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
       );
       sound = () => {
         // Terminal bell first: zero spawn cost, rings the instant the hit is
-        // judged; the system sound follows via the persistent player.
+        // judged. macOS follows with the persistent player; Windows uses the
+        // proven per-invocation spawn (a persistent PowerShell loop is
+        // unverified on real Windows and a broken loop means silent pings).
         try { process.stdout.write('\u0007'); } catch { /* stdout may be gone at shutdown */ }
-        soundPlayer?.play();
+        if (process.platform === 'darwin') soundPlayer?.play();
+        else if (process.platform === 'win32') {
+          void execFn('powershell', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', '[System.Media.SystemSounds]::Asterisk.Play()']).catch(() => undefined);
+        }
       };
     }
   }
