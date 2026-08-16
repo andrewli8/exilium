@@ -1,7 +1,7 @@
 import { appendFileSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { ExiliumConfig } from '../config.js';
+import type { CategorySpec, ExiliumConfig } from '../config.js';
 import { ingestLeague } from '../ingest/ingest.js';
 import { NinjaClient } from '../sources/ninja/client.js';
 import type { SnapshotRepository } from '../storage/snapshot-repository.js';
@@ -155,6 +155,16 @@ export function snipeStartupMessages(
       'Chrome is only needed after you press Enter to travel; no whisper is sent or copied.',
     ]),
   ];
+}
+
+/** The snipe refresh only needs what margin pricing can consult: the
+ * exchange tables (small, and the chaos/divine rate lives there) plus the
+ * unique-item families rewards resolve against. The heavy item categories
+ * (SkillGem 5k+ rows, BaseType, Map, Beast, …) are never referenced by
+ * snipe pricing — gem-style rewards fall back to the live floor service —
+ * so refetching them at boot was pure startup cost. */
+export function snipePricingCategories(categories: readonly CategorySpec[]): readonly CategorySpec[] {
+  return categories.filter((spec) => spec.source === 'exchange' || /^(Unique|Forbidden|Valdo)/.test(spec.name));
 }
 
 function snipeLogPath(): string {
@@ -516,7 +526,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
       const result = await ingestLeague(client, repo, {
         game: config.game,
         league,
-        categories: config.categories,
+        categories: snipePricingCategories(config.categories),
         now: () => new Date(now()).toISOString(),
         ...(bootRefreshDone
           ? { itemsMinIntervalSec: Math.max(300, config.refreshSec) }

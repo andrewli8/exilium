@@ -2,14 +2,14 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test, vi } from 'vitest';
-import { loadConfig } from '../src/config.js';
+import { CATEGORIES_BY_GAME, loadConfig } from '../src/config.js';
 import type { MarketSnapshot } from '../src/domain/types.js';
 import { saveSnipeManifest, type SnipeManifest } from '../src/snipe/catalog.js';
 import type { CatalogEntry } from '../src/snipe/catalog.js';
 import { SnipeStore } from '../src/snipe/store.js';
 import type { SnipeConsoleOptions } from '../src/snipe/console.js';
 import type { SnipeAlert } from '../src/snipe/engine.js';
-import { runSnipe, snipeStartupMessages, type OpenSnipeSocket, type SnipeDeps, type SnipeFlags } from '../src/snipe/run.js';
+import { runSnipe, snipePricingCategories, snipeStartupMessages, type OpenSnipeSocket, type SnipeDeps, type SnipeFlags } from '../src/snipe/run.js';
 import type { LiveListing, TradeSearch } from '../src/trade/live-search.js';
 import { RateLimitError } from '../src/trade/rate-limit.js';
 import { TradeRateLimiter } from '../src/trade/rate-limit.js';
@@ -222,6 +222,18 @@ function makeHarness(options: {
     },
   };
 }
+
+describe('snipePricingCategories', () => {
+  test('keeps exchange tables and unique families, drops item categories pricing never consults', () => {
+    const kept = snipePricingCategories(CATEGORIES_BY_GAME.poe1).map((spec) => spec.name);
+    for (const needed of ['Currency', 'Fragment', 'UniqueWeapon', 'UniqueArmour', 'UniqueAccessory', 'UniqueFlask', 'UniqueJewel', 'ForbiddenJewel', 'ValdoMap']) {
+      expect(kept).toContain(needed);
+    }
+    for (const skipped of ['SkillGem', 'BaseType', 'Map', 'Beast', 'ClusterJewel', 'Incubator']) {
+      expect(kept).not.toContain(skipped);
+    }
+  });
+});
 
 describe('runSnipe orchestration', () => {
   test('provides the standalone renderer with the shared search store', async () => {
