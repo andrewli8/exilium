@@ -119,6 +119,8 @@ export interface SnipeDeps {
   readonly probeChrome?: (cdpUrl: string) => Promise<boolean>;
   /** Startup housekeeping; defaults to closing orphaned about:blank tabs. */
   readonly closeOrphanTabs?: (cdpUrl: string, log: (message: string) => void) => Promise<void>;
+  /** Backoff ladder for reopening a dropped live tab; tests pass zeros. */
+  readonly reopenDelaysMs?: readonly number[];
 }
 
 export const MAX_SNIPE_SOCKETS = 20;
@@ -129,6 +131,12 @@ const CONNECT_STAGGER_MS = 500;
 const BROWSER_LIVE_TAB_GAP_MS = 4_000;
 /** Cadence of the tab-vs-CLI reconciliation sweep. */
 const RECONCILE_INTERVAL_MS = 45_000;
+/** Backoff between automatic reopen attempts for a live tab that dropped
+ * (closed by hand, a Chrome restart, the page navigating away). */
+const BROWSER_LIVE_REOPEN_DELAYS_MS: readonly number[] = [5_000, 15_000, 45_000];
+/** A tab connected at least this long was healthy — its drop starts a fresh
+ * backoff ladder instead of continuing the old one. */
+const REOPEN_HEALTHY_MS = 60_000;
 const NO_PRIOR_LISTINGS: ReadonlySet<string> = new Set();
 
 export function snipeStartupMessages(
@@ -745,6 +753,46 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     }
   };
 
+  // A dropped live tab used to kill its stream until the whole snipe session
+  // was restarted. Instead, reopen it on a backoff ladder. Reopens serialize
+  // behind one chain with the same inter-open gap as the startup ramp: a
+  // Chrome restart drops every tab at once, and each reopen's plain-page
+  // load runs a search the site budgets.
+  const reopenAttempts = new Map<string, number>();
+  const liveTabOpenedAt = new Map<string, number>();
+  let reopenChain: Promise<void> = Promise.resolve();
+  const reopenDelays = deps.reopenDelaysMs ?? BROWSER_LIVE_REOPEN_DELAYS_MS;
+  const scheduleReopen = (entry: RuntimeTarget): void => {
+    const targetId = `${entry.target.realm}:${entry.target.searchId}`;
+    const openedAt = liveTabOpenedAt.get(targetId);
+    if (openedAt !== undefined && now() - openedAt >= REOPEN_HEALTHY_MS) reopenAttempts.set(targetId, 0);
+    const attempt = reopenAttempts.get(targetId) ?? 0;
+    const delayMs = reopenDelays[attempt];
+    if (delayMs === undefined) {
+      sharedStore.setSearchState(targetId, 'stopped', 'live tab lost — run exilium chrome, then restart snipe');
+      log(`giving up on "${entry.target.label}" after ${attempt} reopen attempt${attempt === 1 ? '' : 's'}`);
+      return;
+    }
+    reopenAttempts.set(targetId, attempt + 1);
+    sharedStore.setSearchState(targetId, 'connecting', `live tab lost — reopening in ${Math.ceil(delayMs / 1_000)}s`);
+    reopenChain = reopenChain.then(async () => {
+      await waitForSeedRetry(delayMs / 1_000);
+      if (stopped || stopIntent) return;
+      await openLiveTab(entry);
+      if (stopped || stopIntent) return;
+      if (!liveTabs.has(targetId)) {
+        // The attempt itself failed (Chrome still down) — climb the ladder.
+        scheduleReopen(entry);
+        return;
+      }
+      const gapMs = deps.connectStaggerMs ?? BROWSER_LIVE_TAB_GAP_MS;
+      if (gapMs > 0) await waitForSeedRetry(gapMs / 1_000);
+    }).catch((error: unknown) => {
+      log(`browser-live reopen failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
+    startTask(reopenChain);
+  };
+
   let liveTabsOpened = 0;
   const openLiveTab = async (entry: RuntimeTarget, onSeeded?: () => void): Promise<void> => {
     if (stopped || stopIntent) return;
@@ -781,8 +829,8 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
         onDisconnect: () => {
           liveTabs.delete(targetId);
           if (stopped || stopIntent) return;
-          sharedStore.setSearchState(targetId, 'stopped', 'live tab lost — run exilium chrome, then restart snipe');
           log(`browser-live tab for "${entry.target.label}" disconnected`);
+          scheduleReopen(entry);
         },
         onPage: (page) => {
           if (page.evaluate !== undefined) floorEvaluate = page.evaluate.bind(page);
@@ -803,6 +851,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
         return;
       }
       liveTabs.set(targetId, handle);
+      liveTabOpenedAt.set(targetId, now());
       if (handle.page.evaluate !== undefined) floorEvaluate = handle.page.evaluate.bind(handle.page);
       liveTabsOpened += 1;
       sharedStore.setProgress(liveTabsOpened, runtimeTargets.length);

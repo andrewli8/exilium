@@ -603,10 +603,15 @@ describe('runSnipe browser-live mode', () => {
     const opened: Array<{ search: TradeSearch; cdpUrl: string }> = [];
     const clicks: string[] = [];
     const tabClosed = { count: 0 };
+    const failOpens = { count: 0 };
     let emitListings: ((listings: readonly LiveListing[], source: 'seed' | 'live') => void) | undefined;
     let disconnect: (() => void) | undefined;
     const openLiveSearch: NonNullable<SnipeDeps['openLiveSearch']> = async (options) => {
       opened.push({ search: options.search, cdpUrl: options.cdpUrl });
+      if (failOpens.count > 0) {
+        failOpens.count -= 1;
+        throw new Error('Chrome unavailable');
+      }
       emitListings = options.onListings;
       disconnect = options.onDisconnect;
       return {
@@ -625,6 +630,7 @@ describe('runSnipe browser-live mode', () => {
       opened,
       clicks,
       tabClosed,
+      failOpens,
       deps: { ...harness.deps, openLiveSearch } satisfies SnipeDeps,
       emit: (listings: readonly LiveListing[], source: 'seed' | 'live') => emitListings?.(listings, source),
       disconnect: () => disconnect?.(),
@@ -654,6 +660,62 @@ describe('runSnipe browser-live mode', () => {
     harness.exit();
     await running;
     expect(harness.tabClosed.count).toBeGreaterThan(0);
+  });
+
+  test('a lost live tab reopens automatically and keeps streaming', async () => {
+    const harness = browserLiveHarness();
+    const running = runSnipe({ ...FLAGS, browserLive: true }, { ...harness.deps, reopenDelaysMs: [0, 0] });
+    await harness.consoleReady;
+    for (let i = 0; i < 20 && harness.store.snapshot().searches[0]?.state !== 'live'; i += 1) await new Promise((r) => setTimeout(r, 0));
+
+    harness.disconnect();
+    for (let i = 0; i < 50 && harness.opened.length < 2; i += 1) await new Promise((r) => setTimeout(r, 0));
+    expect(harness.opened).toHaveLength(2);
+    for (let i = 0; i < 20 && harness.store.snapshot().searches[0]?.state !== 'live'; i += 1) await new Promise((r) => setTimeout(r, 0));
+    expect(harness.store.snapshot().searches[0]?.state).toBe('live');
+
+    harness.emit([LISTING], 'live');
+    await harness.waitForAlerts(1);
+    expect(harness.consoleAlerts.map((alert) => alert.listingId)).toEqual(['listing-1']);
+
+    harness.exit();
+    await running;
+  });
+
+  test('reopening gives up after the configured attempts and marks the search stopped', async () => {
+    const harness = browserLiveHarness();
+    const running = runSnipe({ ...FLAGS, browserLive: true }, { ...harness.deps, reopenDelaysMs: [0] });
+    await harness.consoleReady;
+    for (let i = 0; i < 20 && harness.store.snapshot().searches[0]?.state !== 'live'; i += 1) await new Promise((r) => setTimeout(r, 0));
+
+    harness.disconnect(); // first drop: the single attempt reopens the tab
+    for (let i = 0; i < 50 && harness.opened.length < 2; i += 1) await new Promise((r) => setTimeout(r, 0));
+    for (let i = 0; i < 20 && harness.store.snapshot().searches[0]?.state !== 'live'; i += 1) await new Promise((r) => setTimeout(r, 0));
+
+    harness.disconnect(); // second drop: the ladder is exhausted
+    for (let i = 0; i < 50 && harness.store.snapshot().searches[0]?.state !== 'stopped'; i += 1) await new Promise((r) => setTimeout(r, 0));
+    expect(harness.store.snapshot().searches[0]?.state).toBe('stopped');
+    expect(harness.opened).toHaveLength(2);
+
+    harness.exit();
+    await running;
+  });
+
+  test('a failed reopen retries until an attempt succeeds', async () => {
+    const harness = browserLiveHarness();
+    const running = runSnipe({ ...FLAGS, browserLive: true }, { ...harness.deps, reopenDelaysMs: [0, 0] });
+    await harness.consoleReady;
+    for (let i = 0; i < 20 && harness.store.snapshot().searches[0]?.state !== 'live'; i += 1) await new Promise((r) => setTimeout(r, 0));
+
+    harness.failOpens.count = 1; // Chrome still down for the first attempt
+    harness.disconnect();
+    for (let i = 0; i < 50 && harness.opened.length < 3; i += 1) await new Promise((r) => setTimeout(r, 0));
+    expect(harness.opened).toHaveLength(3);
+    for (let i = 0; i < 20 && harness.store.snapshot().searches[0]?.state !== 'live'; i += 1) await new Promise((r) => setTimeout(r, 0));
+    expect(harness.store.snapshot().searches[0]?.state).toBe('live');
+
+    harness.exit();
+    await running;
   });
 
   test('seed captures queue quietly and repeats are deduped', async () => {
@@ -690,15 +752,16 @@ describe('runSnipe browser-live mode', () => {
     await running;
   });
 
-  test('a dropped tab marks the search stopped with recovery guidance', async () => {
+  test('a dropped tab goes to connecting while the reopen ladder runs', async () => {
     const harness = browserLiveHarness();
-    const running = runSnipe({ ...FLAGS, browserLive: true }, harness.deps);
+    // Real (non-zero) backoff: the state must explain the pending reopen.
+    const running = runSnipe({ ...FLAGS, browserLive: true }, { ...harness.deps, reopenDelaysMs: [5_000] });
     await harness.consoleReady;
     for (let i = 0; i < 20 && harness.opened.length === 0; i += 1) await new Promise((r) => setTimeout(r, 0));
 
     harness.disconnect();
-    expect(harness.store.snapshot().searches[0]?.state).toBe('stopped');
-    expect(harness.store.snapshot().searches[0]?.detail).toMatch(/exilium chrome/);
+    expect(harness.store.snapshot().searches[0]?.state).toBe('connecting');
+    expect(harness.store.snapshot().searches[0]?.detail).toMatch(/reopening in 5s/);
 
     harness.exit();
     await running;
