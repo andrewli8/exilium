@@ -6,7 +6,7 @@ import type { Db } from './db.js';
  * either a fresh database or a legacy DB created before versioning existed;
  * the v1 baseline uses IF NOT EXISTS so both cases converge safely. */
 
-export const CURRENT_SCHEMA_VERSION = 4;
+export const CURRENT_SCHEMA_VERSION = 5;
 
 const V1_BASELINE = `
 CREATE TABLE IF NOT EXISTS snapshots (
@@ -139,6 +139,17 @@ const MIGRATIONS: readonly Migration[] = [
         );
         CREATE INDEX IF NOT EXISTS idx_stash_lookup ON stash_snapshots (game, league, account, taken_at);
       `);
+    },
+  },
+  {
+    version: 5,
+    up: (db) => {
+      // Snapshot hydration and pruning filter market_lines by snapshot_id;
+      // the existing (item_id, snapshot_id) index cannot serve that (wrong
+      // leading column), so every lookup full-scanned the table — seconds
+      // per snapshot parse once the table reached hundreds of thousands of
+      // rows on long-lived databases.
+      db.exec('CREATE INDEX IF NOT EXISTS idx_lines_snapshot ON market_lines (snapshot_id)');
     },
   },
 ];

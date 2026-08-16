@@ -112,6 +112,15 @@ describe('SnapshotRepository', () => {
     expect(remaining).toEqual(['2026-07-10T10:45:00Z', '2026-07-10T11:05:00Z', '2026-07-18T17:00:00Z']);
   });
 
+  test('prune hard-deletes history older than the retention cap, hourly survivors included', () => {
+    repo.save(snap({ fetchedAt: '2026-06-01T10:05:00Z' })); // 47 days old — outlived any use
+    repo.save(snap({ fetchedAt: '2026-07-18T17:00:00Z' }));
+    const removed = repo.prune('2026-07-18T18:00:00Z', 48);
+    expect(removed).toBe(1);
+    expect(repo.snapshotTimeline('poe2', 'Runes of Aldur', 'Currency').map((s) => s.fetchedAt))
+      .toEqual(['2026-07-18T17:00:00Z']);
+  });
+
   test('latestAll serves cached results until a new snapshot is saved', () => {
     repo.save(snap({}));
     const first = repo.latestAll('poe2', 'Runes of Aldur');

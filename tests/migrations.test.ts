@@ -19,6 +19,15 @@ describe('schema migrations', () => {
     }
   });
 
+  test('market_lines snapshot lookups seek an index instead of scanning', () => {
+    // Hydrating a snapshot and pruning both filter by snapshot_id; without a
+    // dedicated index each one full-scans the table (858k rows on a month-old
+    // live DB — measured seconds per parse, the 'extremely slow' report).
+    const db = createDb(':memory:');
+    const plan = db.prepare('EXPLAIN QUERY PLAN SELECT * FROM market_lines WHERE snapshot_id = 1').all();
+    expect(JSON.stringify(plan)).toMatch(/idx_lines_snapshot/);
+  });
+
   test('reopening an up-to-date database is a no-op', () => {
     const path = join(dir, 'reopen.db');
     createDb(path).close();

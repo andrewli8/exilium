@@ -1,6 +1,10 @@
 import type { Db } from './db.js';
 import type { CoreRates, Game, MarketLine, MarketSnapshot } from '../domain/types.js';
 
+/** Hard retention cap: nothing older survives pruning. Sparklines and 24h
+ * deltas read at most 7 days back; 14 leaves generous slack. */
+const MAX_HISTORY_HOURS = 14 * 24;
+
 interface SnapshotRow {
   readonly id: number;
   readonly game: Game;
@@ -33,27 +37,37 @@ export class SnapshotRepository {
   constructor(private readonly db: Db) {}
 
   /** Delete redundant history: snapshots older than `keepFullHours` are
-   * downsampled to one per (category, hour) — the newest in each hour wins.
-   * Returns the number of snapshots removed. */
+   * downsampled to one per (category, hour) — the newest in each hour wins —
+   * and anything past MAX_HISTORY_HOURS is dropped entirely (sparklines and
+   * 24h deltas need days, not months; unbounded history is what ground
+   * month-old databases to a crawl). Returns the number removed. */
   prune(nowIso: string, keepFullHours: number): number {
     const cutoff = new Date(Date.parse(nowIso) - keepFullHours * 3600_000).toISOString();
+    const hardCutoff = new Date(Date.parse(nowIso) - MAX_HISTORY_HOURS * 3600_000).toISOString();
     const doomed = this.db
       .prepare(
-        `SELECT id FROM snapshots s WHERE fetched_at < ?
+        `SELECT id FROM snapshots WHERE fetched_at < ?
+         UNION
+         SELECT id FROM snapshots s WHERE fetched_at < ?
          AND id NOT IN (
            SELECT MAX(id) FROM snapshots
            WHERE fetched_at < ?
            GROUP BY game, league, category, substr(fetched_at, 1, 13)
          )`,
       )
-      .all(cutoff, cutoff) as readonly { id: number }[];
+      .all(hardCutoff, cutoff, cutoff) as readonly { id: number }[];
     this.db.transaction(() => {
       for (const d of doomed) {
         this.db.prepare('DELETE FROM market_lines WHERE snapshot_id = ?').run(d.id);
         this.db.prepare('DELETE FROM snapshots WHERE id = ?').run(d.id);
       }
     })();
-    if (doomed.length > 0) this.latestAllCache.clear();
+    if (doomed.length > 0) {
+      this.latestAllCache.clear();
+      // Reclaim the freed pages from the WAL — long-lived databases had
+      // accumulated 100MB+ WALs, which slow every subsequent read.
+      try { this.db.pragma('wal_checkpoint(TRUNCATE)'); } catch { /* in-memory or busy — harmless */ }
+    }
     return doomed.length;
   }
 
