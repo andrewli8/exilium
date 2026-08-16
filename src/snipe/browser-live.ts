@@ -71,10 +71,10 @@ const TAB_COMMAND_TIMEOUT_MS = 20_000;
  * always pay the full wait, and the startup ramp multiplies it by the tab
  * count — keep it as tight as the page's search+fetch round trip allows. */
 const SEED_CAPTURE_WAIT_MS = 6_000;
-/** Grace after the first capture before navigating to /live: later fetch
- * batches finish arriving, and page-world work started against the plain
- * page (reward floor lookups) is not yanked mid-flight by the navigation. */
-const SEED_SETTLE_MS = 4_000;
+/** Grace after the first capture before switching to live: later fetch
+ * batches finish arriving. Short — in-place activation (no navigation) means
+ * page-world work is no longer at risk of being yanked. */
+const SEED_SETTLE_MS = 1_500;
 
 export function liveSearchPageUrl(search: TradeSearch): string {
   return `${buildSearchPageUrl({ realm: search.realm, searchId: search.searchId }, search.league)}/live`;
@@ -82,6 +82,28 @@ export function liveSearchPageUrl(search: TradeSearch): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Activate the live stream IN PLACE on the already-loaded search page by
+ * clicking the site's own button — the /live navigation reloads the whole
+ * SPA and costs seconds. Confirms activation by watching the button flip. */
+export function activateLiveExpression(): string {
+  return `(async () => {
+    const find = (re) => Array.from(document.querySelectorAll('button'))
+      .find((element) => element instanceof HTMLButtonElement && !element.disabled
+        && re.test((element.textContent || '').trim()));
+    const activate = find(/^activate live search$/i);
+    if (!activate) return 'no-button';
+    activate.click();
+    const deadline = Date.now() + 4000;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const flipped = Array.from(document.querySelectorAll('button'))
+        .some((element) => /deactivate live search|live search: searching/i.test((element.textContent || '').trim()));
+      if (flipped) return 'activated';
+    }
+    return 'unconfirmed';
+  })()`;
 }
 
 /** Reconciliation sweep script: reports the row ids the tab currently shows
@@ -183,7 +205,16 @@ export async function openBrowserLiveSearch(
     await Promise.race([firstCapture, sleep(options.seedCaptureWaitMs ?? SEED_CAPTURE_WAIT_MS)]);
     options.onSeeded?.();
     await sleep(options.seedSettleMs ?? SEED_SETTLE_MS);
-    await page.goto(liveSearchPageUrl(options.search));
+    // Prefer in-place activation (the button click starts the live stream on
+    // the page we already loaded, keeping its rendered rows for travel);
+    // fall back to the /live navigation if the button cannot be confirmed.
+    const activation = page.evaluate === undefined
+      ? 'no-evaluate'
+      : await page.evaluate(activateLiveExpression()).catch(() => 'error');
+    if (activation !== 'activated') {
+      options.log(`browser-live: in-place activation ${String(activation)} for ${options.search.searchId} — navigating to /live instead`);
+      await page.goto(liveSearchPageUrl(options.search));
+    }
   } catch (error) {
     await page.close();
     throw error;

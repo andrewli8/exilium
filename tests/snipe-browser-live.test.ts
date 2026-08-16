@@ -91,7 +91,7 @@ describe('browser-live search', () => {
     testHarness.emit(FETCH_URL, 'not json');
     testHarness.emit(FETCH_URL, '{"unexpected":true}');
     expect(testHarness.listings).toEqual([]);
-    expect(testHarness.logs.filter((line) => /browser-live/.test(line))).toHaveLength(2);
+    expect(testHarness.logs.filter((line) => /unparsable|malformed/.test(line))).toHaveLength(2);
   });
 
   test('captures on the plain page are always seeds, even after a long load', async () => {
@@ -128,6 +128,56 @@ describe('browser-live search', () => {
     clock.value = 70_000; // past the post-live seed window
     captured?.(FETCH_URL, fetchBody('fresh'));
     expect(listings.at(-1)).toEqual({ source: 'live', ids: ['fresh'] });
+    await handle.close();
+  });
+
+  test('activates live in place when the page button confirms — no /live navigation', async () => {
+    const clock = { value: 1_000 };
+    const gotos: string[] = [];
+    const evaluations: string[] = [];
+    const handle = await openBrowserLiveSearch({
+      cdpUrl: 'http://127.0.0.1:9222',
+      search: { realm: 'trade', league: 'Allflame', searchId: 'xyz' },
+      log: () => undefined,
+      onListings: () => undefined,
+      seedCaptureWaitMs: 0,
+      seedSettleMs: 0,
+      createPage: async () => ({
+        url: () => 'about:blank',
+        goto: async (url: string) => { gotos.push(url); },
+        clickTravelButton: async () => 'clicked',
+        evaluate: async (expression: string) => { evaluations.push(expression); return 'activated'; },
+        close: async () => undefined,
+      }),
+      now: () => clock.value,
+    });
+    expect(gotos).toEqual(['https://www.pathofexile.com/trade/search/Allflame/xyz']); // plain page only
+    expect(evaluations.some((expression) => expression.includes('activate live search'))).toBe(true);
+    await handle.close();
+  });
+
+  test('falls back to the /live navigation when activation is unconfirmed', async () => {
+    const gotos: string[] = [];
+    const handle = await openBrowserLiveSearch({
+      cdpUrl: 'http://127.0.0.1:9222',
+      search: { realm: 'trade', league: 'Allflame', searchId: 'xyz' },
+      log: () => undefined,
+      onListings: () => undefined,
+      seedCaptureWaitMs: 0,
+      seedSettleMs: 0,
+      createPage: async () => ({
+        url: () => 'about:blank',
+        goto: async (url: string) => { gotos.push(url); },
+        clickTravelButton: async () => 'clicked',
+        evaluate: async () => 'no-button',
+        close: async () => undefined,
+      }),
+      now: () => 1_000,
+    });
+    expect(gotos).toEqual([
+      'https://www.pathofexile.com/trade/search/Allflame/xyz',
+      'https://www.pathofexile.com/trade/search/Allflame/xyz/live',
+    ]);
     await handle.close();
   });
 
