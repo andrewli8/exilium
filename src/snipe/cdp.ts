@@ -412,7 +412,16 @@ export async function createCdpPage(options: CreateCdpPageOptions): Promise<CdpT
     async close() {
       if (closed) return;
       closed = true;
+      // Page.close over the socket races the socket teardown and can lose —
+      // an about:blank tab survives every time it does. Chrome's HTTP
+      // endpoint closes the target regardless of our socket's state.
       void connection.send('Page.close').catch(() => undefined);
+      if (typeof target.id === 'string') {
+        const base = options.cdpUrl.endsWith('/') ? options.cdpUrl : `${options.cdpUrl}/`;
+        void fetchFn(new URL(`json/close/${target.id}`, base).toString(), {
+          signal: AbortSignal.timeout(2_000),
+        }).catch(() => undefined);
+      }
       connection.dispose();
     },
   };

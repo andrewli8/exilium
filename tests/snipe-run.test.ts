@@ -155,6 +155,7 @@ function makeHarness(options: {
     },
     refreshPrices: async () => undefined,
     probeChrome: async () => false,
+    closeOrphanTabs: async () => undefined,
     notify,
     recordAlert: (alert, action, detail) => records.push({ listingId: alert.listingId, action, detail }),
     now: () => NOW,

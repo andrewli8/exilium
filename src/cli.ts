@@ -362,6 +362,14 @@ async function cmdTui(): Promise<void> {
     minMarginPct: config.snipe.minMarginPct ?? 0,
   });
   let snipeRuntime: Awaited<ReturnType<typeof startSnipeRuntime>> | undefined;
+  let snipeStartInFlight: Promise<void> | undefined;
+  const stopSnipeRuntime = async (): Promise<void> => {
+    // Wait for any bootstrap to land so the runtime it produces gets stopped
+    // too — cancelling mid-start must never leave a session running.
+    if (snipeStartInFlight !== undefined) await snipeStartInFlight;
+    if (snipeRuntime !== undefined) await snipeRuntime.stop();
+    snipeRuntime = undefined;
+  };
   const entryUrl = (entry: (typeof snipeEntries)[number]): string => {
     const leaguePart = encodeURIComponent(entry.league ?? config.snipe.league ?? league);
     return entry.realm === 'trade2'
@@ -422,14 +430,16 @@ async function cmdTui(): Promise<void> {
           return snipeEntries;
         },
         start: async (enabledKeys: readonly string[]) => {
-          if (snipeRuntime !== undefined) await snipeRuntime.stop();
-          snipeRuntime = undefined;
+          // A restart must stop the previous runtime even if it is still
+          // BOOTSTRAPPING — otherwise two sessions run and cancel appears
+          // to do nothing.
+          await stopSnipeRuntime();
           const enabled = snipeEntries.filter((entry) => enabledKeys.includes(entry.key));
           snipeStore.setTargets(enabled);
           // Fire-and-forget: the configure overlay closes immediately and the
           // board shows the ramp live (CONNECTING → LIVE per search) instead
           // of freezing on "Saving…" while Chrome is probed and tabs open.
-          void startSnipeRuntime({
+          snipeStartInFlight = startSnipeRuntime({
             flags: {
               folder: snipeFolder,
               league: undefined,
@@ -454,6 +464,8 @@ async function cmdTui(): Promise<void> {
             const message = error instanceof Error ? error.message : String(error);
             logSnipeRuntime(`snipe start failed: ${message}`);
             snipeStore.setStatus(`start failed: ${message.slice(0, 80)}`);
+          }).finally(() => {
+            snipeStartInFlight = undefined;
           });
         },
         travel: async (listingId: string) => snipeRuntime === undefined
@@ -463,7 +475,7 @@ async function cmdTui(): Promise<void> {
     }),
   );
   await instance.waitUntilExit();
-  if (snipeRuntime !== undefined) await snipeRuntime.stop();
+  await stopSnipeRuntime();
 }
 
 async function cmdJournal(): Promise<void> {

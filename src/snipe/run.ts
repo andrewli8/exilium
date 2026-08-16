@@ -117,6 +117,8 @@ export interface SnipeDeps {
   readonly openLiveSearch?: typeof openBrowserLiveSearch;
   /** Auto-mode Chrome detection; defaults to a short CDP /json/version probe. */
   readonly probeChrome?: (cdpUrl: string) => Promise<boolean>;
+  /** Startup housekeeping; defaults to closing orphaned about:blank tabs. */
+  readonly closeOrphanTabs?: (cdpUrl: string, log: (message: string) => void) => Promise<void>;
 }
 
 export const MAX_SNIPE_SOCKETS = 20;
@@ -149,6 +151,25 @@ export function snipeStartupMessages(
 
 function snipeLogPath(): string {
   return join(homedir(), '.exilium', 'snipes.jsonl');
+}
+
+/** Close leftover about:blank tabs in the Exilium Chrome. Every CDP page is
+ * born as about:blank; a raced close or a force-killed session strands them,
+ * and they accumulate across restarts. The Exilium profile is dedicated, so
+ * blank tabs there are ours to reap. */
+async function closeOrphanBlankTabs(cdpUrl: string, log: (message: string) => void): Promise<void> {
+  try {
+    const base = cdpUrl.endsWith('/') ? cdpUrl : `${cdpUrl}/`;
+    const targets = await fetch(new URL('json', base), { signal: AbortSignal.timeout(2_000) })
+      .then((res) => res.json()) as Array<{ id?: string; type?: string; url?: string }>;
+    const orphans = targets.filter((t) => t.type === 'page' && t.url === 'about:blank' && typeof t.id === 'string');
+    for (const orphan of orphans) {
+      await fetch(new URL(`json/close/${orphan.id}`, base), { signal: AbortSignal.timeout(2_000) }).catch(() => undefined);
+    }
+    if (orphans.length > 0) log(`closed ${orphans.length} orphaned about:blank tab(s) from a previous session`);
+  } catch {
+    // Best-effort housekeeping — never block startup on it.
+  }
 }
 
 async function probeChromeCdp(cdpUrl: string): Promise<boolean> {
@@ -952,6 +973,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     if (browserLive) {
       const tabGapMs = deps.connectStaggerMs ?? BROWSER_LIVE_TAB_GAP_MS;
       startTask((async () => {
+        await (deps.closeOrphanTabs ?? closeOrphanBlankTabs)(config.snipe.chromeCdpUrl, log);
         for (const [index, entry] of runtimeTargets.entries()) {
           if (stopped || stopIntent) return;
           // Pipeline the ramp: the budgeted search POST happens at the plain
