@@ -73,5 +73,9 @@ export function createDb(path: string): Db {
   db.pragma('synchronous = NORMAL');
   db.pragma('foreign_keys = ON');
   runMigrations(db);
+  // Fold the WAL back into the main file when we're the only connection.
+  // Long-lived extra processes (MCP servers, stray sessions) block
+  // checkpointing, and an unbounded WAL slows every read for everyone.
+  try { db.pragma('wal_checkpoint(TRUNCATE)'); } catch { /* busy or in-memory — harmless */ }
   return db;
 }

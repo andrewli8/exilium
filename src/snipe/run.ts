@@ -46,6 +46,7 @@ import { effectiveLeague, resolveSnipeLeague, type FetchLeaguesFn } from './leag
 import { alertClearsFlatFloor } from './board.js';
 import { assessListingOnly, assessMargin, assessMarginAgainstFloor, toChaos } from './margin.js';
 import { RewardFloorService, type PageEvaluate, type RewardFloorPrice } from './reward-floor.js';
+import { acquireSnipeLock, defaultIsAlive, releaseSnipeLock } from './instance-lock.js';
 import { persistSnipeImport } from './import.js';
 import { resolveRequestedTargets } from './selection.js';
 import type { TravelResult } from './travel.js';
@@ -121,6 +122,8 @@ export interface SnipeDeps {
   readonly closeOrphanTabs?: (cdpUrl: string, log: (message: string) => void) => Promise<void>;
   /** Backoff ladder for reopening a dropped live tab; tests pass zeros. */
   readonly reopenDelaysMs?: readonly number[];
+  /** Directory for the single-instance lock; defaults to ~/.exilium. */
+  readonly lockDir?: string;
 }
 
 export const MAX_SNIPE_SOCKETS = 20;
@@ -265,6 +268,16 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     out(`No BetterTrading folder yet — created ${folder} with a starter:`);
     for (const path of written) out(`  ${path}`);
     out('Paste a Better Trading export now, or use `exilium snipe import` later.');
+  }
+
+  // Warn (never block) when another live snipe session already runs: two
+  // sessions share one Chrome, double-process every listing, and the extra
+  // DB connection blocks WAL checkpointing — a major source of slowdown.
+  const lock = acquireSnipeLock(deps.lockDir ?? join(homedir(), '.exilium'), process.pid, defaultIsAlive);
+  if (!lock.acquired) {
+    out(`⚠ Another Exilium snipe session appears to be running (pid ${lock.holderPid}).`);
+    out('  Two sessions double-process listings and fight over the same Chrome tabs — close the other one (or this one).');
+    log(`another snipe session holds the lock (pid ${lock.holderPid})`);
   }
 
   const loadEnabledTargets = (): readonly SnipeTarget[] =>
@@ -1131,6 +1144,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     await Promise.race([consoleHandle.waitUntilExit().then(() => undefined), stopRequested]);
   } finally {
     process.removeListener('SIGINT', onSigint);
+    if (lock.acquired) releaseSnipeLock(lock.path, process.pid);
     await cleanup();
   }
 }

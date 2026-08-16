@@ -154,6 +154,7 @@ function makeHarness(options: {
       return options.seedIds ?? [];
     },
     refreshPrices: async () => undefined,
+    lockDir: folder, // never touch the real ~/.exilium lock from tests
     probeChrome: async () => false,
     closeOrphanTabs: async () => undefined,
     notify,
