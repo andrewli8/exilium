@@ -111,18 +111,22 @@ describe('SnipeStore', () => {
     expect(store.snapshot().keyboardCapture).toBe(false);
   });
 
-  test('notifies subscribers with connection and seed progress state', () => {
+  test('snapshots update immediately; subscriber notifications coalesce per frame', async () => {
     const store = new SnipeStore([target('one')], { minMarginPct: 20 });
     let notifications = 0;
     store.subscribe(() => { notifications += 1; });
     store.setSearchState('trade:one', 'live');
     store.setProgress(1, 1);
 
-    expect(notifications).toBe(2);
+    // Readers never wait — the ping path depends on this.
     expect(store.snapshot()).toMatchObject({
       searches: [{ state: 'live' }],
       progress: { seeded: 1, total: 1 },
     });
+    // But the UI hears about the burst exactly once.
+    expect(notifications).toBe(0);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(notifications).toBe(1);
   });
 
   test('reconfigures enabled search rows without replacing the store', () => {

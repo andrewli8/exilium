@@ -63,6 +63,7 @@ export class SnipeStore {
   private keyboardCapture = false;
   private flatFloor: { readonly chaos: number; readonly label: string } | null = null;
   private chaosPerDivine: number | null = null;
+  private notifyScheduled = false;
   private readonly listeners = new Set<() => void>();
   private readonly rememberedIds = new Set<string>();
   private readonly rememberedOrder: string[] = [];
@@ -246,6 +247,15 @@ export class SnipeStore {
       this.queue = { ...this.queue, selectedListingId: this.current.table.rows[0]!.entry.alert.listingId };
       this.current = this.buildSnapshot();
     }
-    for (const listener of this.listeners) listener();
+    // The snapshot above is fresh IMMEDIATELY (the ping path and snapshot()
+    // readers never wait), but UI notifications coalesce to one per frame:
+    // ramp/sweep bursts used to trigger a full Ink re-render per event, and
+    // those renders competed with the user's keystrokes.
+    if (this.notifyScheduled) return;
+    this.notifyScheduled = true;
+    setTimeout(() => {
+      this.notifyScheduled = false;
+      for (const listener of this.listeners) listener();
+    }, 16);
   }
 }
