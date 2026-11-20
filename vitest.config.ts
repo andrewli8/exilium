@@ -3,6 +3,10 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
+    // UI tests assert the Unicode glyph set. A bare Windows CI console would
+    // otherwise get the ASCII fallback (glyphs.ts); that fallback has its own
+    // tests with an injected env.
+    env: { EXILIUM_UNICODE: '1' },
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],

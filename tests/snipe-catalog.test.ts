@@ -94,7 +94,7 @@ describe('snipe catalog', () => {
     const dir = folder();
     const path = saveSnipeManifest(dir, emptySnipeManifest());
     expect(existsSync(path)).toBe(true);
-    expect(statSync(path).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(statSync(path).mode & 0o777).toBe(0o600);
     expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({ version: 1, managed: [], overrides: {} });
     expect(loadSnipeManifest(dir)).toEqual(emptySnipeManifest());
   });
