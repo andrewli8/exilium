@@ -7,7 +7,13 @@ on:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Most PoE players run Windows; path, shell and signal behavior must be
+        # proven there, not only on Linux.
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -21,3 +27,24 @@ jobs:
         run: npm test
       - name: Detector evals
         run: npm run eval
+      - name: Launcher boots
+        run: node bin/exilium.js help
+        env:
+          EXILIUM_DB: ${{ runner.temp }}/smoke.db
+
+  windows-binary:
+    # The release builds the .exe on Linux and never runs it. Compile and boot
+    # it on real Windows so an unbootable binary fails here, before a tag.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.5
+      - run: npm ci
+      - name: Build Windows binary
+        run: bun build ./src/cli.ts --compile --minify --external better-sqlite3 --target=bun-windows-x64 --outfile dist/exilium.exe
+      - name: Binary boots
+        run: ./dist/exilium.exe help
+        env:
+          EXILIUM_DB: ${{ runner.temp }}/smoke.db

@@ -17,8 +17,12 @@ export function buildSnipeWebhookPayload(alert: SnipeAlert, action: string, deta
 
 export type WebhookFetchFn = (
   url: string,
-  init: { method: string; headers: Record<string, string>; body: string },
+  init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal },
 ) => Promise<Response>;
+
+/** A webhook endpoint that accepts the connection but never answers would
+ * otherwise hold the request (and its socket) open indefinitely. */
+export const WEBHOOK_TIMEOUT_MS = 5_000;
 
 export async function postSnipeWebhook(
   url: string,
@@ -31,6 +35,7 @@ export async function postSnipeWebhook(
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
     });
     if (!res.ok) log(`snipe webhook returned ${res.status}`);
   } catch (err) {

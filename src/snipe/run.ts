@@ -1037,7 +1037,11 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
   };
 
   const onSigint = (): void => requestStop();
-  process.once('SIGINT', onSigint);
+  // SIGHUP: terminal closed (on Windows, the console window's X button,
+  // after which Windows kills the process ~10s later). SIGBREAK: Ctrl+Break
+  // on Windows. All three must close the /live tabs Exilium opened in Chrome.
+  const stopSignals = ['SIGINT', 'SIGHUP', 'SIGBREAK'] as const;
+  for (const signal of stopSignals) process.once(signal, onSigint);
   try {
     for (const message of snipeStartupMessages(runnable.length, league, minMarginPct, browserLive)) out(message);
     for (const { target } of runnable) out(`  ${target.label} (${target.searchId})`);
@@ -1143,7 +1147,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     }
     await Promise.race([consoleHandle.waitUntilExit().then(() => undefined), stopRequested]);
   } finally {
-    process.removeListener('SIGINT', onSigint);
+    for (const signal of stopSignals) process.removeListener(signal, onSigint);
     if (lock.acquired) releaseSnipeLock(lock.path, process.pid);
     await cleanup();
   }

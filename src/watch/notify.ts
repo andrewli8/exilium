@@ -1,3 +1,5 @@
+import { WEBHOOK_TIMEOUT_MS } from '../snipe/webhook.js';
+
 export interface Notifier {
   notify(title: string, message: string): Promise<void>;
 }
@@ -7,7 +9,7 @@ export type ExecFn = (command: string, args: readonly string[]) => Promise<unkno
 export interface NotifierOptions {
   readonly platform: NodeJS.Platform;
   readonly execFn: ExecFn;
-  readonly fetchFn: (url: string, init: { method: string; headers: Record<string, string>; body: string }) => Promise<Response>;
+  readonly fetchFn: (url: string, init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal }) => Promise<Response>;
   readonly webhookUrl?: string | undefined;
   readonly log: (message: string) => void;
 }
@@ -35,31 +37,38 @@ function powershellCommand(title: string, message: string): readonly string[] {
  * notify-send / Windows PowerShell toast) plus optional Discord webhook. Channel failures are
  * logged, never thrown — a broken channel must not kill the watch loop. */
 export function createNotifier(opts: NotifierOptions): Notifier {
+  const desktop = async (title: string, message: string): Promise<void> => {
+    try {
+      if (opts.platform === 'darwin') {
+        await opts.execFn('osascript', osascriptCommand(title, message));
+      } else if (opts.platform === 'linux') {
+        await opts.execFn('notify-send', [title, message]);
+      } else if (opts.platform === 'win32') {
+        await opts.execFn('powershell', powershellCommand(title, message));
+      }
+    } catch (err) {
+      opts.log(`desktop notification failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+  const webhook = async (title: string, message: string): Promise<void> => {
+    if (opts.webhookUrl === undefined) return;
+    try {
+      const res = await opts.fetchFn(opts.webhookUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ content: `**${title}**\n${message}` }),
+        signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
+      });
+      if (!res.ok) opts.log(`webhook returned ${res.status}`);
+    } catch (err) {
+      opts.log(`webhook failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
   return {
     async notify(title: string, message: string): Promise<void> {
-      try {
-        if (opts.platform === 'darwin') {
-          await opts.execFn('osascript', osascriptCommand(title, message));
-        } else if (opts.platform === 'linux') {
-          await opts.execFn('notify-send', [title, message]);
-        } else if (opts.platform === 'win32') {
-          await opts.execFn('powershell', powershellCommand(title, message));
-        }
-      } catch (err) {
-        opts.log(`desktop notification failed: ${err instanceof Error ? err.message : String(err)}`);
-      }
-      if (opts.webhookUrl !== undefined) {
-        try {
-          const res = await opts.fetchFn(opts.webhookUrl, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ content: `**${title}**\n${message}` }),
-          });
-          if (!res.ok) opts.log(`webhook returned ${res.status}`);
-        } catch (err) {
-          opts.log(`webhook failed: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      }
+      // Channels run concurrently: the Windows toast is a PowerShell cold
+      // start plus a 3s sleep, and the webhook must not queue behind it.
+      await Promise.all([desktop(title, message), webhook(title, message)]);
     },
   };
 }

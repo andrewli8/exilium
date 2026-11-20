@@ -109,6 +109,18 @@ describe('createNotifier', () => {
     expect(log).toHaveBeenCalled();
   });
 
+  test('webhook does not wait for a slow desktop notification and carries a timeout', async () => {
+    let finishDesktop!: () => void;
+    const execFn = vi.fn(() => new Promise<void>((resolve) => { finishDesktop = resolve; }));
+    const fetchFn = vi.fn().mockResolvedValue(new Response('ok', { status: 200 }));
+    const notifier = createNotifier({ platform: 'win32', execFn, fetchFn, webhookUrl: 'https://x', log: () => {} });
+    const sent = notifier.notify('t', 'm');
+    await Promise.resolve();
+    expect(fetchFn).toHaveBeenCalledWith('https://x', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    finishDesktop();
+    await sent;
+  });
+
   test('uses PowerShell for desktop notifications on Windows', async () => {
     const execFn = vi.fn().mockResolvedValue(undefined);
     const notifier = createNotifier({ platform: 'win32', execFn, fetchFn: vi.fn(), log: () => {} });
