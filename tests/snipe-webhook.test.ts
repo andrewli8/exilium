@@ -46,6 +46,7 @@ describe('postSnipeWebhook', () => {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(payload),
+      signal: expect.any(AbortSignal),
     });
     expect(log).not.toHaveBeenCalled();
   });

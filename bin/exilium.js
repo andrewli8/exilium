@@ -4,11 +4,14 @@
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(join(root, 'package.json'));
-const tsx = require.resolve('tsx');
+// --import takes a URL specifier: a bare Windows path like C:\... parses as
+// an unknown "c:" URL scheme and Node refuses to start. A file:// URL works on
+// every platform.
+const tsx = pathToFileURL(require.resolve('tsx')).href;
 
 const child = spawn(process.execPath, ['--import', tsx, join(root, 'src', 'cli.ts'), ...process.argv.slice(2)], {
   stdio: 'inherit',

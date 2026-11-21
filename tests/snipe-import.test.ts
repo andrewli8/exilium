@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
 import { loadSnipeFolder, readSnipeFolderFiles } from '../src/snipe/bettertrading.js';
 import { persistSnipeImport } from '../src/snipe/import.js';
@@ -66,7 +66,7 @@ describe('persistSnipeImport', () => {
     mkdirSync(dir, { recursive: true });
     // Simulate an import made before folders existed: digest file at the root.
     const flat = persistSnipeImport({ folder: dir, content: VALID_EXPORT, sourceName: 'clipboard' });
-    const digestName = flat.path.split('/').at(-1)!;
+    const digestName = basename(flat.path);
     const rootPath = join(dir, digestName);
     renameSync(flat.path, rootPath);
     rmSync(join(dir, 'currency'), { recursive: true, force: true });

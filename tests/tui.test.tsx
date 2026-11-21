@@ -142,8 +142,7 @@ describe('ExiliumTui', () => {
     expect(ui.lastFrame()).toContain('Sublime Vision');
     expect(ui.lastFrame()).toContain('Mageblood');
     ui.stdin.write('\u001b');
-    await flush();
-    expect(ui.lastFrame()).toContain('[PRICE ALERTS]');
+    await vi.waitFor(() => expect(ui.lastFrame()).toContain('[PRICE ALERTS]'));
   });
 
   test('tab 4 defaults to PRICE ALERTS when no snipe workspace exists', async () => {
@@ -203,9 +202,10 @@ describe('ExiliumTui', () => {
     expect(ui.lastFrame()).toContain('Enter travel · Esc board');
 
     ui.stdin.write('\u001b');
-    await flush();
+    // A lone ESC is held briefly in case an escape sequence follows; poll
+    // instead of sleeping so slow (Windows CI) runners don't race it.
+    await vi.waitFor(() => expect(ui.lastFrame()).toContain('REWARD'));
     expect(ui.lastFrame()).toContain('[SNIPES]');
-    expect(ui.lastFrame()).toContain('REWARD');
 
     ui.stdin.write('\u001b[13;2u');
     await flush();

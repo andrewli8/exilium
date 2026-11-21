@@ -58,7 +58,7 @@ describe('CLI integration', () => {
   });
 
   const run = (...args: readonly string[]) =>
-    exec('npx', ['tsx', 'src/cli.ts', ...args], { env, timeout: 30_000 });
+    exec(process.execPath, ['--import', 'tsx', 'src/cli.ts', ...args], { env, timeout: 30_000 });
 
   test('price resolves an item from the stored snapshot', async () => {
     const { stdout } = await run('price', 'divine', 'orb');
@@ -104,7 +104,7 @@ describe('CLI integration', () => {
   }, 40_000);
 
   test('chrome --print validates the port and uses the configured executable without spawning', async () => {
-    const printed = await exec('npx', ['tsx', 'src/cli.ts', 'chrome', '--print', '--port', '9333'], {
+    const printed = await exec(process.execPath, ['--import', 'tsx', 'src/cli.ts', 'chrome', '--print', '--port', '9333'], {
       env: { ...env, EXILIUM_CHROME: 'C:\\Portable Chrome\\chrome.exe' },
       timeout: 30_000,
     });
@@ -113,7 +113,7 @@ describe('CLI integration', () => {
     expect(printed.stdout).toContain('--remote-debugging-port=9333');
 
     await expect(
-      exec('npx', ['tsx', 'src/cli.ts', 'chrome', '--print', '--port', 'abc'], {
+      exec(process.execPath, ['--import', 'tsx', 'src/cli.ts', 'chrome', '--print', '--port', 'abc'], {
         env,
         timeout: 30_000,
       }),
@@ -125,7 +125,7 @@ describe('CLI integration', () => {
     const exportFile = join(dir, 'folder.bt');
     const payload = { tit: 'Currency', ver: '1', trs: [{ tit: 'Divines', loc: '1:search:abc123' }] };
     writeFileSync(exportFile, `3:${Buffer.from(JSON.stringify(payload)).toString('base64')}`);
-    const { stdout } = await exec('npx', ['tsx', 'src/cli.ts', 'snipe', 'import', '--file', exportFile], {
+    const { stdout } = await exec(process.execPath, ['--import', 'tsx', 'src/cli.ts', 'snipe', 'import', '--file', exportFile], {
       env: {
         ...env,
         EXILIUM_CONFIG: join(dir, 'no-session-config.json'),
@@ -180,16 +180,16 @@ describe('CLI integration', () => {
       EXILIUM_POESESSID: 'test-session',
     };
     await expect(
-      exec('npx', ['tsx', 'src/cli.ts', 'snipe'], { env: snipeEnv, timeout: 30_000 }),
+      exec(process.execPath, ['--import', 'tsx', 'src/cli.ts', 'snipe'], { env: snipeEnv, timeout: 30_000 }),
     ).rejects.toMatchObject({ stderr: expect.stringMatching(/--all|--search/) });
     await expect(
-      exec('npx', ['tsx', 'src/cli.ts', 'snipe', '--search', 'missing'], { env: snipeEnv, timeout: 30_000 }),
+      exec(process.execPath, ['--import', 'tsx', 'src/cli.ts', 'snipe', '--search', 'missing'], { env: snipeEnv, timeout: 30_000 }),
     ).rejects.toMatchObject({ stderr: expect.stringMatching(/Unknown snipe search selector/) });
   }, 80_000);
 
   test('setup writes a 600-permission config file from piped answers', async () => {
     const cfgPath = join(dir, 'config.json');
-    const child = exec('npx', ['tsx', 'src/cli.ts', 'setup'], {
+    const child = exec(process.execPath, ['--import', 'tsx', 'src/cli.ts', 'setup'], {
       env: { ...env, EXILIUM_CONFIG: cfgPath },
       timeout: 60_000,
     });
@@ -199,7 +199,8 @@ describe('CLI integration', () => {
     const { readFileSync, statSync } = await import('node:fs');
     const written = JSON.parse(readFileSync(cfgPath, 'utf8'));
     expect(written).toMatchObject({ game: 'poe1', account: 'TestAccount', poesessid: 'secret-cookie' });
-    expect(statSync(cfgPath).mode & 0o777).toBe(0o600);
+    // NTFS has no Unix mode bits; Node reports 0o666 for any writable file.
+    if (process.platform !== 'win32') expect(statSync(cfgPath).mode & 0o777).toBe(0o600);
   }, 90_000);
 
   test('unknown commands exit nonzero with usage', async () => {
