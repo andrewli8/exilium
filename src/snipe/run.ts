@@ -53,6 +53,7 @@ import type { TravelResult } from './travel.js';
 import { createSoundPlayer, type SoundChild, type SoundPlayer } from './sound-player.js';
 import { SnipeStore } from './store.js';
 import { buildSnipeWebhookPayload, postSnipeWebhook } from './webhook.js';
+import { resolveSearchIds, type PostSearch } from './resolve-search.js';
 
 export interface SnipeFlags {
   readonly folder: string | undefined;
@@ -106,6 +107,10 @@ export interface SnipeDeps {
   readonly openSocket?: OpenSnipeSocket;
   readonly fetchListings?: FetchSnipeListings;
   readonly fetchCurrentResultIds?: FetchCurrentSnipeResultIds;
+  /** POST transport for resolving compressed Better Trading slugs. */
+  readonly postSearch?: PostSearch;
+  /** Where resolved slug ids are cached (default ~/.exilium/search-ids.json). */
+  readonly searchIdCachePath?: string;
   readonly refreshPrices?: (signal: AbortSignal) => Promise<void>;
   readonly notify?: (title: string, body: string) => Promise<void>;
   readonly recordAlert?: (alert: SnipeAlert, action: string, detail: string) => void;
@@ -590,8 +595,24 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
       scheduler: tradeScheduler,
       ...(signal === undefined ? {} : { signal }),
     }));
-  const runtimeTargets: readonly RuntimeTarget[] = runnable.map((entry) => ({
+  // Compressed Better Trading slugs become real search ids (once; cached).
+  const postSearch: PostSearch = deps.postSearch ?? ((url, body) => tradeScheduler.schedule('seed', () => fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'User-Agent': config.userAgent,
+      ...(sessionId === '' ? {} : { Cookie: `POESESSID=${sessionId}` }),
+    },
+    body,
+  }), networkAbort.signal));
+  const resolvedSearches = await resolveSearchIds(runnable.map((entry) => entry.search), {
+    cachePath: deps.searchIdCachePath ?? join(homedir(), '.exilium', 'search-ids.json'),
+    post: postSearch,
+    log,
+  });
+  const runtimeTargets: readonly RuntimeTarget[] = runnable.map((entry, index) => ({
     ...entry,
+    search: resolvedSearches[index]!,
     seen: new Set<string>(),
     inFlight: new Set<string>(),
     knownPrices: new Map<string, number>(),
@@ -721,6 +742,7 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
         globalMinMarginPct: minMarginPct,
         source: source === 'seed' ? 'current' : 'live',
         league: entry.search.league,
+        searchId: entry.search.searchId,
         seen: NO_PRIOR_LISTINGS,
       });
       if (decision.kind === 'suppressed') {

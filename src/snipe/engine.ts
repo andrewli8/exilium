@@ -76,6 +76,9 @@ export interface DecideSnipeOptions {
   /** Resolved league every search runs under (default: Allflame). */
   readonly league: string;
   readonly seen: ReadonlySet<string>;
+  /** Network search id when it differs from the catalog's (a resolved
+   * compressed slug); the travel URL must use the id the site can load. */
+  readonly searchId?: string;
 }
 
 /** True when the listing price exceeds the target's max buy. Unconvertible
@@ -119,7 +122,7 @@ export function decideSnipe(opts: DecideSnipeOptions): SnipeDecision {
       priceText: listing.priceText,
       seller: listing.seller,
       listedAt: listing.listedAt,
-      searchUrl: buildSearchPageUrl(target, opts.league),
+      searchUrl: buildSearchPageUrl({ realm: target.realm, searchId: opts.searchId ?? target.searchId }, opts.league),
       listedChaos: assessment.listedChaos,
       marginChaos: assessment.marginChaos,
       marginPct: assessment.marginPct,

@@ -91,11 +91,12 @@ function makeHarness(options: {
   readonly manifest?: SnipeManifest;
   readonly store?: SnipeStore;
   readonly scheduler?: TradeRequestScheduler;
+  readonly firstSlug?: string;
 } = {}) {
   const folder = mkdtempSync(join(tmpdir(), 'exilium-run-'));
   if (options.emptyFolder !== true) {
     writeFileSync(join(folder, 'targets.json'), JSON.stringify({ targets: [
-      { label: 'Currency', slug: 'aaa' },
+      { label: 'Currency', slug: options.firstSlug ?? 'aaa' },
       { label: 'Uniques', slug: 'bbb' },
     ] }));
   }
@@ -649,6 +650,37 @@ describe('runSnipe browser-live mode', () => {
       disconnect: () => disconnect?.(),
     };
   }
+
+  test('a compressed Better Trading slug opens its live tab under a resolved search id', async () => {
+    const slug = 'H4sIAAAAAAAACl2NUQqAIBAF7_K-O4En6A4RseVGgamsKxHi3cO-qvkb5mMKkpLmBFMQou7BwyDxkoVmx6jd0xPMUKBXZBiQt-iw7k5ZWhjr-NKCg-L00l9ZwhEdt9EkfJLYz7lnslv2yoLauAGHcMZZnwAAAA';
+    const harness = makeHarness({ firstSlug: slug });
+    const opened: TradeSearch[] = [];
+    const openLiveSearch: NonNullable<SnipeDeps['openLiveSearch']> = async (options) => {
+      opened.push(options.search);
+      const page = {
+        url: () => '', goto: async () => undefined,
+        clickTravelButton: async () => 'clicked' as const, close: async () => undefined,
+      };
+      return { page, close: async () => undefined };
+    };
+    const posts: string[] = [];
+    const running = runSnipe({ ...FLAGS, browserLive: true, searches: [slug] }, {
+      ...harness.deps,
+      openLiveSearch,
+      postSearch: async (_url, body) => {
+        posts.push(body);
+        return new Response(JSON.stringify({ id: 'Resolved1', result: [] }), { status: 200 });
+      },
+      searchIdCachePath: join(mkdtempSync(join(tmpdir(), 'exilium-run-')), 'search-ids.json'),
+    });
+    await harness.consoleReady;
+    for (let i = 0; i < 20 && opened.length === 0; i += 1) await new Promise((r) => setTimeout(r, 0));
+    expect(opened[0]?.searchId).toBe('Resolved1');
+    expect(JSON.parse(posts[0]!).query.filters.map_filters.filters.map_completion_reward.option).toBe('Headhunter');
+    expect(posts).toHaveLength(1);
+    harness.exit();
+    await running;
+  });
 
   test('opens live tabs instead of sockets or API seeds and ingests captured listings', async () => {
     const harness = browserLiveHarness();

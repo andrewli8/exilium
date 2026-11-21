@@ -45,7 +45,7 @@ export function buildFetchUrl(ids: readonly string[], searchId: string, realm: T
   return `https://www.pathofexile.com/api/${api}/fetch/${ids.join(',')}?query=${searchId}`;
 }
 
-function tradeSearchApiBase(search: TradeSearch): string {
+export function tradeSearchApiBase(search: TradeSearch): string {
   const api = search.realm === 'trade2' ? 'trade2' : 'trade';
   return `https://www.pathofexile.com/api/${api}/search/${encodeURIComponent(search.league)}`;
 }
