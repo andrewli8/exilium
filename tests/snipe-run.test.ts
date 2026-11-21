@@ -651,6 +651,57 @@ describe('runSnipe browser-live mode', () => {
     };
   }
 
+  test('live-tab page loads wait for the search budget', async () => {
+    const harness = makeHarness();
+    const opened: string[] = [];
+    const openLiveSearch: NonNullable<SnipeDeps['openLiveSearch']> = async (options) => {
+      opened.push(options.search.searchId);
+      options.onSeeded?.();
+      const page = {
+        url: () => '', goto: async () => undefined,
+        clickTravelButton: async () => 'clicked' as const, close: async () => undefined,
+      };
+      return { page, close: async () => undefined };
+    };
+    const running = runSnipe({ ...FLAGS, browserLive: true, searches: ['aaa', 'bbb'] }, {
+      ...harness.deps,
+      openLiveSearch,
+      connectStaggerMs: 0,
+      pageSearchWindows: [{ max: 1, periodMs: 60_000 }],
+    });
+    await harness.consoleReady;
+    await new Promise((r) => setTimeout(r, 100));
+    expect(opened).toEqual(['aaa']);
+    harness.exit();
+    await running;
+  });
+
+  test('a compressed slug that cannot be resolved never opens a tab (it would spend a search on the wrong query)', async () => {
+    const slug = 'H4sIAAAAAAAACl2NUQqAIBAF7_K-O4En6A4RseVGgamsKxHi3cO-qvkb5mMKkpLmBFMQou7BwyDxkoVmx6jd0xPMUKBXZBiQt-iw7k5ZWhjr-NKCg-L00l9ZwhEdt9EkfJLYz7lnslv2yoLauAGHcMZZnwAAAA';
+    const harness = makeHarness({ firstSlug: slug });
+    const opened: TradeSearch[] = [];
+    const openLiveSearch: NonNullable<SnipeDeps['openLiveSearch']> = async (options) => {
+      opened.push(options.search);
+      const page = {
+        url: () => '', goto: async () => undefined,
+        clickTravelButton: async () => 'clicked' as const, close: async () => undefined,
+      };
+      return { page, close: async () => undefined };
+    };
+    const running = runSnipe({ ...FLAGS, browserLive: true, searches: [slug, 'bbb'] }, {
+      ...harness.deps,
+      openLiveSearch,
+      connectStaggerMs: 0,
+      postSearch: async () => new Response('', { status: 429 }),
+      searchIdCachePath: join(mkdtempSync(join(tmpdir(), 'exilium-run-')), 'search-ids.json'),
+    });
+    await harness.consoleReady;
+    for (let i = 0; i < 50 && opened.length === 0; i += 1) await new Promise((r) => setTimeout(r, 0));
+    expect(opened.map((search) => search.searchId)).toEqual(['bbb']);
+    harness.exit();
+    await running;
+  });
+
   test('a compressed Better Trading slug opens its live tab under a resolved search id', async () => {
     const slug = 'H4sIAAAAAAAACl2NUQqAIBAF7_K-O4En6A4RseVGgamsKxHi3cO-qvkb5mMKkpLmBFMQou7BwyDxkoVmx6jd0xPMUKBXZBiQt-iw7k5ZWhjr-NKCg-L00l9ZwhEdt9EkfJLYz7lnslv2yoLauAGHcMZZnwAAAA';
     const harness = makeHarness({ firstSlug: slug });

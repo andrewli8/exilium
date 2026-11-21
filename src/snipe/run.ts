@@ -53,7 +53,8 @@ import type { TravelResult } from './travel.js';
 import { createSoundPlayer, type SoundChild, type SoundPlayer } from './sound-player.js';
 import { SnipeStore } from './store.js';
 import { buildSnipeWebhookPayload, postSnipeWebhook } from './webhook.js';
-import { resolveSearchIds, type PostSearch } from './resolve-search.js';
+import { isCompressedQuerySlug, resolveSearchIds, type PostSearch } from './resolve-search.js';
+import { DEFAULT_SEARCH_WINDOWS, nextSearchSlot, pruneSearchHistory, type SearchWindow } from './search-budget.js';
 
 export interface SnipeFlags {
   readonly folder: string | undefined;
@@ -111,6 +112,8 @@ export interface SnipeDeps {
   readonly postSearch?: PostSearch;
   /** Where resolved slug ids are cached (default ~/.exilium/search-ids.json). */
   readonly searchIdCachePath?: string;
+  /** Client-side caps on trade searches triggered by live-tab page loads. */
+  readonly pageSearchWindows?: readonly SearchWindow[];
   readonly refreshPrices?: (signal: AbortSignal) => Promise<void>;
   readonly notify?: (title: string, body: string) => Promise<void>;
   readonly recordAlert?: (alert: SnipeAlert, action: string, detail: string) => void;
@@ -610,9 +613,19 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     post: postSearch,
     log,
   });
-  const runtimeTargets: readonly RuntimeTarget[] = runnable.map((entry, index) => ({
+  // An unresolved slug opens as a lossy-migrated (wrong) search and still
+  // spends a trade search, so it sits this session out.
+  const resolvedRunnable = runnable.flatMap((entry, index) => {
+    const search = resolvedSearches[index]!;
+    if (!isCompressedQuerySlug(search.searchId)) return [{ ...entry, search }];
+    sharedStore.setSearchState(`${entry.target.realm}:${entry.target.searchId}`, 'stopped', 'compressed search not resolved yet');
+    return [];
+  });
+  if (resolvedRunnable.length < runnable.length) {
+    log(`skipping ${runnable.length - resolvedRunnable.length} compressed searches that could not be resolved to trade ids this session`);
+  }
+  const runtimeTargets: readonly RuntimeTarget[] = resolvedRunnable.map((entry) => ({
     ...entry,
-    search: resolvedSearches[index]!,
     seen: new Set<string>(),
     inFlight: new Set<string>(),
     knownPrices: new Map<string, number>(),
@@ -846,10 +859,28 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
   };
 
   let liveTabsOpened = 0;
+  // Every tab open/reopen loads a search page = one trade search. Gate them
+  // all through one budget so a ramp or reopen storm can't trip a lockout.
+  const pageSearchWindows = deps.pageSearchWindows ?? DEFAULT_SEARCH_WINDOWS;
+  let pageSearchHistory: number[] = [];
+  const waitForPageSearchBudget = async (): Promise<void> => {
+    for (;;) {
+      if (stopped || stopIntent) return;
+      const slot = nextSearchSlot(pageSearchHistory, now(), pageSearchWindows);
+      if (slot <= now()) {
+        pageSearchHistory = [...pruneSearchHistory(pageSearchHistory, now(), pageSearchWindows), now()];
+        return;
+      }
+      await waitForSeedRetry((slot - now()) / 1_000);
+    }
+  };
+
   const openLiveTab = async (entry: RuntimeTarget, onSeeded?: () => void): Promise<void> => {
     if (stopped || stopIntent) return;
     const targetId = `${entry.target.realm}:${entry.target.searchId}`;
     sharedStore.setSearchState(targetId, 'connecting');
+    await waitForPageSearchBudget();
+    if (stopped || stopIntent) return;
     try {
       const handle = await (deps.openLiveSearch ?? openBrowserLiveSearch)({
         cdpUrl: config.snipe.chromeCdpUrl,

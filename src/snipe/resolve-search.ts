@@ -64,6 +64,9 @@ export async function resolveSearchIds(
   if (!searches.some((search) => isCompressedQuerySlug(search.searchId))) return searches;
   const cache = readCache(deps.cachePath);
   let changed = false;
+  // Once the site says 429, every further POST only digs the lockout deeper
+  // (and the scheduler would park each one for the cooldown, stalling start).
+  let rateLimited = false;
   const resolved: TradeSearch[] = [];
   for (const search of searches) {
     if (!isCompressedQuerySlug(search.searchId)) {
@@ -75,7 +78,17 @@ export async function resolveSearchIds(
       const key = cacheKey(search, query);
       let id = cache[key];
       if (id === undefined) {
+        if (rateLimited) {
+          resolved.push(search);
+          continue;
+        }
         const res = await deps.post(tradeSearchApiBase(search), JSON.stringify({ query, sort: { indexed: 'desc' } }));
+        if (res.status === 429) {
+          rateLimited = true;
+          deps.log('trade site is rate limiting this account — compressed searches stay unresolved this session; wait a few minutes before restarting');
+          resolved.push(search);
+          continue;
+        }
         if (!res.ok) throw new Error(`trade search returned ${res.status}`);
         id = searchIdResponse.parse(await res.json()).id;
         cache[key] = id;

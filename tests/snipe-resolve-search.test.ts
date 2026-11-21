@@ -49,10 +49,20 @@ describe('compressed search slugs', () => {
     writeFileSync(path, 'not json');
     const log = vi.fn();
     const out = await resolveSearchIds([search(HEADHUNTER), search('H4sIgarbage')], {
-      cachePath: path, post: vi.fn().mockResolvedValue(new Response('', { status: 429 })), log,
+      cachePath: path, post: vi.fn().mockResolvedValue(new Response('', { status: 500 })), log,
     });
     expect(out.map((s) => s.searchId)).toEqual([HEADHUNTER, 'H4sIgarbage']);
     expect(log).toHaveBeenCalledTimes(2);
+  });
+
+  test('a 429 stops further resolution for the session instead of retrying each search', async () => {
+    const other = 'H4sIAAAAAAAACl2NQQqEMBAEvyJ99gX5hrAXERl1hEBiQmaCLCF_l3hS-1ZdhyoQJc0CUxCi2nDAQHjNiRbHqP3tBWYs0H9kGNCxocdunXJqYqrTAws8xfmBH7MGHx230Jz4pLS9ykNenPXc_ay0o7ZdgUd3SaMAAAA';
+    const post = vi.fn().mockResolvedValue(new Response('', { status: 429 }));
+    const log = vi.fn();
+    const out = await resolveSearchIds([search(HEADHUNTER), search(other)], { cachePath: cachePath(), post, log });
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(out.map((s) => s.searchId)).toEqual([HEADHUNTER, other]);
+    expect(String(log.mock.calls.at(-1)![0])).toMatch(/rate.limit/i);
   });
 
   test('no compressed slugs means no network and no cache file', async () => {
