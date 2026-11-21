@@ -455,6 +455,22 @@ describe('runSnipe orchestration', () => {
     expect([...harness.sockets.values()].every((socket) => socket.closed)).toBe(true);
   });
 
+  test('a 429 on a live socket pauses reconnects for the shared lockout instead of retrying in 30s', async () => {
+    const harness = makeHarness();
+    const logs: string[] = [];
+    const running = runSnipe(FLAGS, { ...harness.deps, log: (m: string) => { logs.push(m); } });
+    await harness.started;
+    const socket = harness.sockets.get('aaa')!;
+    socket.emit('error', new Error('Unexpected server response: 429'));
+    socket.emit('close', 1006);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(harness.openedSearchIds).toEqual(['aaa']);
+    expect(logs.some((m) => /rate limiting this account .*pausing all live connections for 5 min/.test(m))).toBe(true);
+    expect(logs.some((m) => /reconnecting in 30s/.test(m))).toBe(false);
+    harness.exit();
+    await running;
+  });
+
   test('opens sockets only for enabled searches without opening a browser page', async () => {
     const harness = makeHarness();
     const running = runSnipe(FLAGS, harness.deps);
@@ -676,7 +692,7 @@ describe('runSnipe browser-live mode', () => {
     await running;
   });
 
-  test('a compressed slug that cannot be resolved never opens a tab (it would spend a search on the wrong query)', async () => {
+  test('a 429 while resolving slugs skips them and holds every tab until the lockout clears', async () => {
     const slug = 'H4sIAAAAAAAACl2NUQqAIBAF7_K-O4En6A4RseVGgamsKxHi3cO-qvkb5mMKkpLmBFMQou7BwyDxkoVmx6jd0xPMUKBXZBiQt-iw7k5ZWhjr-NKCg-L00l9ZwhEdt9EkfJLYz7lnslv2yoLauAGHcMZZnwAAAA';
     const harness = makeHarness({ firstSlug: slug });
     const opened: TradeSearch[] = [];
@@ -696,8 +712,10 @@ describe('runSnipe browser-live mode', () => {
       searchIdCachePath: join(mkdtempSync(join(tmpdir(), 'exilium-run-')), 'search-ids.json'),
     });
     await harness.consoleReady;
-    for (let i = 0; i < 50 && opened.length === 0; i += 1) await new Promise((r) => setTimeout(r, 0));
-    expect(opened.map((search) => search.searchId)).toEqual(['bbb']);
+    await new Promise((r) => setTimeout(r, 50));
+    // The resolver's 429 puts the whole session in the lockout pause: no tab
+    // (not even the plain-id one) loads a search page until it clears.
+    expect(opened).toEqual([]);
     harness.exit();
     await running;
   });

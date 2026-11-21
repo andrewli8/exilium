@@ -135,6 +135,11 @@ export interface SnipeDeps {
 }
 
 export const MAX_SNIPE_SOCKETS = 20;
+/** First pause after a 429; doubles per repeat strike up to the max. */
+const RATE_LIMIT_PAUSE_MS = 5 * 60_000;
+const RATE_LIMIT_PAUSE_MAX_MS = 30 * 60_000;
+/** Gap between connections resuming after a lockout. */
+const RESUME_STAGGER_MS = 3_000;
 const CONNECT_STAGGER_MS = 500;
 /** Pause between browser-live tab opens. Each tab's plain-page load runs a
  * real search under the user's session, and the site budgets those tightly —
@@ -598,8 +603,30 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
       scheduler: tradeScheduler,
       ...(signal === undefined ? {} : { signal }),
     }));
+  // Session-wide trade lockout. A 429 anywhere means the account is in the
+  // site's penalty box; every request made during it can extend the penalty,
+  // so ALL live connections and tab loads pause until it has passed, with
+  // the pause doubling on repeat strikes (5 → 10 → 20 → 30 min).
+  let tradeBlockedUntil = 0;
+  let blockStrikes = 0;
+  let resumeSlot = 0;
+  const noteRateLimited = (source: string): void => {
+    if (now() < tradeBlockedUntil) return;
+    blockStrikes += 1;
+    const pauseMs = Math.min(RATE_LIMIT_PAUSE_MAX_MS, RATE_LIMIT_PAUSE_MS * 2 ** (blockStrikes - 1));
+    tradeBlockedUntil = now() + pauseMs;
+    resumeSlot = 0;
+    log(`pathofexile.com is rate limiting this account (${source}) — pausing all live connections for ${Math.round(pauseMs / 60_000)} min so the lockout can clear`);
+  };
+  /** Delay until the lockout clears, staggered so resumes don't burst. */
+  const lockoutDelayMs = (): number => {
+    if (now() >= tradeBlockedUntil) return 0;
+    resumeSlot += 1;
+    return tradeBlockedUntil - now() + resumeSlot * RESUME_STAGGER_MS;
+  };
+
   // Compressed Better Trading slugs become real search ids (once; cached).
-  const postSearch: PostSearch = deps.postSearch ?? ((url, body) => tradeScheduler.schedule('seed', () => fetch(url, {
+  const rawPostSearch: PostSearch = deps.postSearch ?? ((url, body) => tradeScheduler.schedule('seed', () => fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -608,6 +635,11 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     },
     body,
   }), networkAbort.signal));
+  const postSearch: PostSearch = async (url, body) => {
+    const res = await rawPostSearch(url, body);
+    if (res.status === 429) noteRateLimited('search request');
+    return res;
+  };
   const resolvedSearches = await resolveSearchIds(runnable.map((entry) => entry.search), {
     cachePath: deps.searchIdCachePath ?? join(homedir(), '.exilium', 'search-ids.json'),
     post: postSearch,
@@ -879,6 +911,8 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     if (stopped || stopIntent) return;
     const targetId = `${entry.target.realm}:${entry.target.searchId}`;
     sharedStore.setSearchState(targetId, 'connecting');
+    const lockoutMs = lockoutDelayMs();
+    if (lockoutMs > 0) await waitForSeedRetry(lockoutMs / 1_000);
     await waitForPageSearchBudget();
     if (stopped || stopIntent) return;
     try {
@@ -949,8 +983,17 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     const { target, search } = entry;
     if (stopped || stopIntent) return;
     let consecutiveFailures = 0;
+    let lastErrorWas429 = false;
     const connect = (): void => {
       if (stopped || stopIntent) return;
+      const waitMs = lockoutDelayMs();
+      if (waitMs > 0) {
+        sharedStore.setSearchState(`${target.realm}:${target.searchId}`, 'reconnecting', `rate limited ${Math.round(waitMs / 1_000)}s`);
+        const timer = setTimeout(() => { timers.delete(timer); connect(); }, waitMs);
+        timers.add(timer);
+        return;
+      }
+      lastErrorWas429 = false;
       const socket = openSocket!(search, headers);
       sockets.add(socket);
       socket.on('open', () => {
@@ -971,6 +1014,12 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
       socket.on('close', (code) => {
         sockets.delete(socket);
         if (stopped || stopIntent) return;
+        if (lastErrorWas429) {
+          // Not this search's fault: wait out the shared lockout instead of
+          // spending a failure (connect() schedules the resume).
+          connect();
+          return;
+        }
         consecutiveFailures += 1;
         if (consecutiveFailures >= 5) {
           sharedStore.setSearchState(`${target.realm}:${target.searchId}`, 'stopped', `socket failed ${consecutiveFailures} times`);
@@ -987,6 +1036,11 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
         timers.add(timer);
       });
       socket.on('error', (error) => {
+        if (/\b429\b/.test(error.message)) {
+          lastErrorWas429 = true;
+          noteRateLimited(`live socket for "${target.label}"`);
+          return;
+        }
         log(`socket error for "${target.label}": ${error.message}${error.message.includes('401') ? ' — check EXILIUM_POESESSID' : ''}`);
       });
     };
