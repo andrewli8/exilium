@@ -4,6 +4,11 @@ import { TradeRateLimiter } from '../src/trade/rate-limit.js';
 import { TradeRequestScheduler } from '../src/trade/request-scheduler.js';
 
 describe('parseTradeUrl', () => {
+  test('keeps a compressed query slug whole (base64url has - and _)', () => {
+    const slug = 'H4sIAAAAAAAAE12NUQqAIBAF7_K-O4En6A4RseVGgamsKxHi3cO-qvkb5mMKkpLmBFMQou7BwyDxkoVmx6jd0xPMUKBXZBiQt-iw7k5ZWhjr-NKCg-L00l9ZwhEdt9EkfJLYz7lnslv2yoLauAGHcMZZnwAAAA';
+    expect(parseTradeUrl(`https://www.pathofexile.com/trade/search/Covens/${slug}/live`).searchId).toBe(slug);
+  });
+
   test('parses a PoE1 trade search link', () => {
     expect(parseTradeUrl('https://www.pathofexile.com/trade/search/Mirage/AbC123xyz')).toEqual({
       realm: 'trade',

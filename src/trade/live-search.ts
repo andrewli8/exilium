@@ -19,7 +19,7 @@ export interface TradeSearch {
   readonly searchId: string;
 }
 
-const URL_PATTERN = /pathofexile\.com\/(trade2?)\/search\/(?:poe2\/)?([^/]+)\/([A-Za-z0-9]+)/;
+const URL_PATTERN = /pathofexile\.com\/(trade2?)\/search\/(?:poe2\/)?([^/]+)\/([A-Za-z0-9_-]+)/;
 
 export function parseTradeUrl(url: string): TradeSearch {
   const match = URL_PATTERN.exec(url);
