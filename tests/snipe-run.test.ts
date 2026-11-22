@@ -471,6 +471,43 @@ describe('runSnipe orchestration', () => {
     await running;
   });
 
+  test('API mode resolves a compressed slug to a search id once and opens the socket with it', async () => {
+    const slug = 'H4sIAAAAAAAACl2NUQqAIBAF7_K-O4En6A4RseVGgamsKxHi3cO-qvkb5mMKkpLmBFMQou7BwyDxkoVmx6jd0xPMUKBXZBiQt-iw7k5ZWhjr-NKCg-L00l9ZwhEdt9EkfJLYz7lnslv2yoLauAGHcMZZnwAAAA';
+    const harness = makeHarness({ firstSlug: slug });
+    const posts: string[] = [];
+    const running = runSnipe({ ...FLAGS, searches: [slug] }, {
+      ...harness.deps,
+      postSearch: async (_url, body) => {
+        posts.push(body);
+        return new Response(JSON.stringify({ id: 'Resolved1', result: [] }), { status: 200 });
+      },
+      searchIdCachePath: join(mkdtempSync(join(tmpdir(), 'exilium-run-')), 'search-ids.json'),
+    });
+    await harness.started;
+    expect(harness.openedSearchIds).toEqual(['Resolved1']);
+    expect(JSON.parse(posts[0]!).query.filters.map_filters.filters.map_completion_reward.option).toBe('Headhunter');
+    harness.exit();
+    await running;
+  });
+
+  test('API mode: a 429 while resolving skips the slug and pauses the other sockets for the lockout', async () => {
+    const slug = 'H4sIAAAAAAAACl2NUQqAIBAF7_K-O4En6A4RseVGgamsKxHi3cO-qvkb5mMKkpLmBFMQou7BwyDxkoVmx6jd0xPMUKBXZBiQt-iw7k5ZWhjr-NKCg-L00l9ZwhEdt9EkfJLYz7lnslv2yoLauAGHcMZZnwAAAA';
+    const harness = makeHarness({ firstSlug: slug });
+    const logs: string[] = [];
+    const running = runSnipe({ ...FLAGS, searches: [slug, 'bbb'] }, {
+      ...harness.deps,
+      log: (m: string) => { logs.push(m); },
+      postSearch: async () => new Response('', { status: 429 }),
+      searchIdCachePath: join(mkdtempSync(join(tmpdir(), 'exilium-run-')), 'search-ids.json'),
+    });
+    await harness.consoleReady;
+    await new Promise((r) => setTimeout(r, 50));
+    expect(harness.openedSearchIds).toEqual([]);
+    expect(logs.some((m) => /skipping 1 compressed search/.test(m))).toBe(true);
+    harness.exit();
+    await running;
+  });
+
   test('opens sockets only for enabled searches without opening a browser page', async () => {
     const harness = makeHarness();
     const running = runSnipe(FLAGS, harness.deps);
@@ -667,6 +704,33 @@ describe('runSnipe browser-live mode', () => {
     };
   }
 
+  test('browser-live opens a compressed Better Trading slug as-is and spends no extra search on it', async () => {
+    const slug = 'H4sIAAAAAAAACl2NUQqAIBAF7_K-O4En6A4RseVGgamsKxHi3cO-qvkb5mMKkpLmBFMQou7BwyDxkoVmx6jd0xPMUKBXZBiQt-iw7k5ZWhjr-NKCg-L00l9ZwhEdt9EkfJLYz7lnslv2yoLauAGHcMZZnwAAAA';
+    const harness = makeHarness({ firstSlug: slug });
+    const opened: TradeSearch[] = [];
+    const openLiveSearch: NonNullable<SnipeDeps['openLiveSearch']> = async (options) => {
+      opened.push(options.search);
+      const page = {
+        url: () => '', goto: async () => undefined,
+        clickTravelButton: async () => 'clicked' as const, close: async () => undefined,
+      };
+      return { page, close: async () => undefined };
+    };
+    const postSearch = vi.fn();
+    const running = runSnipe({ ...FLAGS, browserLive: true, searches: [slug] }, {
+      ...harness.deps,
+      openLiveSearch,
+      postSearch,
+      searchIdCachePath: join(mkdtempSync(join(tmpdir(), 'exilium-run-')), 'search-ids.json'),
+    });
+    await harness.consoleReady;
+    for (let i = 0; i < 20 && opened.length === 0; i += 1) await new Promise((r) => setTimeout(r, 0));
+    expect(opened[0]?.searchId).toBe(slug);
+    expect(postSearch).not.toHaveBeenCalled();
+    harness.exit();
+    await running;
+  });
+
   test('live-tab page loads wait for the search budget', async () => {
     const harness = makeHarness();
     const opened: string[] = [];
@@ -688,65 +752,6 @@ describe('runSnipe browser-live mode', () => {
     await harness.consoleReady;
     await new Promise((r) => setTimeout(r, 100));
     expect(opened).toEqual(['aaa']);
-    harness.exit();
-    await running;
-  });
-
-  test('a 429 while resolving slugs skips them and holds every tab until the lockout clears', async () => {
-    const slug = 'H4sIAAAAAAAACl2NUQqAIBAF7_K-O4En6A4RseVGgamsKxHi3cO-qvkb5mMKkpLmBFMQou7BwyDxkoVmx6jd0xPMUKBXZBiQt-iw7k5ZWhjr-NKCg-L00l9ZwhEdt9EkfJLYz7lnslv2yoLauAGHcMZZnwAAAA';
-    const harness = makeHarness({ firstSlug: slug });
-    const opened: TradeSearch[] = [];
-    const openLiveSearch: NonNullable<SnipeDeps['openLiveSearch']> = async (options) => {
-      opened.push(options.search);
-      const page = {
-        url: () => '', goto: async () => undefined,
-        clickTravelButton: async () => 'clicked' as const, close: async () => undefined,
-      };
-      return { page, close: async () => undefined };
-    };
-    const running = runSnipe({ ...FLAGS, browserLive: true, searches: [slug, 'bbb'] }, {
-      ...harness.deps,
-      openLiveSearch,
-      connectStaggerMs: 0,
-      postSearch: async () => new Response('', { status: 429 }),
-      searchIdCachePath: join(mkdtempSync(join(tmpdir(), 'exilium-run-')), 'search-ids.json'),
-    });
-    await harness.consoleReady;
-    await new Promise((r) => setTimeout(r, 50));
-    // The resolver's 429 puts the whole session in the lockout pause: no tab
-    // (not even the plain-id one) loads a search page until it clears.
-    expect(opened).toEqual([]);
-    harness.exit();
-    await running;
-  });
-
-  test('a compressed Better Trading slug opens its live tab under a resolved search id', async () => {
-    const slug = 'H4sIAAAAAAAACl2NUQqAIBAF7_K-O4En6A4RseVGgamsKxHi3cO-qvkb5mMKkpLmBFMQou7BwyDxkoVmx6jd0xPMUKBXZBiQt-iw7k5ZWhjr-NKCg-L00l9ZwhEdt9EkfJLYz7lnslv2yoLauAGHcMZZnwAAAA';
-    const harness = makeHarness({ firstSlug: slug });
-    const opened: TradeSearch[] = [];
-    const openLiveSearch: NonNullable<SnipeDeps['openLiveSearch']> = async (options) => {
-      opened.push(options.search);
-      const page = {
-        url: () => '', goto: async () => undefined,
-        clickTravelButton: async () => 'clicked' as const, close: async () => undefined,
-      };
-      return { page, close: async () => undefined };
-    };
-    const posts: string[] = [];
-    const running = runSnipe({ ...FLAGS, browserLive: true, searches: [slug] }, {
-      ...harness.deps,
-      openLiveSearch,
-      postSearch: async (_url, body) => {
-        posts.push(body);
-        return new Response(JSON.stringify({ id: 'Resolved1', result: [] }), { status: 200 });
-      },
-      searchIdCachePath: join(mkdtempSync(join(tmpdir(), 'exilium-run-')), 'search-ids.json'),
-    });
-    await harness.consoleReady;
-    for (let i = 0; i < 20 && opened.length === 0; i += 1) await new Promise((r) => setTimeout(r, 0));
-    expect(opened[0]?.searchId).toBe('Resolved1');
-    expect(JSON.parse(posts[0]!).query.filters.map_filters.filters.map_completion_reward.option).toBe('Headhunter');
-    expect(posts).toHaveLength(1);
     harness.exit();
     await running;
   });

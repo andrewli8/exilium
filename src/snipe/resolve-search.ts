@@ -1,13 +1,11 @@
 /**
  * Better Trading stores some searches as the trade site's compressed query
  * slug (`H4sI…`: gzip + base64url of the query JSON) instead of a search id.
- * The gzip header's OS byte doubles as the site's query-format version, so an
- * old slug gets "migrated" on load — and the migration silently drops
- * filters (a Headhunter map-reward search comes back as "any item"). The
- * slug also cannot back /live, the API seed or fetch?query=.
- *
- * Fix: decode the query locally, POST it once to get a real search id, and
- * cache the id per league so later sessions spend nothing.
+ * The trade site's own pages load these slugs directly (including /live), so
+ * browser-live mode uses them unchanged. API mode cannot: its live socket
+ * and seed endpoints take search ids. For API mode, decode the query
+ * locally, POST it once for a real id, and cache the id per league so later
+ * sessions spend nothing.
  */
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';

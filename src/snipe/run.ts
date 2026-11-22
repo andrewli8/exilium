@@ -640,14 +640,21 @@ export async function runSnipe(flags: SnipeFlags, deps: SnipeDeps): Promise<void
     if (res.status === 429) noteRateLimited('search request');
     return res;
   };
-  const resolvedSearches = await resolveSearchIds(runnable.map((entry) => entry.search), {
-    cachePath: deps.searchIdCachePath ?? join(homedir(), '.exilium', 'search-ids.json'),
-    post: postSearch,
-    log,
-  });
-  // An unresolved slug opens as a lossy-migrated (wrong) search and still
-  // spends a trade search, so it sits this session out.
-  const resolvedRunnable = runnable.flatMap((entry, index) => {
+  // The trade site loads compressed slugs directly in its pages (verified
+  // by the user: /trade/search/Covens/H4sI.../live runs the full filtered
+  // search live), so browser-live uses them as-is — zero extra searches.
+  // Only API mode needs real ids: its live socket and seed endpoints take
+  // search ids, not query slugs.
+  const resolvedSearches = browserLive
+    ? runnable.map((entry) => entry.search)
+    : await resolveSearchIds(runnable.map((entry) => entry.search), {
+      cachePath: deps.searchIdCachePath ?? join(homedir(), '.exilium', 'search-ids.json'),
+      post: postSearch,
+      log,
+    });
+  // API mode: an unresolved slug can't back the live socket, so it sits this
+  // session out instead of failing (and spending requests) on every retry.
+  const resolvedRunnable = browserLive ? runnable : runnable.flatMap((entry, index) => {
     const search = resolvedSearches[index]!;
     if (!isCompressedQuerySlug(search.searchId)) return [{ ...entry, search }];
     sharedStore.setSearchState(`${entry.target.realm}:${entry.target.searchId}`, 'stopped', 'compressed search not resolved yet');
