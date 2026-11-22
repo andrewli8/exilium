@@ -185,10 +185,25 @@ export function targetsFromJson(content: string, fileStem: string): readonly Sni
 /** Validate one import source with the same parsers used by folder loading.
  * A lone extension export is decoded directly so its actionable error is not
  * flattened into an empty text file. */
+/** A Better Trading export is one base64 token, so whitespace or terminal
+ * bracketed-paste markers inside it are paste damage (soft-wrapped copies,
+ * consoles that inject line breaks), never content. Strip them; anything
+ * that still isn't an export falls through to the text/JSON parsers. */
+function compactExport(content: string): string | null {
+  const compact = content.replace(/\u001b?\[20[01]~/gu, '').replace(/\s+/gu, '');
+  return EXPORT_PATTERN.test(compact) ? compact : null;
+}
+
+/** Canonical text to store for a pasted source: the repaired export token,
+ * or the trimmed text for URL lists and JSON. */
+export function normalizeSnipeSource(content: string): string {
+  return compactExport(content) ?? content.trim();
+}
+
 export function parseSnipeSource(content: string, sourceName: string): readonly SnipeTarget[] {
-  const trimmed = content.trim();
-  const targets = EXPORT_PATTERN.test(trimmed)
-    ? decodeBetterTradingExport(trimmed)
+  const exportText = compactExport(content);
+  const targets = exportText !== null
+    ? decodeBetterTradingExport(exportText)
     : sourceName.toLowerCase().endsWith('.json')
       ? targetsFromJson(content, fileStem(sourceName))
       : targetsFromText(content, fileStem(sourceName));

@@ -94,6 +94,22 @@ describe('parseSnipeSource', () => {
     ]);
   });
 
+  test('accepts an export mangled by the terminal (wrapped lines, spaces, bracketed-paste markers)', () => {
+    const payload = Buffer.from(JSON.stringify({
+      tit: 'Currency', ver: '1', trs: [{ tit: 'Divines', loc: '1:search:abc123' }],
+    })).toString('base64');
+    const exportText = `3:${payload}`;
+    const cut = 12;
+    for (const mangled of [
+      `\u001b[200~${exportText}\u001b[201~`,
+      `[200~${exportText}[201~`,
+      `${exportText.slice(0, cut)}\r\n${exportText.slice(cut)}`,
+      `  ${exportText.slice(0, cut)} ${exportText.slice(cut)}\n`,
+    ]) {
+      expect(parseSnipeSource(mangled, 'TUI paste')[0]?.searchId).toBe('abc123');
+    }
+  });
+
   test('rejects a source that has no searches', () => {
     expect(() => parseSnipeSource('just some notes', 'notes.txt')).toThrow(/No trade searches found in notes\.txt/);
   });

@@ -419,7 +419,11 @@ async function cmdTui(): Promise<void> {
           return snipeEntries;
         },
         import: async (source: string) => {
-          persistSnipeImport({ folder: snipeFolder, content: source, sourceName: 'TUI paste' });
+          // Empty box + Enter reads the clipboard directly: consoles that
+          // mangle or drop long pastes (legacy Windows conhost) can't break it.
+          const fromClipboard = source.trim() === '';
+          const content = fromClipboard ? await readClipboard({ platform: process.platform }) : source;
+          persistSnipeImport({ folder: snipeFolder, content, sourceName: fromClipboard ? 'clipboard' : 'TUI paste' });
           snipeEntries = catalogApi.loadSnipeCatalog(snipeFolder, (message) => console.error(message));
           snipeStore.setTargets(snipeEntries.filter((entry) => entry.enabled));
           return snipeEntries;
@@ -733,10 +737,11 @@ async function cmdSnipe(): Promise<void> {
       const { createInterface } = await import('node:readline/promises');
       const rl = createInterface({ input: process.stdin, output: process.stdout });
       try {
-        content = await rl.question('Paste the Better Trading folder export and press Enter:\n');
+        content = await rl.question('Paste the Better Trading folder export and press Enter (or just press Enter to read it from the clipboard):\n');
       } finally {
         rl.close();
       }
+      if (content.trim() === '') content = await readClipboard({ platform: process.platform });
       sourceName = 'clipboard';
     } else {
       const chunks: Buffer[] = [];

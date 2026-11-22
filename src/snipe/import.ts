@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readdirSync, renameSync, writeFileSync } from 'n
 import { join } from 'node:path';
 import {
   loadSnipeFolder,
+  normalizeSnipeSource,
   parseSnipeSource,
   readSnipeFolderFiles,
   type SnipeTarget,
@@ -51,7 +52,7 @@ function findExistingImport(root: string, fileName: string): string | null {
  * subdirectory — named after the export's folder title, uniquified with
  * -2/-3 suffixes — so each import is its own folder in the configure UI. */
 export function persistSnipeImport(input: PersistSnipeImportInput): ImportResult {
-  const normalized = input.content.trim();
+  const normalized = normalizeSnipeSource(input.content);
   const targets = parseSnipeSource(normalized, input.sourceName);
   const digest = createHash('sha256').update(normalized, 'utf8').digest('hex');
   const fileName = `import-${digest.slice(0, 12)}.bt`;

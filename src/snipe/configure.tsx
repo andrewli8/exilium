@@ -288,7 +288,7 @@ export function SnipeConfigureOverlay({ entries, onSave, onStart, onClose, onImp
       {mode === 'import' && <>
         <Text>Paste Better Trading export:</Text>
         <Text color="cyan">{fold(`${input}▌`)}</Text>
-        <Text dimColor>Enter import · Esc cancel</Text>
+        <Text dimColor>{fold(`Enter import ${glyphs.sep} empty + Enter reads the clipboard ${glyphs.sep} Esc cancel`)}</Text>
       </>}
       {mode === 'edit' && <>
         {(['label', 'trade URL', 'floor %'] as const).map((label, index) => (
